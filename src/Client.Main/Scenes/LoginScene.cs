@@ -3,14 +3,7 @@ using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Login;
 using Client.Main.Models;
 using Client.Main.Worlds;
-using Microsoft.Extensions.Logging.Abstractions;
-using MUnique.OpenMU.Network;
-using MUnique.OpenMU.Network.Packets.ConnectServer;
-using Pipelines.Sockets.Unofficial;
 using System;
-using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading.Tasks;
 
 namespace Client.Main.Scenes
@@ -48,26 +41,6 @@ namespace Client.Main.Scenes
             base.AfterLoad();
             // TryConnect();
             OnConnect();
-        }
-
-        private void TryConnect()
-        {
-            try
-            {
-                var tcpClient = new TcpClient(Constants.IPAddress, Constants.Port);
-                var socketConnection = SocketConnection.Create(tcpClient.Client);
-                var connection = new Connection(socketConnection, null, null, new NullLogger<Connection>());
-
-                connection.Disconnected += OnDiscconected;
-                connection.PacketReceived += PacketReceived;
-
-                OnConnect();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine(ex.Message);
-                OnDiscconected().ConfigureAwait(false);
-            }
         }
 
         private void OnConnect()
