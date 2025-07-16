@@ -42,6 +42,7 @@ namespace Client.Main.Objects
 
         public bool LinkParentAnimation { get; set; }
         public bool OutOfView { get; private set; } = true;
+        public bool OcclusionCulled { get; set; } = false;
         public ChildrenCollection<WorldObject> Children { get; private set; }
         public WorldObject Parent { get => _parent; set { var prev = _parent; _parent = value; OnParentChanged(value, prev); } }
 
@@ -69,7 +70,7 @@ namespace Client.Main.Objects
         /// Indicates that the object is far from the camera and should be rendered in lower quality.
         /// </summary>
         public bool LowQuality { get; private set; }
-        public bool Visible => Status == GameControlStatus.Ready && !OutOfView && !Hidden;
+        public bool Visible => Status == GameControlStatus.Ready && !OutOfView && !Hidden && !OcclusionCulled;
         public WorldControl World { get => _world; set { _world = value; OnChangeWorld(); } }
         public short Type { get; set; }
         public Color BoundingBoxColor { get; set; } = Color.GreenYellow;

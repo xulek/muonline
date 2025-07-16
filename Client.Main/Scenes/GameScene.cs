@@ -45,6 +45,8 @@ namespace Client.Main.Scenes
         private KeyboardState _previousKeyboardState;
         private bool _isChangingWorld = false;
         private readonly List<(ServerMessage.MessageType Type, string Message)> _pendingNotifications = new();
+        private OcclusionCullingManager _occlusionCullingManager;
+        private SimpleOcclusionCulling _simpleOcclusionCulling;
         private CharacterInfoWindowControl _characterInfoWindow;
         private ILogger _logger = MuGame.AppLoggerFactory?.CreateLogger<GameScene>();
         private MapNameControl _currentMapNameControl; // Track active map name display
@@ -149,6 +151,10 @@ namespace Client.Main.Scenes
             _chatInput.BringToFront();
             DebugPanel.BringToFront();
             Cursor.BringToFront();
+            
+            // Initialize occlusion culling
+            _occlusionCullingManager = new OcclusionCullingManager(MuGame.Instance.GraphicsDevice);
+            _simpleOcclusionCulling = new SimpleOcclusionCulling();
         }
 
         public GameScene() : this(GetCharacterInfoFromState()) { }
@@ -694,6 +700,22 @@ namespace Client.Main.Scenes
 
             base.Update(gameTime);
 
+            // Update occlusion culling
+            if (World != null && World.Status == GameControlStatus.Ready)
+            {
+                // Use simple occlusion culling as primary method
+                _simpleOcclusionCulling?.Update(gameTime, World.Objects);
+                
+                // Run advanced occlusion culling as backup/comparison
+                // _occlusionCullingManager?.Update(gameTime, World.Objects);
+                
+                // Run test periodically (disabled to reduce spam)
+                // if (gameTime.TotalGameTime.TotalSeconds % 5.0 < 0.1) // Every 5 seconds
+                // {
+                //     OcclusionCullingTest.TestObjectCategorization(World.Objects);
+                // }
+            }
+
             if (FocusControl == _moveCommandWindow && _moveCommandWindow.Visible)
             {
                 foreach (Keys key in _allKeys)
@@ -919,6 +941,7 @@ namespace Client.Main.Scenes
                 _hero.PlayerMoved -= OnHeroAction;
                 _hero.PlayerTookDamage -= OnHeroAction;
             }
+            _occlusionCullingManager?.Dispose();
             base.Dispose();
         }
     }

@@ -14,13 +14,13 @@ namespace Client.Main
 
 #if DEBUG
                 public static Type ENTRY_SCENE = typeof(Scenes.LoadScene);
-                public static bool BACKGROUND_MUSIC = false;
+                public static bool BACKGROUND_MUSIC = true;
                 public static bool SOUND_EFFECTS = true;
                 public static bool DRAW_BOUNDING_BOXES = false;
                 public static bool DRAW_BOUNDING_BOXES_INTERACTIVES = false;
                 public static bool DRAW_GRASS = true;
                 public static bool ENABLE_LOW_QUALITY_SWITCH = true;
-                public static bool ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = true;
+                public static bool ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = false;
                 public static bool MSAA_ENABLED = false;
                 /// <summary>
                 /// Enables GPU-based dynamic lighting shader for 3D objects.
@@ -47,6 +47,15 @@ namespace Client.Main
                 /// When disabled, uses standard rendering for all monsters.
                 /// </summary>
                 public static bool ENABLE_MONSTER_MATERIAL_SHADER = true;
+                /// <summary>
+                /// Enables occlusion culling to hide objects completely obscured by other objects.
+                /// When disabled, all objects in view frustum will be rendered.
+                /// </summary>
+                public static bool ENABLE_OCCLUSION_CULLING = true;
+                /// <summary>
+                /// Enables debug logging for occlusion culling system.
+                /// </summary>
+                public static bool DEBUG_OCCLUSION_CULLING = false;
                 public static string DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";
                 //public static string DataPath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "Data");
 #else
@@ -57,8 +66,8 @@ namespace Client.Main
                 public static bool DRAW_BOUNDING_BOXES_INTERACTIVES = false;
                 public static bool DRAW_GRASS = true;
                 public static bool ENABLE_LOW_QUALITY_SWITCH = true;
-                public static bool ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = true;
-                public static bool MSAA_ENABLED = false;
+                public static bool ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = false;
+                public static bool MSAA_ENABLED = true;
                 /// <summary>
                 /// Enables GPU-based dynamic lighting shader for 3D objects.
                 /// When disabled, falls back to CPU-based lighting calculations.
