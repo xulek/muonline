@@ -44,7 +44,7 @@
     <PackageReference Include="Delizious.Ini" Version="1.19.0" />
     <PackageReference Include="LEA.NET" Version="1.0.1" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
-    <PackageReference Include="sixlabors.imagesharp" Version="3.1.9" />
+    <PackageReference Include="sixlabors.imagesharp" Version="3.1.11" />
   </ItemGroup>
 
 </Project>
