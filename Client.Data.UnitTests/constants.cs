@@ -1,4 +1,4 @@
-namespace Client_Data_UnitTests;
+namespace Client.Data.UnitTests;
 
 public static class Constants
 {
