@@ -44,6 +44,20 @@ namespace Client.Data.UnitTests.Control
 
         }
 
+        [Test]
+        public async Task CameraWalkScriptFileExists()
+        {
+
+            var path = Path.Combine(Constants.DataPath, "World74", "CWScript74.cws");
+
+            var exists = File.Exists(
+                path
+            );
+            Assert.That(exists, Is.True, $"Camera walk script file should exists");
+
+            CameraWalkScript data = await cwsReader.Load(path);
+            Assert.That(data, Is.Not.Null, "CWS should be deserialized");
+        }
 
     }
 }
