@@ -17,6 +17,18 @@
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
   </ItemGroup>
 
+  <!-- LOCAL CONFIG FILE -->
+  <!-- Remove automatic compile of file -->
+  <ItemGroup>
+    <Compile Remove="Constants*.cs" />
+  </ItemGroup>
+  <!-- Add it back with condition -->
+  <ItemGroup>
+    <Compile Include="Constants.local.cs" Condition="Exists('Constants.local.cs')" />
+    <Compile Include="Constants.cs" Condition="!Exists('Constants.local.cs')" />
+  </ItemGroup>
+  <!-- LOCAL CONFIG FILE END -->
+
   <ItemGroup>
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4">
       <PrivateAssets>all</PrivateAssets>
