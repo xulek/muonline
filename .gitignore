@@ -317,3 +317,6 @@ doc/*.htm
 
 AssetsServer/Data/
 AssetsServer/Assets/
+
+# Ignore local override config
+*.[Ll]ocal.cs
