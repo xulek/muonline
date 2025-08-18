@@ -1,44 +1,43 @@
 using Client.Data.BMD;
 
-namespace Client.Data.UnitTests.Bmd
+namespace Client.Data.UnitTests;
+
+[TestFixture]
+public class BmdFile_Should_Deserialize
 {
-    [TestFixture]
-    public class Control_Should_Deserialize
+
+    private BMDReader bmdReader;
+
+    [SetUp]
+    public void SetUp()
     {
+        bmdReader = new();
+    }
 
-        private BMDReader bmdReader;
+    [Test]
+    public void Monster03BmdFileExists()
+    {
+        var monster03Exists = File.Exists(
+            Path.Combine(Constants.DataPath, "Monster", "Monster03.bmd")
+        );
+        Assert.That(monster03Exists, Is.True, $"Monster03 file should exists");
+    }
 
-        [SetUp]
-        public void SetUp()
-        {
-            bmdReader = new();
-        }
+    [Test]
+    public async Task Should_Deserialize_Monster03BmdFile()
+    {
+        var filePath = Path.Combine(Constants.DataPath, "Monster", "Monster03.bmd");
 
-        [Test]
-        public void Monster03BmdFileExists()
-        {
-            var monster03Exists = File.Exists(
-                Path.Combine(Constants.DataPath, "Monster", "Monster03.bmd")
-            );
-            Assert.That(monster03Exists, Is.True, $"Monster03 file should exists");
-        }
+        var monster03Exists = File.Exists(
+            filePath
+        );
 
-        [Test]
-        public async Task Should_Deserialize_Monster03BmdFile()
-        {
-            var filePath = Path.Combine(Constants.DataPath, "Monster", "Monster03.bmd");
+        Assert.That(monster03Exists, Is.True, $"Monster03 file should exists");
 
-            var monster03Exists = File.Exists(
-                filePath
-            );
+        BMD.BMD? bmd = await bmdReader.Load(filePath);
 
-            Assert.That(monster03Exists, Is.True, $"Monster03 file should exists");
+        Assert.That(bmd, Is.Not.Null, "Bmd file should be deserialized!");
 
-            BMD.BMD? bmd = await bmdReader.Load(filePath);
 
-            Assert.That(bmd, Is.Not.Null, "Bmd file should be deserialized!");
-
-            
-        }
     }
 }
