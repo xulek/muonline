@@ -3,10 +3,11 @@
     <BaseTFMs>net9.0</BaseTFMs>
     <WindowsTFM Condition="'$(OS)'=='Windows_NT'">;net9.0-windows</WindowsTFM>
     <MobileTFMs Condition="'$(EnableMobileTargets)'=='true'">;net9.0-android;net9.0-ios</MobileTFMs>
-    <TargetFrameworks>$(BaseTFMs)$(WindowsTFM)$(MobileTFMs)</TargetFrameworks>
     <OutputType>Library</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13</LangVersion>
   </PropertyGroup>
 
   <!-- MONOGAME -->

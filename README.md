@@ -1,8 +1,15 @@
-# MuOnline Clone (MonoGame)
+# Unity MuOnline (奇迹Unity客户端)
+
+Base on MU Online (MonoGame)
+基于MonoGame引擎的客户端版本, 支持S20客户端资源
+
+![Monster](./monster.gif)
+
+![NPC](./npc.gif)
 
 A cross-platform MuOnline client implementation built with .NET 9.0 and MonoGame framework. Supports Windows, Android, iOS, Linux, and macOS platforms.
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bernatvadell/muonline)
+[Download here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
 
 ## Features
 
