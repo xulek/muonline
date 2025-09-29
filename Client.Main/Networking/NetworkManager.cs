@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using MUnique.OpenMU.Network;
 using MUnique.OpenMU.Network.Packets; // For CharacterClassNumber
+using MUnique.OpenMU.Network.Packets.ClientToServer;
 using MUnique.OpenMU.Network.Packets.ServerToClient;
 using MUnique.OpenMU.Network.SimpleModulus;
 using MUnique.OpenMU.Network.Xor;
@@ -42,7 +43,11 @@ namespace Client.Main.Networking
         private readonly PartyManager _partyManager;
         private readonly ScopeManager _scopeManager;
         private readonly Dictionary<byte, byte> _serverDirectionMap;
+        private readonly ConnectionHealthMonitor _healthMonitor;
         private string _selectedCharacterNameForLogin = string.Empty;
+        private string _lastLoginUsername = string.Empty;
+        private string _lastLoginPassword = string.Empty;
+        private bool _sessionReleasePending;
 
         private ClientConnectionState _currentState = ClientConnectionState.Initial;
         private List<ServerInfo> _serverList = new();
@@ -62,6 +67,18 @@ namespace Client.Main.Networking
         public event EventHandler<LoginResponse.LoginResult> LoginFailed;
         public event EventHandler<LogOutType> LogoutResponseReceived;
 
+        // Connection Health Events
+        public event EventHandler<ConnectionHealthEventArgs> ConnectionHealthChanged;
+        public event EventHandler<ReconnectionEventArgs> ReconnectionAttempted;
+        public event EventHandler ConnectionRestored;
+        public event EventHandler<int> ConnectionLost;
+
+        // UI Events for Reconnection Dialog
+        public event EventHandler<ReconnectionStartedEventArgs> ReconnectionStarted;
+        public event EventHandler<ReconnectionProgressEventArgs> ReconnectionProgressChanged;
+        public event EventHandler ReconnectionSucceeded;
+        public event EventHandler<string> ReconnectionFailed;
+
         // Properties
         public ClientConnectionState CurrentState => _currentState;
         public bool IsConnected => _connectionManager.IsConnected;
@@ -77,6 +94,13 @@ namespace Client.Main.Networking
         public int CurrentPort => _currentPort;
         public IReadOnlyList<(string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance)> GetCachedCharacterList()
             => _lastCharacterList is null ? Array.Empty<(string, CharacterClassNumber, ushort, byte[])>() : new List<(string, CharacterClassNumber, ushort, byte[])>(_lastCharacterList);
+
+        // Connection Health Properties
+        public bool IsHealthMonitoring => _healthMonitor?.IsMonitoring ?? false;
+        public bool IsConnectionHealthy => _healthMonitor?.IsHealthy ?? false;
+        public DateTime LastHealthCheck => _healthMonitor?.LastSuccessfulCheck ?? DateTime.MinValue;
+        internal bool CanAutoReconnect => _settings.ConnectionHealth.EnableAutoReconnect;
+        internal bool IsSessionReleasePending => _sessionReleasePending;
 
         // Constructors
         public NetworkManager(ILoggerFactory loggerFactory, MuOnlineSettings settings, CharacterState characterState, ScopeManager scopeManager)
@@ -99,6 +123,27 @@ namespace Client.Main.Networking
             _connectServerService = new ConnectServerService(_connectionManager, _loggerFactory.CreateLogger<ConnectServerService>());
 
             _packetRouter = new PacketRouter(loggerFactory, _characterService, _loginService, targetVersion, this, _characterState, _scopeManager, _partyManager, _settings);
+
+            // Initialize connection health monitor
+            _healthMonitor = new ConnectionHealthMonitor(
+                loggerFactory,
+                this,
+                healthCheckInterval: TimeSpan.FromSeconds(settings.ConnectionHealth.HealthCheckInterval ?? 5),
+                connectionTimeout: TimeSpan.FromSeconds(settings.ConnectionHealth.ConnectionTimeout ?? 3),
+                maxReconnectAttempts: settings.ConnectionHealth.MaxReconnectAttempts ?? 10,
+                reconnectDelay: TimeSpan.FromSeconds(settings.ConnectionHealth.ReconnectDelay ?? 2),
+                failureThreshold: settings.ConnectionHealth.FailureThreshold ?? 2,
+                enableFastDetection: settings.ConnectionHealth.EnableFastDetection ?? true,
+                fastCheckInterval: TimeSpan.FromSeconds(settings.ConnectionHealth.FastCheckInterval ?? 1),
+                healthChecksEnabled: settings.ConnectionHealth.EnableHealthCheck
+            );
+
+            // Subscribe to health monitor events
+            _healthMonitor.ConnectionHealthChanged += (sender, args) => ConnectionHealthChanged?.Invoke(this, args);
+            _healthMonitor.ReconnectionAttempted += OnHealthMonitorReconnectionAttempted;
+            _healthMonitor.ConnectionRestored += OnHealthMonitorConnectionRestored;
+            _healthMonitor.ConnectionLost += OnHealthMonitorConnectionLost;
+            _healthMonitor.ReconnectionFailed += OnHealthMonitorReconnectionFailed;
 
             _managerCts = new CancellationTokenSource();
 
@@ -314,6 +359,8 @@ namespace Client.Main.Networking
                 return;
             }
             _logger.LogInformation("Sending login request for user: {Username}", username);
+            _lastLoginUsername = username;
+            _lastLoginPassword = password;
             UpdateState(ClientConnectionState.Authenticating);
             await _loginService.SendLoginRequestAsync(username, password);
         }
@@ -584,6 +631,15 @@ namespace Client.Main.Networking
                 case LogOutType.BackToServerSelection:
                     try
                     {
+                        await StopHealthMonitoringAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error while stopping health monitoring during logout to server selection.");
+                    }
+
+                    try
+                    {
                         await _connectionManager.DisconnectAsync();
                     }
                     catch (Exception ex)
@@ -634,6 +690,9 @@ namespace Client.Main.Networking
             _logger.LogInformation(">>> ProcessCharacterInformation: Character selected successfully. Updating state to InGame and raising EnteredGame event...");
             UpdateState(ClientConnectionState.InGame); // Change state (this will schedule ConnectionStateChanged)
 
+            // Start health monitoring when entering the game
+            StartHealthMonitoring();
+
             _logger.LogInformation("--- ProcessCharacterInformation: Raising EnteredGame event directly...");
             try
             {
@@ -667,6 +726,426 @@ namespace Client.Main.Networking
             }
         }
 
+        // Connection Health Methods
+
+        /// <summary>
+        /// Starts health monitoring if enabled in settings.
+        /// </summary>
+        public void StartHealthMonitoring()
+        {
+            if (!_settings.ConnectionHealth.EnableHealthCheck && !_settings.ConnectionHealth.EnableAutoReconnect)
+            {
+                _logger.LogDebug("Skipping health monitor start (both health checks and auto reconnect disabled).");
+                return;
+            }
+
+            _healthMonitor.StartMonitoring();
+        }
+
+        /// <summary>
+        /// Stops health monitoring.
+        /// </summary>
+        public async Task StopHealthMonitoringAsync()
+        {
+            await _healthMonitor.StopMonitoringAsync();
+        }
+
+        /// <summary>
+        /// Attempts to reconnect to the game server automatically.
+        /// This method tries to restore the connection and re-authenticate the character.
+        /// </summary>
+        internal async Task<ReconnectionAttemptResult> AttemptGameReconnectionAsync(CancellationToken cancellationToken)
+        {
+            if (!CanAutoReconnect)
+            {
+                _logger.LogDebug("Auto-reconnect disabled; skipping reconnection attempt.");
+                return ReconnectionAttemptResult.Failed("Auto-reconnect disabled.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_currentHost) || _currentPort == 0)
+            {
+                _logger.LogWarning("Cannot reconnect: missing server endpoint information.");
+                return ReconnectionAttemptResult.Failed("Missing server endpoint information.");
+            }
+
+            var characterName = _characterState?.Name;
+            var restoreSession = _characterState?.IsInGame == true && !string.IsNullOrEmpty(characterName);
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_managerCts.Token, cancellationToken);
+
+            try
+            {
+                await EnsureDisconnectedAsync().ConfigureAwait(false);
+
+                UpdateState(ClientConnectionState.Disconnected);
+
+                _logger.LogInformation("Attempting to reconnect to game server {Host}:{Port}...", _currentHost, _currentPort);
+
+                UpdateState(ClientConnectionState.ConnectingToGameServer);
+                _packetRouter.SetRoutingMode(false);
+
+                var connected = await _connectionManager.ConnectAsync(_currentHost, _currentPort, true, linkedCts.Token).ConfigureAwait(false);
+                if (!connected)
+                {
+                    _logger.LogError("Failed to reconnect to game server {Host}:{Port}.", _currentHost, _currentPort);
+                    _sessionReleasePending = false;
+                    UpdateState(ClientConnectionState.Disconnected);
+                    return ReconnectionAttemptResult.Failed($"Failed to connect to {_currentHost}:{_currentPort}.");
+                }
+
+                var gsConnection = _connectionManager.Connection;
+                gsConnection.PacketReceived += HandlePacketAsync;
+                gsConnection.Disconnected += HandleDisconnectAsync;
+                _connectionManager.StartReceiving(linkedCts.Token);
+
+                var handshakeCompleted = await WaitForStateAsync(ClientConnectionState.ConnectedToGameServer, TimeSpan.FromSeconds(10), linkedCts.Token).ConfigureAwait(false);
+                if (!handshakeCompleted)
+                {
+                    _logger.LogWarning("Handshake with game server timed out during reconnection.");
+                    await EnsureDisconnectedAsync().ConfigureAwait(false);
+                    _sessionReleasePending = false;
+                    UpdateState(ClientConnectionState.Disconnected);
+                    return ReconnectionAttemptResult.Failed("Handshake with game server timed out.");
+                }
+
+                var hasCredentials = !string.IsNullOrWhiteSpace(_lastLoginUsername) && !string.IsNullOrWhiteSpace(_lastLoginPassword);
+                if (hasCredentials)
+                {
+                    var loginResult = await ReauthenticateAsync(linkedCts.Token).ConfigureAwait(false);
+                    if (!loginResult.Success)
+                    {
+                        _logger.LogWarning("Automatic login failed during reconnection: {Reason}", loginResult.FailureReason);
+
+                        if (loginResult.FailureCode == LoginResponse.LoginResult.AccountAlreadyConnected)
+                        {
+                            _logger.LogInformation("Account already connected (first attempt). Trying login again to force server to disconnect old session...");
+
+                            // THEORY: Maybe the server needs TWO login attempts:
+                            // 1st attempt: Server returns AccountAlreadyConnected
+                            // 2nd attempt: Server forcibly disconnects old session and accepts new login
+                            _sessionReleasePending = false;
+
+                            // Wait a moment, then try logging in AGAIN
+                            await Task.Delay(TimeSpan.FromSeconds(2), linkedCts.Token).ConfigureAwait(false);
+
+                            _logger.LogInformation("Sending second login attempt to force old session disconnect...");
+                            var secondLoginResult = await ReauthenticateAsync(linkedCts.Token).ConfigureAwait(false);
+
+                            if (!secondLoginResult.Success)
+                            {
+                                _logger.LogWarning("Second login attempt also failed: {Reason}", secondLoginResult.FailureReason);
+                                await EnsureDisconnectedAsync().ConfigureAwait(false);
+                                UpdateState(ClientConnectionState.Disconnected);
+                                return ReconnectionAttemptResult.Failed($"Second login failed: {secondLoginResult.FailureReason}", secondLoginResult.FailureCode);
+                            }
+
+                            _logger.LogInformation("Second login attempt succeeded! Server accepted the connection.");
+                            _sessionReleasePending = false;
+                            // Continue with normal flow below (character selection, etc.)
+                        }
+                        else
+                        {
+                            _sessionReleasePending = false;
+                            await EnsureDisconnectedAsync().ConfigureAwait(false);
+                            UpdateState(ClientConnectionState.Disconnected);
+                            return ReconnectionAttemptResult.Failed(loginResult.FailureReason, loginResult.FailureCode);
+                        }
+                    }
+                    else
+                    {
+                        _sessionReleasePending = false;
+                    }
+                }
+                else
+                {
+                    _sessionReleasePending = false;
+                }
+
+                if (!restoreSession)
+                {
+                    _logger.LogInformation("Transport reconnected successfully; awaiting player input.");
+                    return ReconnectionAttemptResult.Succeeded(restoredSession: false);
+                }
+
+                _logger.LogInformation("Attempting to restore character session for {CharacterName}.", characterName);
+                try
+                {
+                    await _characterService.RequestCharacterListAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to request character list during reconnection.");
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1.5), linkedCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+                {
+                    throw;
+                }
+
+                await SendSelectCharacterRequestAsync(characterName).ConfigureAwait(false);
+
+                var sessionRestored = await WaitForStateAsync(ClientConnectionState.InGame, TimeSpan.FromSeconds(15), linkedCts.Token).ConfigureAwait(false);
+                if (sessionRestored)
+                {
+                    _logger.LogInformation("Character session restored successfully for {CharacterName}.", characterName);
+                    _sessionReleasePending = false;
+                    return ReconnectionAttemptResult.Succeeded(restoredSession: true);
+                }
+
+                _logger.LogWarning("Failed to restore character session. Current state: {State}", _currentState);
+                await EnsureDisconnectedAsync().ConfigureAwait(false);
+                _sessionReleasePending = false;
+                UpdateState(ClientConnectionState.Disconnected);
+                return ReconnectionAttemptResult.Failed("Failed to restore character session.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || linkedCts.IsCancellationRequested)
+            {
+                _logger.LogDebug("Reconnection attempt cancelled by caller.");
+                return ReconnectionAttemptResult.Cancelled();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during reconnection attempt.");
+                await EnsureDisconnectedAsync().ConfigureAwait(false);
+                _sessionReleasePending = false;
+                UpdateState(ClientConnectionState.Disconnected);
+                return ReconnectionAttemptResult.Failed(ex.Message);
+            }
+        }
+
+        private async Task EnsureDisconnectedAsync()
+        {
+            if (!_connectionManager.IsConnected)
+            {
+                return;
+            }
+
+            try
+            {
+                var existingConnection = _connectionManager.Connection;
+                existingConnection.PacketReceived -= HandlePacketAsync;
+                existingConnection.Disconnected -= HandleDisconnectAsync;
+            }
+            catch
+            {
+                // Connection might already be disposed; ignore.
+            }
+
+            try
+            {
+                await _connectionManager.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while disconnecting prior to reconnection attempt.");
+            }
+        }
+
+        private async Task<bool> WaitForStateAsync(ClientConnectionState expectedState, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            if (_currentState == expectedState)
+            {
+                return true;
+            }
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void Handler(object sender, ClientConnectionState state)
+            {
+                if (state == expectedState)
+                {
+                    tcs.TrySetResult(true);
+                }
+                else if (state == ClientConnectionState.Disconnected && expectedState != ClientConnectionState.Disconnected)
+                {
+                    tcs.TrySetResult(false);
+                }
+            }
+
+            ConnectionStateChanged += Handler;
+
+            try
+            {
+                var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
+                if (completed == tcs.Task)
+                {
+                    return await tcs.Task.ConfigureAwait(false);
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                return false;
+            }
+            finally
+            {
+                ConnectionStateChanged -= Handler;
+            }
+        }
+
+        private async Task<bool> AttemptSessionResumptionAsync(CancellationToken cancellationToken)
+        {
+            if (!_connectionManager.IsConnected)
+            {
+                _logger.LogWarning("Cannot resume session - not connected to server.");
+                return false;
+            }
+
+            try
+            {
+                // Check if we're reconnecting from an active game session
+                var wasInGame = _characterState?.IsInGame == true;
+                var characterName = _characterState?.Name;
+
+                if (wasInGame && !string.IsNullOrEmpty(characterName))
+                {
+                    _logger.LogInformation("Resuming active game session for character: {CharacterName}", characterName);
+
+                    // We were in-game, so the server still has our character in the world
+                    // CRITICAL: After AccountAlreadyConnected, the server knows we're trying to reconnect
+                    // We just need to wait for the server to bind this new TCP connection to our existing game session
+                    // The server should do this automatically and start sending us packets
+
+                    _logger.LogInformation("Waiting for server to bind new connection to existing game session...");
+
+                    // Give server time to detect AccountAlreadyConnected came from same account
+                    // and bind the new TCP connection to the existing session
+                    await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+
+                    // Set state back to InGame - we should start receiving packets now
+                    UpdateState(ClientConnectionState.InGame);
+
+                    // Start health monitoring since we're back in game
+                    StartHealthMonitoring();
+
+                    _logger.LogInformation("Session resumption complete - server should be sending packets to this connection now.");
+                    return true;
+                }
+                else
+                {
+                    // We weren't in-game, so do the normal session resumption with character list
+                    _logger.LogInformation("Server indicates we're logged in. Requesting character list...");
+
+                    UpdateState(ClientConnectionState.ConnectedToGameServer);
+
+                    // Request character list to resume normal session
+                    await _characterService.RequestCharacterListAsync().ConfigureAwait(false);
+
+                    // Give server a moment to send character list
+                    await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+
+                    _logger.LogInformation("Session resumed - ready for character selection.");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during session resumption attempt.");
+                return false;
+            }
+        }
+
+        private async Task<(bool Success, string FailureReason, LoginResponse.LoginResult? FailureCode)> ReauthenticateAsync(CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(_lastLoginUsername) || string.IsNullOrWhiteSpace(_lastLoginPassword))
+            {
+                return (false, "Stored credentials unavailable.", null);
+            }
+
+            var loginTcs = new TaskCompletionSource<LoginResponse.LoginResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void OnLoginSucceeded(object sender, EventArgs args) => loginTcs.TrySetResult(LoginResponse.LoginResult.Okay);
+            void OnLoginFailedHandler(object sender, LoginResponse.LoginResult result) => loginTcs.TrySetResult(result);
+
+            LoginSuccess += OnLoginSucceeded;
+            LoginFailed += OnLoginFailedHandler;
+
+            try
+            {
+                await SendLoginRequestAsync(_lastLoginUsername, _lastLoginPassword).ConfigureAwait(false);
+
+                var completed = await Task.WhenAny(loginTcs.Task, Task.Delay(TimeSpan.FromSeconds(8), cancellationToken)).ConfigureAwait(false);
+                if (completed != loginTcs.Task)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
+                    return (false, "Login attempt timed out.", null);
+                }
+
+                var result = await loginTcs.Task.ConfigureAwait(false);
+                if (result == LoginResponse.LoginResult.Okay)
+                {
+                    return (true, null, null);
+                }
+
+                return (false, $"Login failed: {result}", result);
+            }
+            finally
+            {
+                LoginSuccess -= OnLoginSucceeded;
+                LoginFailed -= OnLoginFailedHandler;
+            }
+        }
+
+        // Health Monitor Event Handlers
+
+        private void OnHealthMonitorConnectionLost(object sender, ConnectionLossEventArgs args)
+        {
+            _logger.LogWarning("Health monitor detected connection loss ({Reason}) after {Failures} failures.", args.Trigger, args.FailureCount);
+            ConnectionLost?.Invoke(this, args.FailureCount);
+
+            if (!CanAutoReconnect)
+            {
+                _logger.LogInformation("Auto-reconnect disabled; skipping reconnection dialog.");
+                OnErrorOccurred(args.Message ?? "Connection lost. Auto-reconnect is disabled.");
+                return;
+            }
+
+            ReconnectionStarted?.Invoke(this, new ReconnectionStartedEventArgs
+            {
+                MaxAttempts = 60,
+                Reason = args.Message ?? "Connection lost due to network issues"
+            });
+        }
+
+        private void OnHealthMonitorReconnectionAttempted(object sender, ReconnectionEventArgs args)
+        {
+            _logger.LogDebug("Reconnection attempt {Attempt}/{MaxAttempts}.", args.Attempt, args.MaxAttempts);
+            ReconnectionAttempted?.Invoke(this, args);
+
+            // Update UI progress
+            ReconnectionProgressChanged?.Invoke(this, new ReconnectionProgressEventArgs
+            {
+                CurrentAttempt = args.Attempt,
+                MaxAttempts = args.MaxAttempts,
+                Status = $"Reconnection attempt {args.Attempt} of {args.MaxAttempts}..."
+            });
+        }
+
+        private void OnHealthMonitorConnectionRestored(object sender, EventArgs args)
+        {
+            _logger.LogInformation("Health monitor confirmed connection restored.");
+            ConnectionRestored?.Invoke(this, args);
+
+            // Trigger UI success event
+            ReconnectionSucceeded?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void OnHealthMonitorReconnectionFailed(object sender, string message)
+        {
+            _logger.LogError("Automatic reconnection failed: {Message}", message);
+            ReconnectionFailed?.Invoke(this, message ?? "Automatic reconnection failed.");
+        }
+
         // Private Methods
         private ValueTask HandlePacketAsync(ReadOnlySequence<byte> sequence)
         {
@@ -679,6 +1158,9 @@ namespace Client.Main.Networking
             _logger.LogWarning("Connection lost. Previous state: {PreviousState}", previousState);
             UpdateState(ClientConnectionState.Disconnected);
 
+            // Allow the health monitor to drive reconnection attempts for unexpected disconnects
+            _healthMonitor.NotifyTransportDisconnected();
+
             return new ValueTask(_packetRouter.OnDisconnected());
         }
 
@@ -686,8 +1168,16 @@ namespace Client.Main.Networking
         public async ValueTask DisposeAsync()
         {
             _logger.LogInformation("Disposing NetworkManager...");
+
+            // Stop health monitoring
+            await StopHealthMonitoringAsync();
+
             _managerCts.Cancel();
             await _connectionManager.DisposeAsync();
+
+            // Dispose health monitor
+            await _healthMonitor.DisposeAsync();
+
             _managerCts.Dispose();
             _logger.LogInformation("NetworkManager disposed.");
             GC.SuppressFinalize(this);

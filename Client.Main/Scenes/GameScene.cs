@@ -51,6 +51,7 @@ namespace Client.Main.Scenes
         private LabelControl _pingLabel; // Displays current ping
         private double _pingTimer = 0;
         private PauseMenuControl _pauseMenu; // ESC menu
+        private ReconnectionDialog _reconnectionDialog; // Reconnection dialog
 
         // Cache expensive enum values to avoid allocations
         private static readonly Keys[] _allKeys = (Keys[])System.Enum.GetValues(typeof(Keys));
@@ -169,6 +170,9 @@ namespace Client.Main.Scenes
             _pauseMenu = new PauseMenuControl();
             Controls.Add(_pauseMenu);
             _pauseMenu.BringToFront();
+
+            // Subscribe to network health events
+            SubscribeToNetworkEvents();
         }
 
         public GameScene() : this(GetCharacterInfoFromState())
@@ -1146,13 +1150,122 @@ namespace Client.Main.Scenes
             });
         }
 
+        /// <summary>
+        /// Subscribes to network health and reconnection events.
+        /// </summary>
+        private void SubscribeToNetworkEvents()
+        {
+            if (MuGame.Network == null) return;
+
+            // Subscribe to reconnection events
+            MuGame.Network.ReconnectionStarted += OnReconnectionStarted;
+            MuGame.Network.ReconnectionProgressChanged += OnReconnectionProgressChanged;
+            MuGame.Network.ReconnectionSucceeded += OnReconnectionSucceeded;
+            MuGame.Network.ReconnectionFailed += OnReconnectionFailed;
+        }
+
+        /// <summary>
+        /// Unsubscribes from network health and reconnection events.
+        /// </summary>
+        private void UnsubscribeFromNetworkEvents()
+        {
+            if (MuGame.Network == null) return;
+
+            MuGame.Network.ReconnectionStarted -= OnReconnectionStarted;
+            MuGame.Network.ReconnectionProgressChanged -= OnReconnectionProgressChanged;
+            MuGame.Network.ReconnectionSucceeded -= OnReconnectionSucceeded;
+            MuGame.Network.ReconnectionFailed -= OnReconnectionFailed;
+        }
+
+        /// <summary>
+        /// Handles reconnection start event - shows the reconnection dialog.
+        /// </summary>
+        private void OnReconnectionStarted(object sender, ReconnectionStartedEventArgs e)
+        {
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                _logger?.LogInformation("Reconnection started - showing dialog. Max attempts: {MaxAttempts}", e.MaxAttempts);
+
+                // Close any existing reconnection dialog
+                _reconnectionDialog?.Close();
+
+                // Show new reconnection dialog
+                _reconnectionDialog = ReconnectionDialog.Show(e.MaxAttempts);
+                if (_reconnectionDialog != null)
+                {
+                    _reconnectionDialog.CancelRequested += OnReconnectionCancelRequested;
+                    _chatLog?.AddMessage("System", "Connection lost. Attempting to reconnect...", MessageType.Error);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Handles reconnection progress updates - updates the dialog progress bar.
+        /// </summary>
+        private void OnReconnectionProgressChanged(object sender, ReconnectionProgressEventArgs e)
+        {
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                _logger?.LogDebug("Reconnection progress: {Current}/{Max} - {Status}",
+                    e.CurrentAttempt, e.MaxAttempts, e.Status);
+
+                _reconnectionDialog?.UpdateProgress(e.CurrentAttempt, e.MaxAttempts, e.Status);
+            });
+        }
+
+        /// <summary>
+        /// Handles successful reconnection - shows success and closes dialog.
+        /// </summary>
+        private void OnReconnectionSucceeded(object sender, EventArgs e)
+        {
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                _logger?.LogInformation("Reconnection succeeded - updating dialog.");
+
+                _reconnectionDialog?.SetConnectionRestored();
+                _chatLog?.AddMessage("System", "Connection restored successfully!", MessageType.Info);
+            });
+        }
+
+        /// <summary>
+        /// Handles failed reconnection - shows failure message.
+        /// </summary>
+        private void OnReconnectionFailed(object sender, string failureMessage)
+        {
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                _logger?.LogWarning("Reconnection failed: {Message}", failureMessage);
+
+                _reconnectionDialog?.SetConnectionFailed(failureMessage);
+                _chatLog?.AddMessage("System", $"Reconnection failed: {failureMessage}", MessageType.Error);
+            });
+        }
+
+        /// <summary>
+        /// Handles when user cancels reconnection attempt.
+        /// </summary>
+        private void OnReconnectionCancelRequested(object sender, EventArgs e)
+        {
+            _logger?.LogInformation("User cancelled reconnection attempt.");
+
+            // Stop health monitoring to prevent further reconnection attempts
+            MuGame.Network?.StopHealthMonitoringAsync();
+
+            _chatLog?.AddMessage("System", "Reconnection cancelled. You may need to restart the game.", MessageType.Error);
+        }
+
         public override void Dispose()
         {
+            UnsubscribeFromNetworkEvents();
+
             if (_hero != null)
             {
                 _hero.PlayerMoved -= OnHeroMoved;
                 _hero.PlayerTookDamage -= OnHeroTookDamage;
             }
+
+            _reconnectionDialog?.Close();
+
             base.Dispose();
         }
     }

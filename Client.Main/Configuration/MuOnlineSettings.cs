@@ -18,6 +18,21 @@ namespace Client.Main.Configuration
         public int UiVirtualHeight { get; set; } = 720;
     }
 
+    public class ConnectionHealthSettings
+    {
+        public int? HealthCheckInterval { get; set; } = 5; // seconds - balanced for MMORPG
+        public int? ConnectionTimeout { get; set; } = 3; // seconds - reasonable timeout for reliability
+        public int? MaxReconnectAttempts { get; set; } = 60; // higher attempts since each is now fast
+        public int? ReconnectDelay { get; set; } = 2; // seconds - faster reconnect attempts
+        public bool EnableHealthCheck { get; set; } = true;
+        public bool EnableAutoReconnect { get; set; } = true;
+
+        // Additional settings for MMORPG
+        public int? FailureThreshold { get; set; } = 2; // failures before considering connection lost
+        public bool? EnableFastDetection { get; set; } = true; // enable rapid failure detection
+        public int? FastCheckInterval { get; set; } = 2; // seconds - faster checks when problems detected
+    }
+
     public class MuOnlineSettings
     {
         // Connect Server Settings
@@ -31,5 +46,6 @@ namespace Client.Main.Configuration
         public Dictionary<byte, byte> DirectionMap { get; set; } = new(); // Direction mapping for walk packets
         public PacketLoggingSettings PacketLogging { get; set; } = new();
         public GraphicsSettings Graphics { get; set; } = new();
+        public ConnectionHealthSettings ConnectionHealth { get; set; } = new();
     }
 }
