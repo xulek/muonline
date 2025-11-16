@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'claude/gitactions-changes-*'
+      - main
 
 permissions:
   contents: read
@@ -35,6 +35,12 @@ jobs:
   pages:
     needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
