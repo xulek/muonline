@@ -10,7 +10,7 @@
 
 **A cross-platform MuOnline client implementation built with .NET 9.0 and MonoGame framework.**
 
-[Features](#features) • [Quick Start](#quick-start) • [Building](#building-the-project) • [Architecture](#architecture-overview) • [Contributing](#contributing)
+[Features](#-features) • [Quick Start](#-quick-start) • [Building](#-building-the-project) • [Architecture](#-architecture-overview) • [Contributing](#-contributing)
 
 </div>
 
