@@ -5,8 +5,8 @@
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/9.0)
 [![MonoGame](https://img.shields.io/badge/MonoGame-3.8+-E73C00?logo=nuget)](https://www.monogame.net/)
 [![License](https://img.shields.io/badge/License-Educational-blue)](#license)
-[![Build Status](https://github.com/bernatvadell/muonline/workflows/Build%20and%20Publish/badge.svg)](https://github.com/bernatvadell/muonline/actions)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bernatvadell/muonline)
+[![Build Status](https://github.com/xulek/muonline/workflows/Build%20and%20Publish/badge.svg)](https://github.com/xulek/muonline/actions)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/xulek/muonline)
 
 **A cross-platform MuOnline client implementation built with .NET 9.0 and MonoGame framework.**
 
@@ -18,8 +18,6 @@
 
 > **⚠️ Educational Purpose Disclaimer**
 > This project is created strictly for **educational and research purposes** to explore game client architecture, network protocols, and cross-platform development with .NET and MonoGame. This is a non-commercial, open-source learning project that demonstrates reverse engineering and game development concepts.
->
-> **This project requires original MuOnline game data files which are property of Webzen Inc.** Users must obtain legitimate copies of the game data. The authors do not provide, host, or distribute any copyrighted game assets.
 
 ---
 
@@ -49,7 +47,7 @@
 ### Platform-Specific Requirements
 
 <details>
-<summary><b>🪟 Windows</b></summary>
+<summary><b>⊞ Windows</b></summary>
 
 - Windows 10/11 (64-bit)
 - Visual Studio 2022 (optional, for IDE support)
@@ -99,7 +97,7 @@ xcode-select --install
 ### 1️⃣ Clone the Repository
 
 ```bash
-git clone https://github.com/bernatvadell/muonline.git
+git clone https://github.com/xulek/muonline.git
 cd muonline
 ```
 
@@ -255,24 +253,24 @@ This project implements a layered architecture with clear separation of concerns
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Platform Layer                        │
+│                    Platform Layer                       │
 │         (MuWin, MuLinux, MuMac, MuAndroid, MuIos)       │
 └─────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────┐
-│                  Client.Main (Core)                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │    Scenes    │  │  Networking  │  │   Rendering  │  │
-│  │ (Login/Game) │  │   (S6 Proto) │  │  (MonoGame)  │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Game Objects │  │  UI System   │  │ World System │  │
-│  │(Player/NPC)  │  │ (GameControl)│  │  (Terrain)   │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
+│                  Client.Main (Core)                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │    Scenes    │  │  Networking  │  │   Rendering  │   │
+│  │ (Login/Game) │  │   (S6 Proto) │  │  (MonoGame)  │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │ Game Objects │  │  UI System   │  │ World System │   │
+│  │(Player/NPC)  │  │ (GameControl)│  │  (Terrain)   │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
 └─────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────┐
-│              Client.Data (Data Readers)                  │
+│              Client.Data (Data Readers)                 │
 │      BMD • ATT • MAP • OZB • OZG • CWS • OBJS           │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -449,7 +447,7 @@ Contributions are welcome! This is an educational project, and we encourage lear
 
 ### Reporting Issues
 
-Found a bug or have a question? [Open an issue](https://github.com/bernatvadell/muonline/issues) on GitHub.
+Found a bug or have a question? [Open an issue](https://github.com/xulek/muonline/issues) on GitHub.
 
 ## 📚 Additional Resources
 
@@ -464,9 +462,6 @@ This project is created for **educational and research purposes only**.
 
 ### Important Legal Notes
 
-- **MuOnline** is a registered trademark of **Webzen Inc.**
-- This project does **NOT** include any copyrighted game assets, data files, or executables
-- Users must obtain legitimate copies of MuOnline game data from official sources
 - This is a **non-commercial** educational project demonstrating game client architecture
 - The code in this repository is provided as-is for learning purposes
 - Authors are not responsible for misuse of this software
