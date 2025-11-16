@@ -22,10 +22,8 @@ jobs:
           dotnet-version: '9.0.x'
       - name: Restore tools
         run: dotnet tool restore
-      - name: Restore workloads
-        run: dotnet workload restore
       - name: Publish Windows Build
-        run: dotnet publish MuWin/MuWin.csproj -c Release -r win-x64 -o publish
+        run: dotnet publish MuWin/MuWin.csproj -c Release -r win-x64 -o publish /p:EnableMobileTargets=false
       - name: Create Zip
         run: powershell -Command "Compress-Archive -Path publish\* -DestinationPath muonline-windows.zip"
       - name: Upload Artifact
