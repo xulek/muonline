@@ -15,8 +15,15 @@ namespace Client.Main.Controls.Terrain
     public class TerrainRenderer
     {
         private const float SpecialHeight = 1200f;
+        private const int BlockSize = 4;
         private const int TileBatchVerts = 16384 * 6;
         private const int TileBatchIndices = 16384 * 6;
+        private const float LodSkirtDepth = Constants.TERRAIN_SCALE * 1.5f;
+
+        private const byte LodEdgeNorth = 1;
+        private const byte LodEdgeSouth = 2;
+        private const byte LodEdgeWest = 4;
+        private const byte LodEdgeEast = 8;
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly TerrainData _data;
@@ -42,6 +49,7 @@ namespace Client.Main.Controls.Terrain
         private readonly Vector3[] _tempTerrainVertex = new Vector3[4];
         private readonly Vector3[] _tempTerrainNormals = new Vector3[4];
         private readonly Color[] _tempTerrainLights = new Color[4];
+        private readonly Color[] _tempTerrainLightsBase = new Color[4];
         private readonly VertexPositionColorTexture[] _fallbackTileBuffer = new VertexPositionColorTexture[TileBatchVerts];
 
         // Cached per-vertex data (built once per terrain) to avoid per-tile CPU work each frame.
@@ -91,6 +99,10 @@ namespace Client.Main.Controls.Terrain
         private readonly Vector2[] _tileUvScale = new Vector2[256];
         private readonly Vector2[] _tileUvScaleWorld = new Vector2[256];
 
+        private readonly int _blocksPerSide;
+        private readonly sbyte[] _visibleBlockLod;
+        private bool _hasLodTransitions;
+
         public float WaterSpeed { get; set; } = 0f;
         public float DistortionAmplitude { get; set; } = 0f;
         public float DistortionFrequency { get; set; } = 0f;
@@ -119,6 +131,8 @@ namespace Client.Main.Controls.Terrain
             _visibility = visibility;
             _lightManager = lightManager;
             _grassRenderer = grassRenderer;
+            _blocksPerSide = Constants.TERRAIN_SIZE / BlockSize;
+            _visibleBlockLod = new sbyte[_blocksPerSide * _blocksPerSide];
 
             // Precompute UV scales for all textures
             PrecomputeUVScales();
@@ -286,6 +300,11 @@ namespace Client.Main.Controls.Terrain
             {
                 EnsureVertexCache();
                 EnsureLightCache();
+                _hasLodTransitions = BuildVisibleLodGrid();
+            }
+            else
+            {
+                _hasLodTransitions = false;
             }
 
             if (_useDynamicLightingShader)
@@ -293,7 +312,7 @@ namespace Client.Main.Controls.Terrain
                 var effect = GraphicsManager.Instance.DynamicLightingEffect;
 
                 // Enable index batching only when the shader supports procedural terrain UVs.
-                if (!after && SupportsProceduralTerrainUv(effect))
+                if (!after && !_hasLodTransitions && SupportsProceduralTerrainUv(effect))
                 {
                     EnsureTerrainVertexBuffers();
                     _useTerrainIndexBatching = _terrainVertexBufferBase != null &&
@@ -353,6 +372,79 @@ namespace Client.Main.Controls.Terrain
             _lastBlendState = null;
         }
 
+        private bool BuildVisibleLodGrid()
+        {
+            if (_visibility?.VisibleBlocks == null || _visibleBlockLod == null || _visibleBlockLod.Length == 0)
+                return false;
+
+            Array.Fill(_visibleBlockLod, (sbyte)-1);
+
+            foreach (var block in _visibility.VisibleBlocks)
+            {
+                if (block == null || !block.IsVisible)
+                    continue;
+
+                int bx = block.Xi / BlockSize;
+                int by = block.Yi / BlockSize;
+                if ((uint)bx >= (uint)_blocksPerSide || (uint)by >= (uint)_blocksPerSide)
+                    continue;
+
+                int lodStep = _visibility.LodSteps[block.LODLevel];
+                _visibleBlockLod[by * _blocksPerSide + bx] = (sbyte)lodStep;
+            }
+
+            foreach (var block in _visibility.VisibleBlocks)
+            {
+                if (block == null || !block.IsVisible)
+                    continue;
+
+                int lodStep = _visibility.LodSteps[block.LODLevel];
+                if (lodStep <= 1)
+                    continue;
+
+                int bx = block.Xi / BlockSize;
+                int by = block.Yi / BlockSize;
+                if (HasLowerLodNeighbor(bx, by, lodStep))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool HasLowerLodNeighbor(int bx, int by, int lodStep)
+        {
+            return IsLowerLodNeighbor(bx, by - 1, lodStep) ||
+                   IsLowerLodNeighbor(bx, by + 1, lodStep) ||
+                   IsLowerLodNeighbor(bx - 1, by, lodStep) ||
+                   IsLowerLodNeighbor(bx + 1, by, lodStep);
+        }
+
+        private bool IsLowerLodNeighbor(int bx, int by, int lodStep)
+        {
+            if ((uint)bx >= (uint)_blocksPerSide || (uint)by >= (uint)_blocksPerSide)
+                return false;
+
+            int neighbor = _visibleBlockLod[by * _blocksPerSide + bx];
+            return neighbor > 0 && neighbor < lodStep;
+        }
+
+        private byte GetLodEdgeMask(TerrainBlock block, int lodStep)
+        {
+            if (block == null || lodStep <= 1 || !_hasLodTransitions)
+                return 0;
+
+            int bx = block.Xi / BlockSize;
+            int by = block.Yi / BlockSize;
+            byte mask = 0;
+
+            if (IsLowerLodNeighbor(bx, by - 1, lodStep)) mask |= LodEdgeNorth;
+            if (IsLowerLodNeighbor(bx, by + 1, lodStep)) mask |= LodEdgeSouth;
+            if (IsLowerLodNeighbor(bx - 1, by, lodStep)) mask |= LodEdgeWest;
+            if (IsLowerLodNeighbor(bx + 1, by, lodStep)) mask |= LodEdgeEast;
+
+            return mask;
+        }
+
         public void DrawShadowMap(Effect shadowEffect, Matrix lightViewProjection)
         {
             if (_graphicsDevice == null || _data.HeightMap == null || shadowEffect == null)
@@ -386,7 +478,8 @@ namespace Client.Main.Controls.Terrain
             shadowEffect.Parameters["Alpha"]?.SetValue(1f);
 
             // Optional fast path for terrain: static VB + per-texture index batching (requires shader support).
-            if (SupportsProceduralTerrainUv(shadowEffect))
+            _hasLodTransitions = BuildVisibleLodGrid();
+            if (!_hasLodTransitions && SupportsProceduralTerrainUv(shadowEffect))
             {
                 EnsureTerrainVertexBuffers();
                 _useTerrainIndexBatching = _terrainVertexBufferBase != null &&
@@ -708,6 +801,10 @@ namespace Client.Main.Controls.Terrain
         {
             if (!after) DrawnBlocks++;
 
+            byte edgeMask = 0;
+            if (!after && block != null)
+                edgeMask = GetLodEdgeMask(block, lodStep);
+
             if (_lastBlendState != BlendState.Opaque)
             {
                 _graphicsDevice.BlendState = BlendState.Opaque;
@@ -760,22 +857,34 @@ namespace Client.Main.Controls.Terrain
 
                     if (shouldRender)
                     {
+                        byte tileEdgeMask = 0;
+                        if (edgeMask != 0)
+                        {
+                            if ((edgeMask & LodEdgeNorth) != 0 && i == 0) tileEdgeMask |= LodEdgeNorth;
+                            if ((edgeMask & LodEdgeSouth) != 0 && (i + lodStep) >= BlockSize) tileEdgeMask |= LodEdgeSouth;
+                            if ((edgeMask & LodEdgeWest) != 0 && j == 0) tileEdgeMask |= LodEdgeWest;
+                            if ((edgeMask & LodEdgeEast) != 0 && (j + lodStep) >= BlockSize) tileEdgeMask |= LodEdgeEast;
+                        }
+
                         RenderTerrainTile(
                             xi + j, yi + i,
                             (float)lodStep, lodStep,
-                            after);
+                            after,
+                            tileEdgeMask);
                     }
                 }
             }
         }
 
-        private void RenderTerrainTile(int xi, int yi, float lodFactor, int lodInt, bool after)
+        private void RenderTerrainTile(int xi, int yi, float lodFactor, int lodInt, bool after, byte edgeMask = 0)
         {
             if (after || _data.Attributes == null || _data.Attributes.TerrainWall == null) return; // Added null check for TerrainWall
             DrawnCells++;
 
+            if (!HasAnyGroundInTile(xi, yi, lodInt))
+                return;
+
             int i1 = GetTerrainIndex(xi, yi);
-            if (_data.Attributes.TerrainWall[i1].HasFlag(Client.Data.ATT.TWFlags.NoGround)) return;
 
             int i2 = GetTerrainIndex(xi + lodInt, yi);
             int i3 = GetTerrainIndex(xi + lodInt, yi + lodInt);
@@ -818,6 +927,14 @@ namespace Client.Main.Controls.Terrain
 
             PrepareTileVertices(xi, yi, i1, i2, i3, i4, lodFactor);
             PrepareTileLights(i1, i2, i3, i4);
+            bool renderSkirts = edgeMask != 0;
+            if (renderSkirts)
+            {
+                _tempTerrainLightsBase[0] = _tempTerrainLights[0];
+                _tempTerrainLightsBase[1] = _tempTerrainLights[1];
+                _tempTerrainLightsBase[2] = _tempTerrainLights[2];
+                _tempTerrainLightsBase[3] = _tempTerrainLights[3];
+            }
 
             byte a1 = i1 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i1] : (byte)0;
             byte a2 = i2 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i2] : (byte)0;
@@ -826,24 +943,156 @@ namespace Client.Main.Controls.Terrain
 
             bool isOpaque = (a1 & a2 & a3 & a4) == 255;
             bool hasAlpha = (a1 | a2 | a3 | a4) != 0;
+            int baseTextureIndex = isOpaque ? _data.Mapping.Layer2[i1] : _data.Mapping.Layer1[i1];
+            int alphaTextureIndex = _data.Mapping.Layer2[i1];
 
             if (isOpaque)
             {
-                RenderTexture(_data.Mapping.Layer2[i1], xi, yi, lodFactor, useBatch: true, alphaLayer: false);
+                RenderTexture(baseTextureIndex, xi, yi, lodFactor, useBatch: true, alphaLayer: false);
             }
             else
             {
-                RenderTexture(_data.Mapping.Layer1[i1], xi, yi, lodFactor, useBatch: true, alphaLayer: false);
+                RenderTexture(baseTextureIndex, xi, yi, lodFactor, useBatch: true, alphaLayer: false);
                 if (hasAlpha)
                 {
                     ApplyAlphaToLights(a1, a2, a3, a4);
-                    RenderTexture(_data.Mapping.Layer2[i1], xi, yi, lodFactor, useBatch: true, alphaLayer: true);
+                    RenderTexture(alphaTextureIndex, xi, yi, lodFactor, useBatch: true, alphaLayer: true);
+                }
+            }
+
+            if (renderSkirts)
+            {
+                _tempTerrainLights[0] = _tempTerrainLightsBase[0];
+                _tempTerrainLights[1] = _tempTerrainLightsBase[1];
+                _tempTerrainLights[2] = _tempTerrainLightsBase[2];
+                _tempTerrainLights[3] = _tempTerrainLightsBase[3];
+
+                RenderTileSkirts(xi, yi, lodFactor, edgeMask, baseTextureIndex, alphaLayer: false);
+                if (!isOpaque && hasAlpha)
+                {
+                    ApplyAlphaToLights(a1, a2, a3, a4);
+                    RenderTileSkirts(xi, yi, lodFactor, edgeMask, alphaTextureIndex, alphaLayer: true);
                 }
             }
 
             // Grass is a fine-detail effect; skip for super-tiles (lodInt > 1) to avoid huge per-frame CPU cost.
             if (lodInt == 1 && Constants.DRAW_GRASS)
                 _grassRenderer.RenderGrassForTile(xi, yi, xi, yi, lodFactor, WorldIndex);
+        }
+
+        private void RenderTileSkirts(int xi, int yi, float lodFactor, byte edgeMask, int textureIndex, bool alphaLayer)
+        {
+            if (edgeMask == 0)
+                return;
+            if (textureIndex < 0 || textureIndex >= _data.Textures.Length || _data.Textures[textureIndex] == null)
+                return;
+
+            var uvScale = _tileUvScale[textureIndex];
+            float baseW = uvScale.X;
+            float baseH = uvScale.Y;
+            float suf = xi * baseW;
+            float svf = yi * baseH;
+            float uvW = baseW * lodFactor;
+            float uvH = baseH * lodFactor;
+
+            Vector2 uv0 = new Vector2(suf, svf);
+            Vector2 uv1 = new Vector2(suf + uvW, svf);
+            Vector2 uv2 = new Vector2(suf + uvW, svf + uvH);
+            Vector2 uv3 = new Vector2(suf, svf + uvH);
+
+            Vector3 v0 = _tempTerrainVertex[0];
+            Vector3 v1 = _tempTerrainVertex[1];
+            Vector3 v2 = _tempTerrainVertex[2];
+            Vector3 v3 = _tempTerrainVertex[3];
+
+            Vector3 v0b = v0; v0b.Z -= LodSkirtDepth;
+            Vector3 v1b = v1; v1b.Z -= LodSkirtDepth;
+            Vector3 v2b = v2; v2b.Z -= LodSkirtDepth;
+            Vector3 v3b = v3; v3b.Z -= LodSkirtDepth;
+
+            Color c0 = _tempTerrainLights[0];
+            Color c1 = _tempTerrainLights[1];
+            Color c2 = _tempTerrainLights[2];
+            Color c3 = _tempTerrainLights[3];
+
+            Vector3 n0 = _tempTerrainNormals[0];
+            Vector3 n1 = _tempTerrainNormals[1];
+            Vector3 n2 = _tempTerrainNormals[2];
+            Vector3 n3 = _tempTerrainNormals[3];
+
+            if ((edgeMask & LodEdgeNorth) != 0)
+                AddSkirtQuad(textureIndex, v0, v1, v0b, v1b, c0, c1, n0, n1, uv0, uv1, alphaLayer);
+            if ((edgeMask & LodEdgeSouth) != 0)
+                AddSkirtQuad(textureIndex, v3, v2, v3b, v2b, c3, c2, n3, n2, uv3, uv2, alphaLayer);
+            if ((edgeMask & LodEdgeWest) != 0)
+                AddSkirtQuad(textureIndex, v0, v3, v0b, v3b, c0, c3, n0, n3, uv0, uv3, alphaLayer);
+            if ((edgeMask & LodEdgeEast) != 0)
+                AddSkirtQuad(textureIndex, v1, v2, v1b, v2b, c1, c2, n1, n2, uv1, uv2, alphaLayer);
+        }
+
+        private void AddSkirtQuad(
+            int textureIndex,
+            Vector3 topA,
+            Vector3 topB,
+            Vector3 bottomA,
+            Vector3 bottomB,
+            Color colorA,
+            Color colorB,
+            Vector3 normalA,
+            Vector3 normalB,
+            Vector2 uvA,
+            Vector2 uvB,
+            bool alphaLayer)
+        {
+            _terrainVertices[0] = new TerrainVertexPositionColorNormalTexture(topA, colorA, normalA, uvA);
+            _terrainVertices[1] = new TerrainVertexPositionColorNormalTexture(topB, colorB, normalB, uvB);
+            _terrainVertices[2] = new TerrainVertexPositionColorNormalTexture(bottomB, colorB, normalB, uvB);
+            _terrainVertices[3] = new TerrainVertexPositionColorNormalTexture(bottomB, colorB, normalB, uvB);
+            _terrainVertices[4] = new TerrainVertexPositionColorNormalTexture(bottomA, colorA, normalA, uvA);
+            _terrainVertices[5] = new TerrainVertexPositionColorNormalTexture(topA, colorA, normalA, uvA);
+
+            AddTileToBatch(textureIndex, _terrainVertices, alphaLayer);
+
+            _terrainVertices[0] = new TerrainVertexPositionColorNormalTexture(topA, colorA, normalA, uvA);
+            _terrainVertices[1] = new TerrainVertexPositionColorNormalTexture(bottomA, colorA, normalA, uvA);
+            _terrainVertices[2] = new TerrainVertexPositionColorNormalTexture(bottomB, colorB, normalB, uvB);
+            _terrainVertices[3] = new TerrainVertexPositionColorNormalTexture(bottomB, colorB, normalB, uvB);
+            _terrainVertices[4] = new TerrainVertexPositionColorNormalTexture(topB, colorB, normalB, uvB);
+            _terrainVertices[5] = new TerrainVertexPositionColorNormalTexture(topA, colorA, normalA, uvA);
+
+            AddTileToBatch(textureIndex, _terrainVertices, alphaLayer);
+        }
+
+        private bool HasAnyGroundInTile(int xi, int yi, int lodInt)
+        {
+            var terrainWall = _data.Attributes?.TerrainWall;
+            if (terrainWall == null)
+                return true;
+
+            if (lodInt <= 1)
+            {
+                int idx = GetTerrainIndex(xi, yi);
+                return (uint)idx < (uint)terrainWall.Length &&
+                       !terrainWall[idx].HasFlag(Client.Data.ATT.TWFlags.NoGround);
+            }
+
+            int max = Constants.TERRAIN_SIZE - 1;
+            int endX = Math.Min(xi + lodInt - 1, max);
+            int endY = Math.Min(yi + lodInt - 1, max);
+
+            for (int y = yi; y <= endY; y++)
+            {
+                int row = y * Constants.TERRAIN_SIZE;
+                for (int x = xi; x <= endX; x++)
+                {
+                    int idx = row + x;
+                    if ((uint)idx < (uint)terrainWall.Length &&
+                        !terrainWall[idx].HasFlag(Client.Data.ATT.TWFlags.NoGround))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private void RenderTexture(int textureIndex, float xf, float yf, float lodScale, bool useBatch, bool alphaLayer = false)
