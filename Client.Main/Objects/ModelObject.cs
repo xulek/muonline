@@ -1941,6 +1941,8 @@ namespace Client.Main.Objects
                     shadowEffect?.Parameters["ShadowBias"]?.SetValue(Constants.SHADOW_BIAS);
                     shadowEffect?.Parameters["ShadowNormalBias"]?.SetValue(Constants.SHADOW_NORMAL_BIAS);
                     shadowEffect?.Parameters["SunDirection"]?.SetValue(GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION);
+                    shadowEffect?.Parameters["UseProceduralTerrainUV"]?.SetValue(0.0f);
+                    shadowEffect?.Parameters["IsWaterTexture"]?.SetValue(0.0f);
 
                     gd.BlendState = BlendState.Opaque;
                     gd.DepthStencilState = DepthStencilState.Default;

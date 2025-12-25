@@ -16,6 +16,7 @@ namespace Client.Main.Controls.Terrain
     {
         private const float SpecialHeight = 1200f;
         private const int TileBatchVerts = 16384 * 6;
+        private const int TileBatchIndices = 16384 * 6;
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly TerrainData _data;
@@ -28,6 +29,12 @@ namespace Client.Main.Controls.Terrain
         private readonly int[] _tileBatchCounts = new int[256];
         private readonly TerrainVertexPositionColorNormalTexture[][] _tileAlphaBatches = new TerrainVertexPositionColorNormalTexture[256][];
         private readonly int[] _tileAlphaCounts = new int[256];
+
+        // Per-texture tile index batches (used when terrain can be rendered from a static VB)
+        private readonly ushort[][] _tileIndexBatches = new ushort[256][];
+        private readonly int[] _tileIndexCounts = new int[256];
+        private readonly ushort[][] _tileAlphaIndexBatches = new ushort[256][];
+        private readonly int[] _tileAlphaIndexCounts = new int[256];
 
         // Buffers for a single terrain tile quad
         private readonly TerrainVertexPositionColorNormalTexture[] _terrainVertices = new TerrainVertexPositionColorNormalTexture[6];
@@ -54,6 +61,18 @@ namespace Client.Main.Controls.Terrain
         private Texture2D _lastBoundTexture = null;
         private BlendState _lastBlendState = null;
         private bool _useDynamicLightingShader = false;
+        private bool _useTerrainIndexBatching = false;
+
+        // Static terrain vertex buffers (terrain uses procedural UVs in the shader)
+        private VertexBuffer _terrainVertexBufferBase;
+        private VertexBuffer _terrainVertexBufferAlpha;
+        private bool _terrainVertexBuffersBuilt;
+        private Color[] _terrainBuffersHeightMapRef;
+        private Client.Data.ATT.TWFlags[] _terrainBuffersTerrainWallRef;
+        private Vector3[] _terrainBuffersNormalsRef;
+        private Color[] _terrainBuffersFinalLightMapRef;
+        private float _terrainBuffersAmbientLight = float.NaN;
+        private byte[] _terrainBuffersAlphaMapRef;
 
         private readonly Vector3[] _cachedLightPositions = new Vector3[16];
         private readonly Vector3[] _cachedLightColors = new Vector3[16];
@@ -70,6 +89,7 @@ namespace Client.Main.Controls.Terrain
 
         // Precomputed UV scales to avoid divisions per tile
         private readonly Vector2[] _tileUvScale = new Vector2[256];
+        private readonly Vector2[] _tileUvScaleWorld = new Vector2[256];
 
         public float WaterSpeed { get; set; } = 0f;
         public float DistortionAmplitude { get; set; } = 0f;
@@ -110,7 +130,10 @@ namespace Client.Main.Controls.Terrain
             {
                 if (_data.Textures[t] != null)
                 {
-                    _tileUvScale[t] = new Vector2(64f / _data.Textures[t].Width, 64f / _data.Textures[t].Height);
+                    float invW = 64f / _data.Textures[t].Width;
+                    float invH = 64f / _data.Textures[t].Height;
+                    _tileUvScale[t] = new Vector2(invW, invH);
+                    _tileUvScaleWorld[t] = new Vector2(invW / Constants.TERRAIN_SCALE, invH / Constants.TERRAIN_SCALE);
                 }
             }
         }
@@ -257,6 +280,7 @@ namespace Client.Main.Controls.Terrain
             _useDynamicLightingShader = Constants.ENABLE_TERRAIN_GPU_LIGHTING &&
                                         Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
                                         GraphicsManager.Instance.DynamicLightingEffect != null;
+            _useTerrainIndexBatching = false;
 
             if (!after)
             {
@@ -267,6 +291,17 @@ namespace Client.Main.Controls.Terrain
             if (_useDynamicLightingShader)
             {
                 var effect = GraphicsManager.Instance.DynamicLightingEffect;
+
+                // Enable index batching only when the shader supports procedural terrain UVs.
+                if (!after && SupportsProceduralTerrainUv(effect))
+                {
+                    EnsureTerrainVertexBuffers();
+                    _useTerrainIndexBatching = _terrainVertexBufferBase != null &&
+                                               !_terrainVertexBufferBase.IsDisposed &&
+                                               _terrainVertexBufferAlpha != null &&
+                                               !_terrainVertexBufferAlpha.IsDisposed;
+                }
+
                 if (effect != null)
                 {
                     effect.CurrentTechnique = effect.Techniques["DynamicLighting"];
@@ -299,7 +334,10 @@ namespace Client.Main.Controls.Terrain
                 }
             }
 
-            FlushAllTileBatches();
+            if (_useTerrainIndexBatching)
+                FlushAllTileIndexBatches();
+            else
+                FlushAllTileBatches();
             _grassRenderer.Flush();
         }
 
@@ -328,11 +366,13 @@ namespace Client.Main.Controls.Terrain
             var prevRaster = _graphicsDevice.RasterizerState;
             var prevTechnique = shadowEffect.CurrentTechnique;
             var prevUseDynamic = _useDynamicLightingShader;
+            var prevUseIndex = _useTerrainIndexBatching;
             var prevLastBoundTexture = _lastBoundTexture;
 
             // Reset texture binding to ensure correct textures are bound for shadow pass
             _lastBoundTexture = null;
             _useDynamicLightingShader = true;
+            _useTerrainIndexBatching = false;
             _graphicsDevice.BlendState = BlendState.Opaque;
             _graphicsDevice.DepthStencilState = DepthStencilState.Default;
             _graphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
@@ -344,6 +384,24 @@ namespace Client.Main.Controls.Terrain
             shadowEffect.Parameters["ShadowBias"]?.SetValue(Constants.SHADOW_BIAS);
             shadowEffect.Parameters["ShadowNormalBias"]?.SetValue(Constants.SHADOW_NORMAL_BIAS);
             shadowEffect.Parameters["Alpha"]?.SetValue(1f);
+
+            // Optional fast path for terrain: static VB + per-texture index batching (requires shader support).
+            if (SupportsProceduralTerrainUv(shadowEffect))
+            {
+                EnsureTerrainVertexBuffers();
+                _useTerrainIndexBatching = _terrainVertexBufferBase != null &&
+                                           !_terrainVertexBufferBase.IsDisposed &&
+                                           _terrainVertexBufferAlpha != null &&
+                                           !_terrainVertexBufferAlpha.IsDisposed;
+            }
+
+            shadowEffect.Parameters["UseProceduralTerrainUV"]?.SetValue(_useTerrainIndexBatching ? 1.0f : 0.0f);
+            shadowEffect.Parameters["IsWaterTexture"]?.SetValue(0.0f);
+            shadowEffect.Parameters["TerrainUvScale"]?.SetValue(Vector2.Zero);
+            shadowEffect.Parameters["WaterFlowDirection"]?.SetValue(_waterFlowDir);
+            shadowEffect.Parameters["WaterTotal"]?.SetValue(_waterTotal);
+            shadowEffect.Parameters["DistortionAmplitude"]?.SetValue(DistortionAmplitude);
+            shadowEffect.Parameters["DistortionFrequency"]?.SetValue(DistortionFrequency);
 
             foreach (var block in _visibility.VisibleBlocks)
             {
@@ -357,9 +415,17 @@ namespace Client.Main.Controls.Terrain
                 }
             }
 
-            FlushAllTileBatches();
+            if (_useTerrainIndexBatching)
+                FlushAllTileIndexBatches();
+            else
+                FlushAllTileBatches();
+
+            // Restore for object shadow casters (ShadowVS uses this uniform too).
+            shadowEffect.Parameters["UseProceduralTerrainUV"]?.SetValue(0.0f);
+            shadowEffect.Parameters["IsWaterTexture"]?.SetValue(0.0f);
 
             _useDynamicLightingShader = prevUseDynamic;
+            _useTerrainIndexBatching = prevUseIndex;
             _lastBoundTexture = prevLastBoundTexture;
             _graphicsDevice.BlendState = prevBlend;
             _graphicsDevice.DepthStencilState = prevDepth;
@@ -381,6 +447,13 @@ namespace Client.Main.Controls.Terrain
             effect.Parameters["EyePosition"]?.SetValue(Camera.Instance.Position);
             // Use terrain technique instead of setting uniforms (better performance, no shader branches)
             effect.CurrentTechnique = effect.Techniques["DynamicLighting_Terrain"];
+            effect.Parameters["UseProceduralTerrainUV"]?.SetValue(_useTerrainIndexBatching ? 1.0f : 0.0f);
+            effect.Parameters["IsWaterTexture"]?.SetValue(0.0f);
+            effect.Parameters["TerrainUvScale"]?.SetValue(Vector2.Zero);
+            effect.Parameters["WaterFlowDirection"]?.SetValue(_waterFlowDir);
+            effect.Parameters["WaterTotal"]?.SetValue(_waterTotal);
+            effect.Parameters["DistortionAmplitude"]?.SetValue(DistortionAmplitude);
+            effect.Parameters["DistortionFrequency"]?.SetValue(DistortionFrequency);
             effect.Parameters["TerrainDynamicIntensityScale"]?.SetValue(1.0f);
             effect.Parameters["Alpha"]?.SetValue(1f);
             effect.Parameters["DebugLightingAreas"]?.SetValue(Constants.DEBUG_LIGHTING_AREAS ? 1.0f : 0.0f);
@@ -708,6 +781,41 @@ namespace Client.Main.Controls.Terrain
             int i3 = GetTerrainIndex(xi + lodInt, yi + lodInt);
             int i4 = GetTerrainIndex(xi, yi + lodInt);
 
+            if (_useTerrainIndexBatching)
+            {
+                byte a1i = i1 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i1] : (byte)0;
+                byte a2i = i2 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i2] : (byte)0;
+                byte a3i = i3 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i3] : (byte)0;
+                byte a4i = i4 < _data.Mapping.Alpha.Length ? _data.Mapping.Alpha[i4] : (byte)0;
+
+                bool isOpaqueIndex = (a1i & a2i & a3i & a4i) == 255;
+                bool hasAlphaIndex = (a1i | a2i | a3i | a4i) != 0;
+
+                ushort u1 = (ushort)i1;
+                ushort u2 = (ushort)i2;
+                ushort u3 = (ushort)i3;
+                ushort u4 = (ushort)i4;
+
+                if (isOpaqueIndex)
+                {
+                    RenderTextureIndexed(_data.Mapping.Layer2[i1], u1, u2, u3, u4, alphaLayer: false);
+                }
+                else
+                {
+                    RenderTextureIndexed(_data.Mapping.Layer1[i1], u1, u2, u3, u4, alphaLayer: false);
+                    if (hasAlphaIndex)
+                    {
+                        RenderTextureIndexed(_data.Mapping.Layer2[i1], u1, u2, u3, u4, alphaLayer: true);
+                    }
+                }
+
+                // Grass is a fine-detail effect; skip for super-tiles (lodInt > 1) to avoid huge per-frame CPU cost.
+                if (lodInt == 1 && Constants.DRAW_GRASS)
+                    _grassRenderer.RenderGrassForTile(xi, yi, xi, yi, lodFactor, WorldIndex);
+
+                return;
+            }
+
             PrepareTileVertices(xi, yi, i1, i2, i3, i4, lodFactor);
             PrepareTileLights(i1, i2, i3, i4);
 
@@ -875,6 +983,241 @@ namespace Client.Main.Controls.Terrain
             _tempTerrainLights[3] *= a4 / 255f; _tempTerrainLights[3].A = a4;
         }
 
+        private static bool SupportsProceduralTerrainUv(Effect effect)
+        {
+            if (effect?.Parameters == null)
+                return false;
+
+            return effect.Parameters["UseProceduralTerrainUV"] != null &&
+                   effect.Parameters["TerrainUvScale"] != null &&
+                   effect.Parameters["IsWaterTexture"] != null;
+        }
+
+        private void EnsureTerrainVertexBuffers()
+        {
+            if (_graphicsDevice == null)
+                return;
+
+            EnsureVertexCache();
+            EnsureLightCache();
+
+            int total = Constants.TERRAIN_SIZE * Constants.TERRAIN_SIZE;
+            if (_cachedVertexPositions == null || _cachedVertexNormals == null || _cachedVertexBaseLights == null)
+                return;
+            if (_cachedVertexPositions.Length < total || _cachedVertexNormals.Length < total || _cachedVertexBaseLights.Length < total)
+                return;
+
+            var alphaMap = _data.Mapping.Alpha;
+            if (alphaMap != null && alphaMap.Length < total)
+                alphaMap = null;
+
+            bool needsRebuild =
+                !_terrainVertexBuffersBuilt ||
+                _terrainVertexBufferBase == null ||
+                _terrainVertexBufferBase.IsDisposed ||
+                _terrainVertexBufferAlpha == null ||
+                _terrainVertexBufferAlpha.IsDisposed ||
+                !ReferenceEquals(_terrainBuffersHeightMapRef, _cachedHeightMapRef) ||
+                !ReferenceEquals(_terrainBuffersTerrainWallRef, _cachedTerrainWallRef) ||
+                !ReferenceEquals(_terrainBuffersNormalsRef, _cachedNormalsRef) ||
+                !ReferenceEquals(_terrainBuffersFinalLightMapRef, _cachedFinalLightMapRef) ||
+                Math.Abs(_terrainBuffersAmbientLight - _cachedAmbientLight) > 0.0001f ||
+                !ReferenceEquals(_terrainBuffersAlphaMapRef, alphaMap);
+
+            if (!needsRebuild)
+                return;
+
+            _terrainVertexBufferBase?.Dispose();
+            _terrainVertexBufferAlpha?.Dispose();
+
+            _terrainVertexBufferBase = new VertexBuffer(
+                _graphicsDevice,
+                TerrainVertexPositionColorNormalTexture.VertexDeclaration,
+                total,
+                BufferUsage.WriteOnly);
+
+            _terrainVertexBufferAlpha = new VertexBuffer(
+                _graphicsDevice,
+                TerrainVertexPositionColorNormalTexture.VertexDeclaration,
+                total,
+                BufferUsage.WriteOnly);
+
+            var verts = ArrayPool<TerrainVertexPositionColorNormalTexture>.Shared.Rent(total);
+            try
+            {
+                // Base buffer: baked static light (A=255), procedural UV in shader (TexCoord unused).
+                for (int i = 0; i < total; i++)
+                {
+                    verts[i] = new TerrainVertexPositionColorNormalTexture(
+                        _cachedVertexPositions[i],
+                        _cachedVertexBaseLights[i],
+                        _cachedVertexNormals[i],
+                        Vector2.Zero);
+                }
+                _terrainVertexBufferBase.SetData(verts, 0, total);
+
+                // Alpha buffer: premultiply baked light by alpha map (matches old CPU path).
+                for (int i = 0; i < total; i++)
+                {
+                    Color baseLight = _cachedVertexBaseLights[i];
+                    byte a = alphaMap != null ? alphaMap[i] : (byte)0;
+
+                    int r = baseLight.R * a / 255;
+                    int g = baseLight.G * a / 255;
+                    int b = baseLight.B * a / 255;
+
+                    verts[i] = new TerrainVertexPositionColorNormalTexture(
+                        _cachedVertexPositions[i],
+                        new Color((byte)r, (byte)g, (byte)b, a),
+                        _cachedVertexNormals[i],
+                        Vector2.Zero);
+                }
+                _terrainVertexBufferAlpha.SetData(verts, 0, total);
+            }
+            finally
+            {
+                ArrayPool<TerrainVertexPositionColorNormalTexture>.Shared.Return(verts);
+            }
+
+            _terrainBuffersHeightMapRef = _cachedHeightMapRef;
+            _terrainBuffersTerrainWallRef = _cachedTerrainWallRef;
+            _terrainBuffersNormalsRef = _cachedNormalsRef;
+            _terrainBuffersFinalLightMapRef = _cachedFinalLightMapRef;
+            _terrainBuffersAmbientLight = _cachedAmbientLight;
+            _terrainBuffersAlphaMapRef = alphaMap;
+            _terrainVertexBuffersBuilt = true;
+        }
+
+        private void RenderTextureIndexed(int textureIndex, ushort i1, ushort i2, ushort i3, ushort i4, bool alphaLayer)
+        {
+            if (textureIndex < 0 || textureIndex >= _data.Textures.Length || _data.Textures[textureIndex] == null)
+                return;
+
+            AddTileToIndexBatch(textureIndex, i1, i2, i3, i4, alphaLayer);
+        }
+
+        private void AddTileToIndexBatch(int texIndex, ushort i1, ushort i2, ushort i3, ushort i4, bool alphaLayer)
+        {
+            var batch = GetTileIndexBatchBuffer(texIndex, alphaLayer);
+            var counters = alphaLayer ? _tileAlphaIndexCounts : _tileIndexCounts;
+
+            int dstOff = counters[texIndex];
+            if (dstOff + 6 > TileBatchIndices)
+            {
+                FlushSingleTextureIndexed(texIndex, alphaLayer);
+                dstOff = 0;
+            }
+
+            batch[dstOff + 0] = i1;
+            batch[dstOff + 1] = i2;
+            batch[dstOff + 2] = i3;
+            batch[dstOff + 3] = i3;
+            batch[dstOff + 4] = i4;
+            batch[dstOff + 5] = i1;
+            counters[texIndex] = dstOff + 6;
+        }
+
+        private void FlushSingleTextureIndexed(int texIndex, bool alphaLayer)
+        {
+            int indexCount = alphaLayer ? _tileAlphaIndexCounts[texIndex] : _tileIndexCounts[texIndex];
+            if (indexCount == 0)
+                return;
+
+            var batch = GetTileIndexBatchBuffer(texIndex, alphaLayer);
+            var texture = _data.Textures[texIndex];
+            if (texture == null)
+            {
+                if (alphaLayer) _tileAlphaIndexCounts[texIndex] = 0;
+                else _tileIndexCounts[texIndex] = 0;
+                return;
+            }
+
+            var effect = GraphicsManager.Instance.DynamicLightingEffect;
+            if (effect == null || effect.CurrentTechnique == null)
+                return;
+
+            var blendState = alphaLayer ? BlendState.AlphaBlend : BlendState.Opaque;
+            if (_lastBlendState != blendState)
+            {
+                _graphicsDevice.BlendState = blendState;
+                _lastBlendState = blendState;
+            }
+
+            // Texture + per-texture UV scale and water toggle
+            if (_lastBoundTexture != texture)
+            {
+                effect.Parameters["DiffuseTexture"]?.SetValue(texture);
+                _lastBoundTexture = texture;
+            }
+
+            effect.Parameters["TerrainUvScale"]?.SetValue(_tileUvScaleWorld[texIndex]);
+
+            bool noFlow = WaterSpeed == 0f && DistortionAmplitude == 0f;
+            float isWater = (texIndex == 5 && !noFlow) ? 1.0f : 0.0f;
+            effect.Parameters["IsWaterTexture"]?.SetValue(isWater);
+
+            var vb = alphaLayer ? _terrainVertexBufferAlpha : _terrainVertexBufferBase;
+            if (vb == null || vb.IsDisposed)
+                return;
+
+            var indexBuffer = DynamicBufferPool.RentIndexBuffer(indexCount, prefer16Bit: true);
+            if (indexBuffer == null)
+            {
+                if (alphaLayer) _tileAlphaIndexCounts[texIndex] = 0;
+                else _tileIndexCounts[texIndex] = 0;
+                return;
+            }
+
+            try
+            {
+                indexBuffer.SetData(batch, 0, indexCount, SetDataOptions.Discard);
+                _graphicsDevice.SetVertexBuffer(vb);
+                _graphicsDevice.Indices = indexBuffer;
+
+                int primitiveCount = indexCount / 3;
+                foreach (var pass in effect.CurrentTechnique.Passes)
+                {
+                    pass.Apply();
+                    _graphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
+                }
+
+                DrawCalls++;
+                DrawnTriangles += primitiveCount;
+            }
+            finally
+            {
+                _graphicsDevice.SetVertexBuffer(null);
+                _graphicsDevice.Indices = null;
+                DynamicBufferPool.ReturnIndexBuffer(indexBuffer);
+            }
+
+            if (alphaLayer) _tileAlphaIndexCounts[texIndex] = 0;
+            else _tileIndexCounts[texIndex] = 0;
+        }
+
+        private void FlushAllTileIndexBatches()
+        {
+            // First pass: render all opaque batches
+            for (int t = 0; t < 256; t++)
+            {
+                if (_tileIndexCounts[t] > 0)
+                    FlushSingleTextureIndexed(t, alphaLayer: false);
+            }
+
+            // Second pass: render all alpha batches
+            for (int t = 0; t < 256; t++)
+            {
+                if (_tileAlphaIndexCounts[t] > 0)
+                    FlushSingleTextureIndexed(t, alphaLayer: true);
+            }
+
+            if (_lastBlendState != BlendState.Opaque)
+            {
+                _graphicsDevice.BlendState = BlendState.Opaque;
+                _lastBlendState = BlendState.Opaque;
+            }
+        }
+
         private void AddTileToBatch(int texIndex, TerrainVertexPositionColorNormalTexture[] verts, bool alphaLayer)
         {
             var batch = GetTileBatchBuffer(texIndex, alphaLayer);
@@ -1039,6 +1382,18 @@ namespace Client.Main.Controls.Terrain
             if (buffer == null || buffer.Length != TileBatchVerts)
             {
                 buffer = new TerrainVertexPositionColorNormalTexture[TileBatchVerts];
+                batches[texIndex] = buffer;
+            }
+            return buffer;
+        }
+
+        private ushort[] GetTileIndexBatchBuffer(int texIndex, bool alphaLayer)
+        {
+            var batches = alphaLayer ? _tileAlphaIndexBatches : _tileIndexBatches;
+            var buffer = batches[texIndex];
+            if (buffer == null || buffer.Length != TileBatchIndices)
+            {
+                buffer = new ushort[TileBatchIndices];
                 batches[texIndex] = buffer;
             }
             return buffer;
