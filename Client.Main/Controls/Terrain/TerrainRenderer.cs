@@ -933,24 +933,74 @@ namespace Client.Main.Controls.Terrain
 
         private void PrepareTileVertices(int xi, int yi, int i1, int i2, int i3, int i4, float lodFactor)
         {
-            // Cached positions include height scaling and special-height offsets.
-            _tempTerrainVertex[0] = _cachedVertexPositions[i1];
-            _tempTerrainVertex[1] = _cachedVertexPositions[i2];
-            _tempTerrainVertex[2] = _cachedVertexPositions[i3];
-            _tempTerrainVertex[3] = _cachedVertexPositions[i4];
+            if (_cachedVertexPositions != null && _cachedVertexNormals != null)
+            {
+                int total = _cachedVertexPositions.Length;
+                if ((uint)i1 < (uint)total &&
+                    (uint)i2 < (uint)total &&
+                    (uint)i3 < (uint)total &&
+                    (uint)i4 < (uint)total)
+                {
+                    // Cached positions include height scaling and special-height offsets.
+                    _tempTerrainVertex[0] = _cachedVertexPositions[i1];
+                    _tempTerrainVertex[1] = _cachedVertexPositions[i2];
+                    _tempTerrainVertex[2] = _cachedVertexPositions[i3];
+                    _tempTerrainVertex[3] = _cachedVertexPositions[i4];
 
-            _tempTerrainNormals[0] = _cachedVertexNormals[i1];
-            _tempTerrainNormals[1] = _cachedVertexNormals[i2];
-            _tempTerrainNormals[2] = _cachedVertexNormals[i3];
-            _tempTerrainNormals[3] = _cachedVertexNormals[i4];
+                    _tempTerrainNormals[0] = _cachedVertexNormals[i1];
+                    _tempTerrainNormals[1] = _cachedVertexNormals[i2];
+                    _tempTerrainNormals[2] = _cachedVertexNormals[i3];
+                    _tempTerrainNormals[3] = _cachedVertexNormals[i4];
+                    return;
+                }
+            }
+
+            // Fallback for edge tiles that exceed cached array bounds (matches pre-cache behavior).
+            float sx = xi * Constants.TERRAIN_SCALE;
+            float sy = yi * Constants.TERRAIN_SCALE;
+            float ss = Constants.TERRAIN_SCALE * lodFactor;
+
+            SetTempVertex(0, i1, sx, sy);
+            SetTempVertex(1, i2, sx + ss, sy);
+            SetTempVertex(2, i3, sx + ss, sy + ss);
+            SetTempVertex(3, i4, sx, sy + ss);
+        }
+
+        private void SetTempVertex(int slot, int index, float x, float y)
+        {
+            if (_cachedVertexPositions != null &&
+                _cachedVertexNormals != null &&
+                (uint)index < (uint)_cachedVertexPositions.Length &&
+                (uint)index < (uint)_cachedVertexNormals.Length)
+            {
+                _tempTerrainVertex[slot] = _cachedVertexPositions[index];
+                _tempTerrainNormals[slot] = _cachedVertexNormals[index];
+                return;
+            }
+
+            float z = 0f;
+            if (_data.HeightMap != null && (uint)index < (uint)_data.HeightMap.Length)
+            {
+                z = _data.HeightMap[index].R * 1.5f;
+                var terrainWall = _data.Attributes?.TerrainWall;
+                if (terrainWall != null &&
+                    (uint)index < (uint)terrainWall.Length &&
+                    (terrainWall[index] & Client.Data.ATT.TWFlags.Height) != 0)
+                {
+                    z += SpecialHeight;
+                }
+            }
+
+            _tempTerrainVertex[slot] = new Vector3(x, y, z);
+            _tempTerrainNormals[slot] = Vector3.UnitZ;
         }
 
         private void PrepareTileLights(int i1, int i2, int i3, int i4)
         {
-            _tempTerrainLights[0] = _cachedVertexBaseLights[i1];
-            _tempTerrainLights[1] = _cachedVertexBaseLights[i2];
-            _tempTerrainLights[2] = _cachedVertexBaseLights[i3];
-            _tempTerrainLights[3] = _cachedVertexBaseLights[i4];
+            _tempTerrainLights[0] = GetVertexBaseLight(i1);
+            _tempTerrainLights[1] = GetVertexBaseLight(i2);
+            _tempTerrainLights[2] = GetVertexBaseLight(i3);
+            _tempTerrainLights[3] = GetVertexBaseLight(i4);
 
             // CPU fallback path: bake dynamic lights into vertex color (shader path does dynamic lighting on GPU).
             if (!_useDynamicLightingShader && _data.FinalLightMap != null)
@@ -960,6 +1010,27 @@ namespace Client.Main.Controls.Terrain
                 ApplyCpuDynamicLight(ref _tempTerrainLights[2], _tempTerrainVertex[2]);
                 ApplyCpuDynamicLight(ref _tempTerrainLights[3], _tempTerrainVertex[3]);
             }
+        }
+
+        private Color GetVertexBaseLight(int index)
+        {
+            if (_cachedVertexBaseLights != null && (uint)index < (uint)_cachedVertexBaseLights.Length)
+                return _cachedVertexBaseLights[index];
+
+            var finalLightMap = _data.FinalLightMap;
+            if (finalLightMap == null)
+                return Color.White;
+
+            Vector3 baseColor = Vector3.Zero;
+            if ((uint)index < (uint)finalLightMap.Length)
+            {
+                var c = finalLightMap[index];
+                baseColor = new Vector3(c.R, c.G, c.B);
+            }
+
+            baseColor += new Vector3(AmbientLight * 255f);
+            baseColor = Vector3.Clamp(baseColor, Vector3.Zero, new Vector3(255f));
+            return new Color((int)baseColor.X, (int)baseColor.Y, (int)baseColor.Z);
         }
 
         private void ApplyCpuDynamicLight(ref Color baseLight, Vector3 pos)
