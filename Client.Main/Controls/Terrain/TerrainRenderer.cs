@@ -37,6 +37,19 @@ namespace Client.Main.Controls.Terrain
         private readonly Color[] _tempTerrainLights = new Color[4];
         private readonly VertexPositionColorTexture[] _fallbackTileBuffer = new VertexPositionColorTexture[TileBatchVerts];
 
+        // Cached per-vertex data (built once per terrain) to avoid per-tile CPU work each frame.
+        private bool _vertexCacheBuilt;
+        private Color[] _cachedHeightMapRef;
+        private Client.Data.ATT.TWFlags[] _cachedTerrainWallRef;
+        private Vector3[] _cachedNormalsRef;
+        private Vector3[] _cachedVertexPositions;
+        private Vector3[] _cachedVertexNormals;
+
+        private bool _lightCacheBuilt;
+        private Color[] _cachedFinalLightMapRef;
+        private float _cachedAmbientLight = float.NaN;
+        private Color[] _cachedVertexBaseLights;
+
         // State tracking for GPU optimization
         private Texture2D _lastBoundTexture = null;
         private BlendState _lastBlendState = null;
@@ -128,6 +141,108 @@ namespace Client.Main.Controls.Terrain
             _waterTotal += (float)time.ElapsedGameTime.TotalSeconds * WaterSpeed;
         }
 
+        private void EnsureVertexCache()
+        {
+            if (_data.HeightMap == null)
+                return;
+
+            int total = Constants.TERRAIN_SIZE * Constants.TERRAIN_SIZE;
+            var heightMap = _data.HeightMap;
+            var terrainWall = _data.Attributes?.TerrainWall;
+            var normals = _data.Normals;
+
+            if (_vertexCacheBuilt &&
+                _cachedVertexPositions != null &&
+                _cachedVertexPositions.Length == total &&
+                ReferenceEquals(heightMap, _cachedHeightMapRef) &&
+                ReferenceEquals(terrainWall, _cachedTerrainWallRef) &&
+                ReferenceEquals(normals, _cachedNormalsRef))
+            {
+                return;
+            }
+
+            _cachedVertexPositions ??= new Vector3[total];
+            if (_cachedVertexPositions.Length != total)
+                _cachedVertexPositions = new Vector3[total];
+
+            _cachedVertexNormals ??= new Vector3[total];
+            if (_cachedVertexNormals.Length != total)
+                _cachedVertexNormals = new Vector3[total];
+
+            for (int i = 0; i < total; i++)
+            {
+                int x = i % Constants.TERRAIN_SIZE;
+                int y = i / Constants.TERRAIN_SIZE;
+
+                float z = heightMap[i].R * 1.5f;
+                if (terrainWall != null && (terrainWall[i] & Client.Data.ATT.TWFlags.Height) != 0)
+                    z += SpecialHeight;
+
+                _cachedVertexPositions[i] = new Vector3(x * Constants.TERRAIN_SCALE, y * Constants.TERRAIN_SCALE, z);
+
+                if (normals == null || (uint)i >= (uint)normals.Length)
+                {
+                    _cachedVertexNormals[i] = Vector3.UnitZ;
+                }
+                else
+                {
+                    var n = normals[i];
+                    _cachedVertexNormals[i] = n.LengthSquared() < 1e-6f ? Vector3.UnitZ : n;
+                }
+            }
+
+            _cachedHeightMapRef = heightMap;
+            _cachedTerrainWallRef = terrainWall;
+            _cachedNormalsRef = normals;
+            _vertexCacheBuilt = true;
+        }
+
+        private void EnsureLightCache()
+        {
+            int total = Constants.TERRAIN_SIZE * Constants.TERRAIN_SIZE;
+            var finalLightMap = _data.FinalLightMap;
+
+            if (_lightCacheBuilt &&
+                _cachedVertexBaseLights != null &&
+                _cachedVertexBaseLights.Length == total &&
+                ReferenceEquals(finalLightMap, _cachedFinalLightMapRef) &&
+                Math.Abs(_cachedAmbientLight - AmbientLight) < 0.0001f)
+            {
+                return;
+            }
+
+            _cachedVertexBaseLights ??= new Color[total];
+            if (_cachedVertexBaseLights.Length != total)
+                _cachedVertexBaseLights = new Color[total];
+
+            if (finalLightMap == null || finalLightMap.Length < total)
+            {
+                // Match old behavior: if FinalLightMap is missing, BuildVertexLight returned Color.White (no ambient).
+                for (int i = 0; i < total; i++)
+                    _cachedVertexBaseLights[i] = Color.White;
+
+                // Ambient is ignored in this fallback, but track it to avoid rebuilding every frame.
+                _cachedAmbientLight = AmbientLight;
+            }
+            else
+            {
+                float ambient = AmbientLight * 255f;
+                for (int i = 0; i < total; i++)
+                {
+                    var c = finalLightMap[i];
+                    float r = MathF.Min(c.R + ambient, 255f);
+                    float g = MathF.Min(c.G + ambient, 255f);
+                    float b = MathF.Min(c.B + ambient, 255f);
+                    _cachedVertexBaseLights[i] = new Color((byte)r, (byte)g, (byte)b, (byte)255);
+                }
+
+                _cachedAmbientLight = AmbientLight;
+            }
+
+            _cachedFinalLightMapRef = finalLightMap;
+            _lightCacheBuilt = true;
+        }
+
         public void Draw(bool after)
         {
             if (_graphicsDevice == null) return; // Added null check for _graphicsDevice
@@ -142,6 +257,12 @@ namespace Client.Main.Controls.Terrain
             _useDynamicLightingShader = Constants.ENABLE_TERRAIN_GPU_LIGHTING &&
                                         Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
                                         GraphicsManager.Instance.DynamicLightingEffect != null;
+
+            if (!after)
+            {
+                EnsureVertexCache();
+                EnsureLightCache();
+            }
 
             if (_useDynamicLightingShader)
             {
@@ -198,6 +319,9 @@ namespace Client.Main.Controls.Terrain
         {
             if (_graphicsDevice == null || _data.HeightMap == null || shadowEffect == null)
                 return;
+
+            EnsureVertexCache();
+            EnsureLightCache();
 
             var prevBlend = _graphicsDevice.BlendState;
             var prevDepth = _graphicsDevice.DepthStencilState;
@@ -609,7 +733,9 @@ namespace Client.Main.Controls.Terrain
                 }
             }
 
-            _grassRenderer.RenderGrassForTile(xi, yi, xi, yi, lodFactor, WorldIndex);
+            // Grass is a fine-detail effect; skip for super-tiles (lodInt > 1) to avoid huge per-frame CPU cost.
+            if (lodInt == 1 && Constants.DRAW_GRASS)
+                _grassRenderer.RenderGrassForTile(xi, yi, xi, yi, lodFactor, WorldIndex);
         }
 
         private void RenderTexture(int textureIndex, float xf, float yf, float lodScale, bool useBatch, bool alphaLayer = false)
@@ -699,74 +825,46 @@ namespace Client.Main.Controls.Terrain
 
         private void PrepareTileVertices(int xi, int yi, int i1, int i2, int i3, int i4, float lodFactor)
         {
-            float h1 = i1 < _data.HeightMap.Length ? _data.HeightMap[i1].R * 1.5f : 0f;
-            float h2 = i2 < _data.HeightMap.Length ? _data.HeightMap[i2].R * 1.5f : 0f;
-            float h3 = i3 < _data.HeightMap.Length ? _data.HeightMap[i3].R * 1.5f : 0f;
-            float h4 = i4 < _data.HeightMap.Length ? _data.HeightMap[i4].R * 1.5f : 0f;
+            // Cached positions include height scaling and special-height offsets.
+            _tempTerrainVertex[0] = _cachedVertexPositions[i1];
+            _tempTerrainVertex[1] = _cachedVertexPositions[i2];
+            _tempTerrainVertex[2] = _cachedVertexPositions[i3];
+            _tempTerrainVertex[3] = _cachedVertexPositions[i4];
 
-            float sx = xi * Constants.TERRAIN_SCALE;
-            float sy = yi * Constants.TERRAIN_SCALE;
-            float ss = Constants.TERRAIN_SCALE * lodFactor;
-
-            _tempTerrainVertex[0] = new Vector3(sx, sy, h1);
-            _tempTerrainVertex[1] = new Vector3(sx + ss, sy, h2);
-            _tempTerrainVertex[2] = new Vector3(sx + ss, sy + ss, h3);
-            _tempTerrainVertex[3] = new Vector3(sx, sy + ss, h4);
-
-            if (i1 < _data.Attributes.TerrainWall.Length && _data.Attributes.TerrainWall[i1].HasFlag(Client.Data.ATT.TWFlags.Height))
-                _tempTerrainVertex[0].Z += SpecialHeight;
-            if (i2 < _data.Attributes.TerrainWall.Length && _data.Attributes.TerrainWall[i2].HasFlag(Client.Data.ATT.TWFlags.Height))
-                _tempTerrainVertex[1].Z += SpecialHeight;
-            if (i3 < _data.Attributes.TerrainWall.Length && _data.Attributes.TerrainWall[i3].HasFlag(Client.Data.ATT.TWFlags.Height))
-                _tempTerrainVertex[2].Z += SpecialHeight;
-            if (i4 < _data.Attributes.TerrainWall.Length && _data.Attributes.TerrainWall[i4].HasFlag(Client.Data.ATT.TWFlags.Height))
-                _tempTerrainVertex[3].Z += SpecialHeight;
-
-            _tempTerrainNormals[0] = GetTerrainNormal(i1);
-            _tempTerrainNormals[1] = GetTerrainNormal(i2);
-            _tempTerrainNormals[2] = GetTerrainNormal(i3);
-            _tempTerrainNormals[3] = GetTerrainNormal(i4);
+            _tempTerrainNormals[0] = _cachedVertexNormals[i1];
+            _tempTerrainNormals[1] = _cachedVertexNormals[i2];
+            _tempTerrainNormals[2] = _cachedVertexNormals[i3];
+            _tempTerrainNormals[3] = _cachedVertexNormals[i4];
         }
 
         private void PrepareTileLights(int i1, int i2, int i3, int i4)
         {
-            _tempTerrainLights[0] = BuildVertexLight(i1, _tempTerrainVertex[0]);
-            _tempTerrainLights[1] = BuildVertexLight(i2, _tempTerrainVertex[1]);
-            _tempTerrainLights[2] = BuildVertexLight(i3, _tempTerrainVertex[2]);
-            _tempTerrainLights[3] = BuildVertexLight(i4, _tempTerrainVertex[3]);
-        }
+            _tempTerrainLights[0] = _cachedVertexBaseLights[i1];
+            _tempTerrainLights[1] = _cachedVertexBaseLights[i2];
+            _tempTerrainLights[2] = _cachedVertexBaseLights[i3];
+            _tempTerrainLights[3] = _cachedVertexBaseLights[i4];
 
-        private Vector3 GetTerrainNormal(int index)
-        {
-            if (_data.Normals == null || (uint)index >= (uint)_data.Normals.Length)
-                return Vector3.UnitZ;
-
-            var normal = _data.Normals[index];
-            if (normal.LengthSquared() < 1e-6f)
-                return Vector3.UnitZ;
-
-            return normal;
-        }
-
-        private Color BuildVertexLight(int index, Vector3 pos)
-        {
-            if (_data.FinalLightMap == null) return Color.White; // Added null check for _data.FinalLightMap
-
-            // Calculate lighting (expensive operation)
-            Vector3 baseColor = index < _data.FinalLightMap.Length
-                ? new Vector3(_data.FinalLightMap[index].R, _data.FinalLightMap[index].G, _data.FinalLightMap[index].B)
-                : Vector3.Zero;
-
-            baseColor += new Vector3(AmbientLight * 255f);
-            if (!_useDynamicLightingShader)
+            // CPU fallback path: bake dynamic lights into vertex color (shader path does dynamic lighting on GPU).
+            if (!_useDynamicLightingShader && _data.FinalLightMap != null)
             {
-                baseColor += _lightManager.EvaluateDynamicLight(new Vector2(pos.X, pos.Y));
+                ApplyCpuDynamicLight(ref _tempTerrainLights[0], _tempTerrainVertex[0]);
+                ApplyCpuDynamicLight(ref _tempTerrainLights[1], _tempTerrainVertex[1]);
+                ApplyCpuDynamicLight(ref _tempTerrainLights[2], _tempTerrainVertex[2]);
+                ApplyCpuDynamicLight(ref _tempTerrainLights[3], _tempTerrainVertex[3]);
             }
-            baseColor = Vector3.Clamp(baseColor, Vector3.Zero, new Vector3(255f));
+        }
 
-            Color result = new Color((int)baseColor.X, (int)baseColor.Y, (int)baseColor.Z);
+        private void ApplyCpuDynamicLight(ref Color baseLight, Vector3 pos)
+        {
+            var dyn = _lightManager.EvaluateDynamicLight(new Vector2(pos.X, pos.Y));
+            if (dyn.LengthSquared() < 0.0001f)
+                return;
 
-            return result;
+            float r = MathF.Min(baseLight.R + dyn.X, 255f);
+            float g = MathF.Min(baseLight.G + dyn.Y, 255f);
+            float b = MathF.Min(baseLight.B + dyn.Z, 255f);
+
+            baseLight = new Color((byte)r, (byte)g, (byte)b, baseLight.A);
         }
 
         private void ApplyAlphaToLights(byte a1, byte a2, byte a3, byte a4)

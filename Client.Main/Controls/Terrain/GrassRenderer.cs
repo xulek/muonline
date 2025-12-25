@@ -145,18 +145,17 @@ namespace Client.Main.Controls.Terrain
             int grassPerTile = GrassCount(distSq, lodFactor);
             if (grassPerTile == 0) return;
 
-            // Optimization: Simple distance-based culling (skip very far tiles)
-            if (distSq > GrassFarSq * 1.5f) // Skip tiles beyond 1.5x far distance
-                return;
-
             int terrainIndex = yi * Constants.TERRAIN_SIZE + xi;
             var staticLight = terrainIndex < _data.FinalLightMap.Length
                           ? _data.FinalLightMap[terrainIndex]
                           : Color.White;
             float windBase = _wind.GetWindValue(xi, yi);
 
-            // Calculate dynamic light once per tile (tile center)
-            var dynTile = _lightManager?.EvaluateDynamicLight(new Vector2(tileCx, tileCy)) ?? Vector3.Zero;
+            // Calculate dynamic light once per tile (tile center), but only for near grass.
+            // Farther away, the extra CPU work is not worth the visual benefit.
+            Vector3 dynTile = Vector3.Zero;
+            if (Constants.ENABLE_DYNAMIC_LIGHTS && distSq < GrassNearSq)
+                dynTile = _lightManager.EvaluateDynamicLight(new Vector2(tileCx, tileCy));
             var combined = new Vector3(staticLight.R, staticLight.G, staticLight.B) + dynTile;
             combined = Vector3.Clamp(combined, Vector3.Zero, new Vector3(255f));
             var tileLight = new Color(
