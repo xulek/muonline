@@ -660,7 +660,8 @@ namespace Client.Main.Objects
                 int desiredStride = 1;
                 if (!walker.IsMainWalker)
                 {
-                    desiredStride = walker.IsOneShotPlaying ? 1 : (LowQuality ? 4 : 2);
+                    // Keep nearby animations smooth; only throttle when low-quality is active.
+                    desiredStride = walker.IsOneShotPlaying ? 1 : (LowQuality ? 4 : 1);
                 }
 
                 if (AnimationUpdateStride != desiredStride)
