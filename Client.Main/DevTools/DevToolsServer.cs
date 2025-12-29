@@ -93,6 +93,8 @@ namespace Client.Main.DevTools
                 endpoints.MapGet("/api/history", GetFrameHistory);
                 endpoints.MapGet("/api/hotspots", GetHotspots);
                 endpoints.MapGet("/api/scopes", GetScopes);
+                endpoints.MapGet("/api/scopestats", GetScopeStats);
+                endpoints.MapPost("/api/scopestats/reset", ResetScopeStats);
 
                 // Recording endpoints
                 endpoints.MapPost("/api/recording/start", StartRecording);
@@ -319,6 +321,28 @@ namespace Client.Main.DevTools
             }
 
             await context.Response.WriteAsync(JsonSerializer.Serialize(scopeTree, JsonOptions));
+        }
+
+        private async Task GetScopeStats(HttpContext context)
+        {
+            context.Response.ContentType = "application/json";
+            var stats = DevToolsCollector.Instance?.GetScopeStats();
+            if (stats == null || stats.Count == 0)
+            {
+                await context.Response.WriteAsync("[]");
+                return;
+            }
+
+            // Sort by total time descending
+            stats.Sort((a, b) => b.TotalMs.CompareTo(a.TotalMs));
+            await context.Response.WriteAsync(JsonSerializer.Serialize(stats, JsonOptions));
+        }
+
+        private async Task ResetScopeStats(HttpContext context)
+        {
+            DevToolsCollector.Instance?.ResetScopeStats();
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"status\":\"reset\"}");
         }
 
         private async Task StartRecording(HttpContext context)

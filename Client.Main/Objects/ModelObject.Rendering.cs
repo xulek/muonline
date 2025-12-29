@@ -265,6 +265,18 @@ namespace Client.Main.Objects
             base.Draw(gameTime);
 
             gd.RasterizerState = prevCull;
+
+#if DEBUG
+            // Record model draw for DevTools stats
+            int triangles = 0;
+            if (_boneIndexBuffers != null)
+            {
+                for (int i = 0; i < _boneIndexBuffers.Length; i++)
+                    if (_boneIndexBuffers[i] != null)
+                        triangles += _boneIndexBuffers[i].IndexCount / 3;
+            }
+            DevTools.DevToolsCollector.Instance?.RecordModelDraw(triangles);
+#endif
         }
 
         public virtual void DrawModel(bool isAfterDraw)

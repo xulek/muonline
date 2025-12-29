@@ -62,6 +62,18 @@ namespace Client.Main.DevTools
         private List<FrameMetricsData> _recordingBuffer;
         private readonly object _recordingLock = new();
 
+        // Memory tracking (for delta calculation)
+        private int _lastGen0, _lastGen1, _lastGen2;
+        private long _lastHeapSize;
+        private int _consecutiveGrowthFrames;
+
+        // Scope stats aggregation (persistent across frames)
+        private readonly Dictionary<string, ScopeStatsEntry> _scopeStats = new();
+        private readonly object _scopeStatsLock = new();
+
+        // Render stats per frame (reset each frame)
+        private RenderMetricsData _frameRenderStats;
+
         private DevToolsCollector()
         {
             // Pre-initialize arrays
@@ -111,6 +123,9 @@ namespace Client.Main.DevTools
             _scopeStackTop = -1;
             for (int i = 0; i < MaxScopes; i++)
                 _scopes[i].IsValid = false;
+
+            // Reset per-frame render stats
+            _frameRenderStats = default;
 
             _accumulatedOverheadMs += ControlTimingWrapper.ElapsedMsSince(_frameProfilerStart);
         }
@@ -167,6 +182,12 @@ namespace Client.Main.DevTools
 
             // Capture process metrics (CPU/GPU/RAM)
             CaptureProcessMetrics();
+
+            // Capture memory metrics (GC/heap)
+            CaptureMemoryMetrics();
+
+            // Capture render metrics breakdown
+            CaptureRenderMetrics();
 
             // Build scope tree for this frame
             BuildScopeTree();
@@ -274,6 +295,75 @@ namespace Client.Main.DevTools
 
         #endregion
 
+        #region Render Stats Recording (called from Draw methods)
+
+        /// <summary>
+        /// Record a model draw call. Called from ModelObject.Draw().
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordModelDraw(int triangles = 0)
+        {
+            _frameRenderStats.DrawCallsModels++;
+            _frameRenderStats.TrianglesModels += triangles;
+        }
+
+        /// <summary>
+        /// Record an effect draw call. Called from effect/particle Draw().
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordEffectDraw(int triangles = 0)
+        {
+            _frameRenderStats.DrawCallsEffects++;
+            _frameRenderStats.TrianglesEffects += triangles;
+        }
+
+        /// <summary>
+        /// Record a UI draw call. Called from SpriteBatch wrapper.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordUIDraw()
+        {
+            _frameRenderStats.DrawCallsUI++;
+        }
+
+        /// <summary>
+        /// Record a texture switch. Called from GraphicsDevice wrapper.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordTextureSwitch()
+        {
+            _frameRenderStats.TextureSwitches++;
+        }
+
+        /// <summary>
+        /// Record a shader switch. Called from Effect.Apply wrapper.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordShaderSwitch()
+        {
+            _frameRenderStats.ShaderSwitches++;
+        }
+
+        /// <summary>
+        /// Record a blend state change.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordBlendStateChange()
+        {
+            _frameRenderStats.BlendStateChanges++;
+        }
+
+        /// <summary>
+        /// Record batched draw calls (merged into one).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordBatchMerge(int mergedCount)
+        {
+            _frameRenderStats.BatchesMerged += mergedCount;
+        }
+
+        #endregion
+
         #region Object Timing (called from WorldObject.Update/Draw)
 
         /// <summary>
@@ -358,6 +448,23 @@ namespace Client.Main.DevTools
 
             _scopes[scopeIndex].DurationMs = durationMs;
 
+            // Aggregate stats for this scope
+            var name = _scopes[scopeIndex].Name;
+            var category = _scopes[scopeIndex].Category;
+            if (name != null)
+            {
+                lock (_scopeStatsLock)
+                {
+                    var key = category != null ? $"{category}:{name}" : name;
+                    if (!_scopeStats.TryGetValue(key, out var stats))
+                    {
+                        stats = new ScopeStatsEntry { Name = name, Category = category };
+                        _scopeStats[key] = stats;
+                    }
+                    stats.RecordSample(durationMs);
+                }
+            }
+
             // Pop from stack
             if (_scopeStackTop >= 0)
             {
@@ -420,6 +527,74 @@ namespace Client.Main.DevTools
 
             _lastProcessMetrics = metrics;
             _currentFrame.Process = metrics;
+        }
+
+        private void CaptureMemoryMetrics()
+        {
+            // Get current GC collection counts
+            int gen0 = GC.CollectionCount(0);
+            int gen1 = GC.CollectionCount(1);
+            int gen2 = GC.CollectionCount(2);
+
+            // Get memory sizes
+            long heapSize = GC.GetTotalMemory(false);
+            long allocated = GC.GetTotalAllocatedBytes(false);
+
+            // Calculate deltas
+            int gen0Delta = gen0 - _lastGen0;
+            int gen1Delta = gen1 - _lastGen1;
+            int gen2Delta = gen2 - _lastGen2;
+            long heapDelta = heapSize - _lastHeapSize;
+
+            // Track consecutive growth for leak detection
+            if (heapDelta > 0)
+                _consecutiveGrowthFrames++;
+            else
+                _consecutiveGrowthFrames = 0;
+
+            bool isLeaking = _consecutiveGrowthFrames > 60; // ~1 second at 60fps
+
+            _currentFrame.Memory = new MemoryMetricsData
+            {
+                Gen0Collections = gen0,
+                Gen1Collections = gen1,
+                Gen2Collections = gen2,
+                Gen0Delta = gen0Delta,
+                Gen1Delta = gen1Delta,
+                Gen2Delta = gen2Delta,
+                HeapSizeBytes = heapSize,
+                AllocatedBytes = allocated,
+                HeapDeltaBytes = heapDelta,
+                IsLeaking = isLeaking,
+                ConsecutiveGrowthFrames = _consecutiveGrowthFrames
+            };
+
+            // Store for next frame delta calculation
+            _lastGen0 = gen0;
+            _lastGen1 = gen1;
+            _lastGen2 = gen2;
+            _lastHeapSize = heapSize;
+        }
+
+        private void CaptureRenderMetrics()
+        {
+            // Copy terrain triangles from existing terrain metrics
+            _frameRenderStats.TrianglesTerrain = _currentFrame.Terrain.DrawnTriangles;
+            _frameRenderStats.DrawCallsTerrain = _currentFrame.Terrain.DrawCalls;
+
+            // Calculate totals
+            _frameRenderStats.DrawCallsTotal = _frameRenderStats.DrawCallsTerrain
+                + _frameRenderStats.DrawCallsModels
+                + _frameRenderStats.DrawCallsEffects
+                + _frameRenderStats.DrawCallsUI;
+
+            // Calculate batch efficiency
+            int totalPotential = _frameRenderStats.DrawCallsTotal + _frameRenderStats.BatchesMerged;
+            _frameRenderStats.BatchEfficiency = totalPotential > 0
+                ? (float)_frameRenderStats.BatchesMerged / totalPotential
+                : 0f;
+
+            _currentFrame.Render = _frameRenderStats;
         }
 
         /// <summary>
@@ -504,6 +679,28 @@ namespace Client.Main.DevTools
             lock (_scopeLock)
             {
                 return _lastScopeTree;
+            }
+        }
+
+        /// <summary>
+        /// Get aggregated scope statistics. Thread-safe.
+        /// </summary>
+        public List<ScopeStatsEntry> GetScopeStats()
+        {
+            lock (_scopeStatsLock)
+            {
+                return _scopeStats.Values.ToList();
+            }
+        }
+
+        /// <summary>
+        /// Reset scope statistics. Called via API.
+        /// </summary>
+        public void ResetScopeStats()
+        {
+            lock (_scopeStatsLock)
+            {
+                _scopeStats.Clear();
             }
         }
 

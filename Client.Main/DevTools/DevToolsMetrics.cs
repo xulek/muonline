@@ -141,6 +141,12 @@ namespace Client.Main.DevTools
         public RenderSettingsData RenderSettings;
         public ProcessMetricsData Process;
 
+        // Memory metrics
+        public MemoryMetricsData Memory;
+
+        // Detailed render metrics
+        public RenderMetricsData Render;
+
         // Profiler overhead tracking
         public double ProfilerOverheadMs;
     }
@@ -231,6 +237,150 @@ namespace Client.Main.DevTools
     }
 
     /// <summary>
+    /// Memory and GC metrics. Uses zero-overhead GC APIs.
+    /// </summary>
+    public struct MemoryMetricsData
+    {
+        // GC collection counts (cumulative this session)
+        [JsonPropertyName("gen0")]
+        public int Gen0Collections;
+        [JsonPropertyName("gen1")]
+        public int Gen1Collections;
+        [JsonPropertyName("gen2")]
+        public int Gen2Collections;
+
+        // GC deltas (per frame)
+        [JsonPropertyName("gen0Delta")]
+        public int Gen0Delta;
+        [JsonPropertyName("gen1Delta")]
+        public int Gen1Delta;
+        [JsonPropertyName("gen2Delta")]
+        public int Gen2Delta;
+
+        // Memory sizes
+        [JsonPropertyName("heapBytes")]
+        public long HeapSizeBytes;
+        [JsonPropertyName("allocatedBytes")]
+        public long AllocatedBytes;
+
+        // Trend tracking
+        [JsonPropertyName("heapDelta")]
+        public long HeapDeltaBytes;
+        [JsonPropertyName("isLeaking")]
+        public bool IsLeaking;
+        [JsonPropertyName("leakFrames")]
+        public int ConsecutiveGrowthFrames;
+    }
+
+    /// <summary>
+    /// Detailed render metrics by category.
+    /// </summary>
+    public struct RenderMetricsData
+    {
+        // Draw calls by category
+        [JsonPropertyName("dcTerrain")]
+        public int DrawCallsTerrain;
+        [JsonPropertyName("dcModels")]
+        public int DrawCallsModels;
+        [JsonPropertyName("dcEffects")]
+        public int DrawCallsEffects;
+        [JsonPropertyName("dcUI")]
+        public int DrawCallsUI;
+        [JsonPropertyName("dcTotal")]
+        public int DrawCallsTotal;
+
+        // Triangles by category
+        [JsonPropertyName("triTerrain")]
+        public int TrianglesTerrain;
+        [JsonPropertyName("triModels")]
+        public int TrianglesModels;
+        [JsonPropertyName("triEffects")]
+        public int TrianglesEffects;
+
+        // State changes
+        [JsonPropertyName("texSwitches")]
+        public int TextureSwitches;
+        [JsonPropertyName("shaderSwitches")]
+        public int ShaderSwitches;
+        [JsonPropertyName("blendChanges")]
+        public int BlendStateChanges;
+
+        // Batching efficiency
+        [JsonPropertyName("batchesMerged")]
+        public int BatchesMerged;
+        [JsonPropertyName("batchEfficiency")]
+        public float BatchEfficiency;
+    }
+
+    /// <summary>
+    /// Aggregated scope statistics across frames.
+    /// </summary>
+    public class ScopeStatsEntry
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
+
+        [JsonPropertyName("category")]
+        public string Category { get; set; }
+
+        [JsonPropertyName("calls")]
+        public int CallCount { get; set; }
+
+        [JsonPropertyName("totalMs")]
+        public double TotalMs { get; set; }
+
+        [JsonPropertyName("minMs")]
+        public double MinMs { get; set; } = double.MaxValue;
+
+        [JsonPropertyName("maxMs")]
+        public double MaxMs { get; set; }
+
+        [JsonPropertyName("avgMs")]
+        public double AvgMs => CallCount > 0 ? TotalMs / CallCount : 0;
+
+        [JsonPropertyName("lastMs")]
+        public double LastMs { get; set; }
+
+        // Ring buffer for P95 calculation (last 100 samples)
+        [JsonIgnore]
+        public double[] RecentSamples { get; set; } = new double[100];
+        [JsonIgnore]
+        public int SampleIndex { get; set; }
+        [JsonIgnore]
+        public int SampleCount { get; set; }
+
+        [JsonPropertyName("p95Ms")]
+        public double P95Ms { get; set; }
+
+        public void RecordSample(double durationMs)
+        {
+            CallCount++;
+            TotalMs += durationMs;
+            LastMs = durationMs;
+            if (durationMs < MinMs) MinMs = durationMs;
+            if (durationMs > MaxMs) MaxMs = durationMs;
+
+            // Add to ring buffer
+            RecentSamples[SampleIndex] = durationMs;
+            SampleIndex = (SampleIndex + 1) % 100;
+            if (SampleCount < 100) SampleCount++;
+
+            // Calculate P95 periodically (every 10 samples to avoid sorting overhead)
+            if (CallCount % 10 == 0) UpdateP95();
+        }
+
+        private void UpdateP95()
+        {
+            if (SampleCount < 5) { P95Ms = MaxMs; return; }
+            var sorted = new double[SampleCount];
+            Array.Copy(RecentSamples, sorted, SampleCount);
+            Array.Sort(sorted);
+            int p95Index = (int)(SampleCount * 0.95);
+            P95Ms = sorted[Math.Min(p95Index, SampleCount - 1)];
+        }
+    }
+
+    /// <summary>
     /// Process-level metrics for the current client.
     /// </summary>
     public struct ProcessMetricsData
@@ -298,6 +448,12 @@ namespace Client.Main.DevTools
         [JsonPropertyName("process")]
         public ProcessMetricsData Process { get; set; }
 
+        [JsonPropertyName("memory")]
+        public MemoryMetricsData Memory { get; set; }
+
+        [JsonPropertyName("renderStats")]
+        public RenderMetricsData RenderStats { get; set; }
+
         public static FrameMetricsJson FromData(in FrameMetricsData data)
         {
             return new FrameMetricsJson
@@ -317,7 +473,9 @@ namespace Client.Main.DevTools
                 Bmd = data.Bmd,
                 Pool = data.Pool,
                 RenderSettings = data.RenderSettings,
-                Process = data.Process
+                Process = data.Process,
+                Memory = data.Memory,
+                RenderStats = data.Render
             };
         }
     }

@@ -583,6 +583,7 @@ namespace Client.Main.DevTools
                 <button class='nav-item' data-tab='flame'>Flame Graph</button>
                 <button class='nav-item' data-tab='hierarchy'>Hierarchy <span class='nav-badge' id='hierarchyCount'>0</span></button>
                 <button class='nav-item' data-tab='hotspots'>Hotspots <span class='nav-badge' id='hotspotsCount'>0</span></button>
+                <button class='nav-item' data-tab='scopes'>Scopes <span class='nav-badge' id='scopesCount'>0</span></button>
             </nav>
             <div class='header-controls'>
                 <button class='btn' id='btnRecord'><span>●</span> Record</button>
@@ -683,6 +684,29 @@ namespace Client.Main.DevTools
                 </div>
                 <div class='hotspots-grid' id='hotspots'></div>
             </div>
+
+            <!-- Scopes (aggregated ProfileScope stats) -->
+            <div class='tab-view' id='tab-scopes'>
+                <div class='tab-toolbar'>
+                    <span style='color: var(--text-2);'>Aggregated ProfileScope statistics across frames</span>
+                    <button class='btn' id='btnResetScopes' style='margin-left: auto;'>Reset Stats</button>
+                </div>
+                <div class='hierarchy-scroll' id='scopesTable' style='padding: 16px 20px;'>
+                    <table style='width: 100%; border-collapse: collapse;'>
+                        <thead>
+                            <tr style='border-bottom: 1px solid var(--border);'>
+                                <th style='text-align: left; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>NAME</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>CALLS</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>AVG</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>MAX</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>P95</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>TOTAL</th>
+                            </tr>
+                        </thead>
+                        <tbody id='scopesBody'></tbody>
+                    </table>
+                </div>
+            </div>
         </main>
 
         <aside class='panel' id='panel'>
@@ -715,9 +739,23 @@ namespace Client.Main.DevTools
                 </div>
                 <div class='subsystem-card'>
                     <div class='subsystem-header'><div class='subsystem-icon'>R</div> Renderer</div>
-                    <div class='subsystem-row'><span class='subsystem-label'>FXAA</span><span class='subsystem-value' id='renderFxaa'>-</span></div>
-                    <div class='subsystem-row'><span class='subsystem-label'>Batch Sort</span><span class='subsystem-value' id='renderBatch'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Draw Calls</span><span class='subsystem-value' id='renderDcTotal'>-</span></div>
+                    <div class='subsystem-row' style='padding-left: 12px;'><span class='subsystem-label'>Terrain</span><span class='subsystem-value' id='renderDcTerrain'>-</span></div>
+                    <div class='subsystem-row' style='padding-left: 12px;'><span class='subsystem-label'>Models</span><span class='subsystem-value' id='renderDcModels'>-</span></div>
+                    <div class='subsystem-row' style='padding-left: 12px;'><span class='subsystem-label'>Effects</span><span class='subsystem-value' id='renderDcEffects'>-</span></div>
+                    <div class='subsystem-row' style='padding-left: 12px;'><span class='subsystem-label'>UI</span><span class='subsystem-value' id='renderDcUI'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>State Changes</span><span class='subsystem-value' id='renderStateChanges'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Batch Efficiency</span><span class='subsystem-value' id='renderBatchEff'>-</span></div>
                     <div class='subsystem-row'><span class='subsystem-label'>GPU Lighting</span><span class='subsystem-value' id='renderGpu'>-</span></div>
+                </div>
+                <div class='subsystem-card'>
+                    <div class='subsystem-header'><div class='subsystem-icon'>M</div> Memory</div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Heap Size</span><span class='subsystem-value' id='memHeap'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Heap Delta</span><span class='subsystem-value' id='memDelta'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>GC Gen0</span><span class='subsystem-value' id='memGen0'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>GC Gen1</span><span class='subsystem-value' id='memGen1'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>GC Gen2</span><span class='subsystem-value' id='memGen2'>-</span></div>
+                    <div class='subsystem-row' id='memLeakRow' style='display: none;'><span class='subsystem-label' style='color: var(--danger);'>LEAK DETECTED</span><span class='subsystem-value' style='color: var(--danger);' id='memLeakFrames'>-</span></div>
                 </div>
             </div>
         </aside>
@@ -947,10 +985,54 @@ namespace Client.Main.DevTools
                 document.getElementById('poolLeaks').textContent = data.pool.leaks || 0;
             }
             if (data.render) {
-                document.getElementById('renderFxaa').textContent = data.render.fxaaEnabled ? 'ON' : 'OFF';
-                document.getElementById('renderBatch').textContent = data.render.batchSortingEnabled ? 'ON' : 'OFF';
                 document.getElementById('renderGpu').textContent = data.render.objectGpuLighting ? 'ON' : 'OFF';
             }
+
+            // Render stats breakdown
+            if (data.renderStats) {
+                const rs = data.renderStats;
+                document.getElementById('renderDcTotal').textContent = rs.dcTotal || 0;
+                document.getElementById('renderDcTerrain').textContent = rs.dcTerrain || 0;
+                document.getElementById('renderDcModels').textContent = rs.dcModels || 0;
+                document.getElementById('renderDcEffects').textContent = rs.dcEffects || 0;
+                document.getElementById('renderDcUI').textContent = rs.dcUI || 0;
+                const stateChanges = (rs.texSwitches || 0) + (rs.shaderSwitches || 0) + (rs.blendChanges || 0);
+                document.getElementById('renderStateChanges').textContent = stateChanges;
+                const batchEff = rs.batchEfficiency || 0;
+                document.getElementById('renderBatchEff').textContent = (batchEff * 100).toFixed(0) + '%';
+            }
+
+            // Memory metrics
+            if (data.memory) {
+                const mem = data.memory;
+                document.getElementById('memHeap').textContent = formatBytes(mem.heapBytes);
+                const delta = mem.heapDelta || 0;
+                const deltaStr = delta >= 0 ? '+' + formatBytes(delta) : '-' + formatBytes(-delta);
+                const deltaEl = document.getElementById('memDelta');
+                deltaEl.textContent = deltaStr;
+                deltaEl.style.color = delta > 10240 ? 'var(--warning)' : delta > 102400 ? 'var(--danger)' : 'var(--text-0)';
+                document.getElementById('memGen0').textContent = mem.gen0 || 0;
+                document.getElementById('memGen1').textContent = mem.gen1 || 0;
+                const gen2El = document.getElementById('memGen2');
+                gen2El.textContent = mem.gen2 || 0;
+                gen2El.style.color = mem.gen2Delta > 0 ? 'var(--danger)' : 'var(--text-0)';
+                const leakRow = document.getElementById('memLeakRow');
+                if (mem.isLeaking) {
+                    leakRow.style.display = 'flex';
+                    document.getElementById('memLeakFrames').textContent = mem.leakFrames + ' frames';
+                } else {
+                    leakRow.style.display = 'none';
+                }
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (typeof bytes !== 'number' || Number.isNaN(bytes)) return '--';
+            if (bytes < 0) bytes = -bytes;
+            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
+            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return bytes + ' B';
         }
 
         function setMetric(id, value, state) {
@@ -1474,6 +1556,44 @@ namespace Client.Main.DevTools
             loadFlameData();
         };
 
+        // Scope Stats
+        let isScopesLoading = false;
+        async function loadScopeStats() {
+            if (isScopesLoading) return;
+            isScopesLoading = true;
+            try {
+                const res = await fetch('/api/scopestats');
+                const data = await res.json();
+                document.getElementById('scopesCount').textContent = data.length;
+                const tbody = document.getElementById('scopesBody');
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan='6' style='padding: 40px; text-align: center; color: var(--text-2);'>No ProfileScope data recorded yet.<br>Add ProfileScope.Begin() to your code.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = data.map(s => {
+                    const avgClass = s.avgMs > 1 ? 'color: var(--danger)' : s.avgMs > 0.5 ? 'color: var(--warning)' : '';
+                    const maxClass = s.maxMs > 2 ? 'color: var(--danger)' : s.maxMs > 1 ? 'color: var(--warning)' : '';
+                    return `<tr style='border-bottom: 1px solid var(--border);'>
+                        <td style='padding: 10px 8px;'>
+                            <div style='font-weight: 500;'>${s.name}</div>
+                            ${s.category ? `<div style='font-size: 11px; color: var(--text-2);'>${s.category}</div>` : ''}
+                        </td>
+                        <td style='padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums;'>${s.calls.toLocaleString()}</td>
+                        <td style='padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums; ${avgClass}'>${s.avgMs.toFixed(3)}ms</td>
+                        <td style='padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums; ${maxClass}'>${s.maxMs.toFixed(3)}ms</td>
+                        <td style='padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums;'>${s.p95Ms.toFixed(3)}ms</td>
+                        <td style='padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums;'>${s.totalMs.toFixed(1)}ms</td>
+                    </tr>`;
+                }).join('');
+            } catch (e) { console.error(e); }
+            finally { isScopesLoading = false; }
+        }
+
+        document.getElementById('btnResetScopes').onclick = async () => {
+            await fetch('/api/scopestats/reset', { method: 'POST' });
+            loadScopeStats();
+        };
+
         // Tab navigation (only nav items with data-tab attribute)
         document.querySelectorAll('.nav-item[data-tab]').forEach(tab => {
             tab.onclick = () => {
@@ -1486,6 +1606,8 @@ namespace Client.Main.DevTools
                 if (tab.dataset.tab === 'hierarchy') setTimeout(loadHierarchy, 50);
                 // Flame: always call loadFlameData - it will use cache when paused/pinned
                 if (tab.dataset.tab === 'flame') setTimeout(loadFlameData, 50);
+                // Scopes: load aggregated stats
+                if (tab.dataset.tab === 'scopes') setTimeout(loadScopeStats, 50);
             };
         });
 
@@ -1583,6 +1705,10 @@ namespace Client.Main.DevTools
                 loadFlameData();
             }
         }, flameRefreshMs);
+        setInterval(() => {
+            // Scopes aggregates across session, refresh even when paused
+            if (isTabActive('scopes')) loadScopeStats();
+        }, 2000); // Every 2 seconds
     </script>
 </body>
 </html>";
