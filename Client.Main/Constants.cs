@@ -56,6 +56,10 @@ namespace Client.Main
         public static bool ENABLE_LOW_QUALITY_SWITCH;
         public static bool ENABLE_LOW_QUALITY_IN_LOGIN_SCENE;
 
+        // DevTools profiler (DEBUG only)
+        public static bool ENABLE_DEVTOOLS;
+        public static int DEVTOOLS_PORT = 9999;
+
         // World visuals
         public static bool DRAW_GRASS;
 
@@ -242,6 +246,7 @@ namespace Client.Main
         {
             BACKGROUND_MUSIC = false;
             SHOW_DEBUG_PANEL = true;
+            ENABLE_DEVTOOLS = true;
 
 #if WINDOWS
             DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";

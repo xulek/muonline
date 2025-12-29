@@ -78,6 +78,12 @@ namespace Client.Main.Objects
         public static int TotalUpdatesPerformed { get; private set; } = 0;
         private static int _lastResetTime = Environment.TickCount;
 
+#if DEBUG
+        // DevTools timing fields (zero overhead in Release)
+        public double LastUpdateTimeMs { get; internal set; }
+        public double LastDrawTimeMs { get; internal set; }
+#endif
+
         public static string GetOptimizationStats()
         {
             int total = TotalSkippedUpdates + TotalUpdatesPerformed;
@@ -198,11 +204,20 @@ namespace Client.Main.Objects
 
         public virtual void Update(GameTime gameTime)
         {
+#if DEBUG
+            long _devToolsStart = Stopwatch.GetTimestamp();
+#endif
             if (Status == GameControlStatus.NonInitialized)
             {
                 Load().ConfigureAwait(false);
             }
-            if (Status != GameControlStatus.Ready) return;
+            if (Status != GameControlStatus.Ready)
+            {
+#if DEBUG
+                LastUpdateTimeMs = 0;
+#endif
+                return;
+            }
 
             // Increment once per *frame time*, not per object update
             _globalFrameCounter = (int)(gameTime.TotalGameTime.TotalSeconds * 60.0);
@@ -245,6 +260,9 @@ namespace Client.Main.Objects
                 if (_lowPriorityUpdateTimer < 1.0f && _globalFrameCounter % 60 != (_updateOffset % 60))
                 {
                     TotalSkippedUpdates++;
+#if DEBUG
+                    LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
                     return; // Skip this frame entirely for invisible objects - VERY aggressive
                 }
 
@@ -260,6 +278,9 @@ namespace Client.Main.Objects
                         child.Update(gameTime);
                     }
                 }
+#if DEBUG
+                LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
                 return;
             }
 
@@ -279,6 +300,9 @@ namespace Client.Main.Objects
                     if (_globalFrameCounter % 2 != (_updateOffset % 2))
                     {
                         TotalSkippedUpdates++;
+#if DEBUG
+                        LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
                         return; // Skip every other frame for distant objects
                     }
                 }
@@ -286,6 +310,18 @@ namespace Client.Main.Objects
 
             // Full update for all visible objects (simplified)
             PerformFullUpdate(gameTime, distanceToCamera);
+
+#if DEBUG
+            LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+            // Report to profiler if enabled
+            DevTools.DevToolsCollector.Instance?.RecordObjectTiming(
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this),
+                DisplayName ?? ObjectName ?? GetType().Name,
+                GetType().Name,
+                Position.X,
+                Position.Y,
+                LastUpdateTimeMs, LastDrawTimeMs, 0);
+#endif
         }
 
         private void UpdateChildrenSelectively(GameTime gameTime)
@@ -400,7 +436,16 @@ namespace Client.Main.Objects
 
         public virtual void Draw(GameTime gameTime)
         {
-            if (!Visible) return;
+#if DEBUG
+            long _devToolsStart = Stopwatch.GetTimestamp();
+#endif
+            if (!Visible)
+            {
+#if DEBUG
+                LastDrawTimeMs = 0;
+#endif
+                return;
+            }
 
             DrawBoundingBox3D();
 
@@ -408,6 +453,10 @@ namespace Client.Main.Objects
             int count = Children.Count;
             for (int i = 0; i < count; i++)
                 Children[i].Draw(gameTime);
+
+#if DEBUG
+            LastDrawTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
         }
 
         public virtual void DrawAfter(GameTime gameTime)

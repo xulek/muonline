@@ -39,6 +39,9 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows' And '$(MonoGameFramework)' == 'MonoGame.Framework.DesktopGL'">
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.0" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)'=='net10.0-android'">
     <PackageReference Include="MonoGame.Framework.Android" Version="3.8.4.1" />
   </ItemGroup>
@@ -97,6 +100,11 @@
     <None Update="appsettings.local.json" Condition="Exists('appsettings.local.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <!-- DevTools - DEBUG only, Desktop platforms only -->
+  <ItemGroup Condition="'$(Configuration)'=='Debug' And '$(TargetFramework)'!='net10.0-android' And '$(TargetFramework)'!='net10.0-ios'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
 </Project>

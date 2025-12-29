@@ -22,6 +22,12 @@ namespace Client.Main.Controls
         private bool _isCurrentlyPressedByMouse = false;
         private static readonly ILogger _logger = Microsoft.Extensions.Logging.LoggerFactory.Create(builder => { }).CreateLogger<GameControl>();
 
+#if DEBUG
+        // DevTools timing fields (zero overhead in Release)
+        public double LastUpdateTimeMs { get; internal set; }
+        public double LastDrawTimeMs { get; internal set; }
+#endif
+
         // Properties
         public GraphicsDevice GraphicsDevice => MuGame.Instance.GraphicsDevice;
         public GameControl Root => Parent?.Root ?? this;
@@ -148,13 +154,22 @@ namespace Client.Main.Controls
 
         public virtual void Update(GameTime gameTime)
         {
+#if DEBUG
+            long _devToolsStart = Stopwatch.GetTimestamp();
+#endif
             if (Status == GameControlStatus.NonInitialized && (Parent == null || Parent.Status == GameControlStatus.Ready))
             {
                 // Fire and forget initialization
                 _ = Initialize();
             }
 
-            if (Status != GameControlStatus.Ready || !Visible) return;
+            if (Status != GameControlStatus.Ready || !Visible)
+            {
+#if DEBUG
+                LastUpdateTimeMs = 0;
+#endif
+                return;
+            }
 
             // Cache mouse and display rectangle to avoid repeated property lookups
             var mouse = CurrentMouseState;
@@ -258,6 +273,10 @@ namespace Client.Main.Controls
 
             if (Align != ControlAlign.None)
                 AlignControl();
+
+#if DEBUG
+            LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
         }
 
         public virtual bool ProcessMouseScroll(int scrollDelta)
@@ -284,8 +303,16 @@ namespace Client.Main.Controls
 
         public virtual void Draw(GameTime gameTime)
         {
+#if DEBUG
+            long _devToolsStart = Stopwatch.GetTimestamp();
+#endif
             if (Status != GameControlStatus.Ready || !Visible)
+            {
+#if DEBUG
+                LastDrawTimeMs = 0;
+#endif
                 return;
+            }
 
             DrawBackground();
             DrawBorder();
@@ -297,6 +324,10 @@ namespace Client.Main.Controls
 
             for (int i = 0; i < Controls.Count; i++)
                 Controls[i].Draw(gameTime);
+
+#if DEBUG
+            LastDrawTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
+#endif
         }
 
         public virtual void DrawAfter(GameTime gameTime)

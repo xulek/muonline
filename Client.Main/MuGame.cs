@@ -80,6 +80,10 @@ namespace Client.Main
         private Vector2 _cachedEffectResolution;
         private Vector2 _lastValidMouseInBackBuffer;
 
+#if DEBUG
+        private DevTools.DevToolsServer _devToolsServer;
+#endif
+
         // Public Instance Properties
         public BaseScene ActiveScene { get; private set; }
         public int Width => _graphics.PreferredBackBufferWidth;
@@ -419,6 +423,16 @@ namespace Client.Main
                 UiScaler.ActualSize.X,
                 UiScaler.ActualSize.Y);
 
+#if DEBUG
+            // Initialize DevTools profiler
+            DevTools.DevToolsCollector.Initialize();
+            if (Constants.ENABLE_DEVTOOLS)
+            {
+                _devToolsServer = new DevTools.DevToolsServer();
+                _ = _devToolsServer.StartAsync(Constants.DEVTOOLS_PORT);
+            }
+#endif
+
             base.Initialize();
         }
 
@@ -432,6 +446,9 @@ namespace Client.Main
 
         protected override void Update(GameTime gameTime)
         {
+#if DEBUG
+            DevTools.DevToolsCollector.Instance?.BeginFrame(FrameIndex);
+#endif
             // --- Process Main Thread Actions via TaskScheduler ---
             while (_mainThreadActions.TryDequeue(out var action))
             {
@@ -449,6 +466,9 @@ namespace Client.Main
                 CheckShaderToggles();
                 SunCycleManager.Update();
 
+#if DEBUG
+                DevTools.DevToolsCollector.Instance?.BeginUpdate();
+#endif
                 try // inner try for ActiveScene.Update
                 {
                     ActiveScene?.Update(gameTime);
@@ -459,6 +479,9 @@ namespace Client.Main
                     // Consider stopping the game or returning to a safe scene
                     // Exit();
                 }
+#if DEBUG
+                DevTools.DevToolsCollector.Instance?.EndUpdate();
+#endif
 
                 try // inner try for base.Update
                 {
@@ -519,12 +542,15 @@ namespace Client.Main
 
         protected override void Draw(GameTime gameTime)
         {
+#if DEBUG
+            DevTools.DevToolsCollector.Instance?.BeginDraw();
+#endif
             try
             {
                 // Initialize frame-based optimizations
                 DynamicBufferPool.BeginFrame(FrameIndex);
                 BMDLoader.Instance.BeginFrame();
-                
+
                 FPSCounter.Instance.CalcFPS(gameTime);
                 DrawSceneToMainRenderTarget(gameTime);
                 ApplyPostProcessingEffects();
@@ -538,6 +564,10 @@ namespace Client.Main
             {
                 // Ensure that no render target is active to avoid the Present error
                 GraphicsDevice.SetRenderTarget(null);
+#if DEBUG
+                DevTools.DevToolsCollector.Instance?.EndDraw();
+                DevTools.DevToolsCollector.Instance?.EndFrame();
+#endif
             }
         }
 
@@ -545,6 +575,10 @@ namespace Client.Main
         {
             if (disposing)
             {
+#if DEBUG
+                _devToolsServer?.Dispose();
+                DevTools.DevToolsCollector.Shutdown();
+#endif
                 DisposeNetworkSafely();   // ← won't be called a second time
                 AppLoggerFactory?.Dispose();
             }

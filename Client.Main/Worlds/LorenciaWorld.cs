@@ -2,6 +2,7 @@
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.DevTools;
 using Client.Main.Objects.Monsters;
 using Client.Main.Objects.Worlds.Lorencia;
 using Microsoft.Xna.Framework;
@@ -172,6 +173,9 @@ namespace Client.Main.Worlds
 
         public override void Update(GameTime time)
         {
+#if DEBUG
+            using var _ = ProfileScope.Begin($"{nameof(LorenciaWorld)}.{nameof(Update)}", "Update");
+#endif
             base.Update(time);
 
             // Update bird system
