@@ -193,16 +193,22 @@ namespace Client.Main.DevTools
         .chart-section {
             flex: 1;
             padding: 20px;
-            overflow: hidden;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
         .chart-card {
-            height: 100%;
             background: var(--bg-1);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 16px;
             display: flex;
             flex-direction: column;
+        }
+        .chart-card.flex-1 {
+            flex: 1;
+            min-height: 200px;
         }
         .chart-header {
             display: flex;
@@ -433,8 +439,8 @@ namespace Client.Main.DevTools
             height: 100%;
             border-radius: 3px;
         }
-        .hotspot-bar-fill.update { background: var(--accent); }
-        .hotspot-bar-fill.draw { background: #8b5cf6; }
+        .hotspot-bar-fill.update { background: var(--success); }
+        .hotspot-bar-fill.draw { background: var(--accent); }
         .hotspot-bar-value {
             font-size: 11px;
             font-weight: 600;
@@ -569,6 +575,41 @@ namespace Client.Main.DevTools
         .flame-tooltip-row { display: flex; justify-content: space-between; gap: 20px; }
         .flame-tooltip-label { color: var(--text-2); }
         .flame-tooltip-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        /* Timeline View */
+        .timeline-container { padding: 12px 16px; position: relative; }
+        .timeline-bar { display: flex; height: 32px; border-radius: 4px; overflow: hidden; background: var(--bg-2); }
+        .timeline-segment { display: flex; align-items: center; justify-content: center; min-width: 0; transition: width 0.15s ease; }
+        .timeline-segment.update { background: var(--success); }
+        .timeline-segment.draw { background: var(--accent); }
+        .timeline-segment.idle { background: var(--bg-3); }
+        .timeline-label { font-size: 10px; font-weight: 600; color: var(--bg-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+        .timeline-segment.idle .timeline-label { color: var(--text-2); }
+        .timeline-times { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+        .timeline-times span { flex: 1; text-align: center; }
+        .timeline-budget-line { position: absolute; top: 12px; height: 32px; width: 2px; background: var(--danger); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+        .timeline-budget-line.over { opacity: 1; }
+
+        /* Object Inspector Modal */
+        .inspector-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; }
+        .inspector-overlay.visible { display: flex; }
+        .inspector-modal { background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; min-width: 360px; max-width: 450px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+        .inspector-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+        .inspector-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .inspector-close { background: none; border: none; color: var(--text-2); cursor: pointer; font-size: 18px; padding: 4px 8px; border-radius: 4px; }
+        .inspector-close:hover { background: var(--bg-2); color: var(--text-0); }
+        .inspector-body { padding: 0; }
+        .inspector-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+        .inspector-section:last-child { border-bottom: none; }
+        .inspector-section-title { font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; }
+        .inspector-row { display: flex; justify-content: space-between; padding: 4px 0; }
+        .inspector-label { color: var(--text-2); }
+        .inspector-value { font-weight: 500; font-variant-numeric: tabular-nums; }
+        .inspector-value.good { color: var(--success); }
+        .inspector-value.warn { color: var(--warning); }
+        .inspector-value.bad { color: var(--danger); }
+        .inspector-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+        .inspector-footer .btn { flex: 1; opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -634,7 +675,7 @@ namespace Client.Main.DevTools
                     </div>
                 </div>
                 <div class='chart-section'>
-                    <div class='chart-card'>
+                    <div class='chart-card flex-1'>
                         <div class='chart-header'>
                             <span class='chart-title'>Frame History</span>
                             <div class='chart-meta'>
@@ -645,6 +686,33 @@ namespace Client.Main.DevTools
                         </div>
                         <div class='chart-body'>
                             <svg id='frameChart'></svg>
+                        </div>
+                    </div>
+                    <div class='chart-card'>
+                        <div class='chart-header'>
+                            <span class='chart-title'>Frame Timeline</span>
+                            <div class='chart-meta'>
+                                <span id='timelineBudget'>16.67ms budget</span>
+                            </div>
+                        </div>
+                        <div class='timeline-container' id='timelineContainer'>
+                            <div class='timeline-bar'>
+                                <div class='timeline-segment update' id='tlUpdate' style='width: 0%;'>
+                                    <span class='timeline-label'>Update</span>
+                                </div>
+                                <div class='timeline-segment draw' id='tlDraw' style='width: 0%;'>
+                                    <span class='timeline-label'>Draw</span>
+                                </div>
+                                <div class='timeline-segment idle' id='tlIdle' style='width: 0%;'>
+                                    <span class='timeline-label'>Idle</span>
+                                </div>
+                            </div>
+                            <div class='timeline-times'>
+                                <span id='tlUpdateTime'>--</span>
+                                <span id='tlDrawTime'>--</span>
+                                <span id='tlIdleTime'>--</span>
+                            </div>
+                            <div class='timeline-budget-line' id='tlBudgetLine'></div>
                         </div>
                     </div>
                 </div>
@@ -759,6 +827,44 @@ namespace Client.Main.DevTools
                 </div>
             </div>
         </aside>
+    </div>
+
+    <!-- Object Inspector Modal -->
+    <div class='inspector-overlay' id='inspectorOverlay'>
+        <div class='inspector-modal'>
+            <div class='inspector-header'>
+                <div class='inspector-title'>
+                    <span>🔍</span>
+                    <span>Object Inspector</span>
+                </div>
+                <button class='inspector-close' id='inspectorClose'>✕</button>
+            </div>
+            <div class='inspector-body'>
+                <div class='inspector-section'>
+                    <div class='inspector-section-title'>Identity</div>
+                    <div class='inspector-row'><span class='inspector-label'>Name</span><span class='inspector-value' id='insName'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Type</span><span class='inspector-value' id='insType'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Position</span><span class='inspector-value' id='insPos'>--</span></div>
+                </div>
+                <div class='inspector-section'>
+                    <div class='inspector-section-title'>Model</div>
+                    <div class='inspector-row'><span class='inspector-label'>Path</span><span class='inspector-value' id='insModel'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Action</span><span class='inspector-value' id='insAction'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Visible</span><span class='inspector-value' id='insVisible'>--</span></div>
+                </div>
+                <div class='inspector-section'>
+                    <div class='inspector-section-title'>Timing</div>
+                    <div class='inspector-row'><span class='inspector-label'>Update</span><span class='inspector-value' id='insUpdate'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Draw</span><span class='inspector-value' id='insDraw'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Animation</span><span class='inspector-value' id='insAnim'>--</span></div>
+                    <div class='inspector-row'><span class='inspector-label'>Total</span><span class='inspector-value' id='insTotal'>--</span></div>
+                </div>
+            </div>
+            <div class='inspector-footer'>
+                <button class='btn' disabled>Focus Camera</button>
+                <button class='btn' disabled>Highlight</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1024,6 +1130,41 @@ namespace Client.Main.DevTools
                     leakRow.style.display = 'none';
                 }
             }
+
+            // Timeline View
+            updateTimeline(data.updateMs || 0, data.drawMs || 0, data.totalMs || 0);
+        }
+
+        function updateTimeline(updateMs, drawMs, totalMs) {
+            const budget = 16.67;
+            const frameTime = Math.max(totalMs, updateMs + drawMs);
+            const idleMs = Math.max(0, budget - updateMs - drawMs);
+            const displayTotal = Math.max(frameTime, budget);
+
+            // Calculate percentages
+            const updatePct = (updateMs / displayTotal) * 100;
+            const drawPct = (drawMs / displayTotal) * 100;
+            const idlePct = (idleMs / displayTotal) * 100;
+
+            // Update segment widths
+            document.getElementById('tlUpdate').style.width = updatePct + '%';
+            document.getElementById('tlDraw').style.width = drawPct + '%';
+            document.getElementById('tlIdle').style.width = idlePct + '%';
+
+            // Update time labels
+            document.getElementById('tlUpdateTime').textContent = updateMs.toFixed(2) + 'ms';
+            document.getElementById('tlDrawTime').textContent = drawMs.toFixed(2) + 'ms';
+            document.getElementById('tlIdleTime').textContent = idleMs > 0 ? idleMs.toFixed(2) + 'ms' : 'over!';
+
+            // Budget line (shows at 100% of budget within the bar)
+            const budgetLine = document.getElementById('tlBudgetLine');
+            const budgetPct = (budget / displayTotal) * 100;
+            budgetLine.style.left = `calc(16px + ${budgetPct}%)`;
+            budgetLine.classList.toggle('over', totalMs > budget);
+
+            // Update budget label color
+            const budgetLabel = document.getElementById('timelineBudget');
+            budgetLabel.style.color = totalMs > budget ? 'var(--danger)' : 'var(--text-2)';
         }
 
         function formatBytes(bytes) {
@@ -1094,7 +1235,54 @@ namespace Client.Main.DevTools
                     </div>
                 `;
             }).join('');
+
+            // Add click handlers for inspector
+            container.querySelectorAll('.hotspot-card').forEach((card, i) => {
+                card.style.cursor = 'pointer';
+                card.onclick = () => openInspector(data[i]);
+            });
         }
+
+        // Object Inspector
+        function openInspector(obj) {
+            if (!obj) return;
+            document.getElementById('insName').textContent = obj.name || '--';
+            document.getElementById('insType').textContent = obj.type || '--';
+            document.getElementById('insPos').textContent = `(${(obj.posX || 0).toFixed(1)}, ${(obj.posY || 0).toFixed(1)})`;
+            document.getElementById('insModel').textContent = obj.model || '--';
+            document.getElementById('insAction').textContent = obj.action || '--';
+            document.getElementById('insVisible').textContent = obj.visible !== false ? 'Yes' : 'No';
+
+            const updateMs = obj.updateMs || 0;
+            const drawMs = obj.drawMs || 0;
+            const animMs = obj.animMs || 0;
+            const totalMs = obj.totalMs || (updateMs + drawMs);
+
+            const updateEl = document.getElementById('insUpdate');
+            updateEl.textContent = updateMs.toFixed(3) + 'ms';
+            updateEl.className = 'inspector-value' + (updateMs > 0.5 ? ' bad' : updateMs > 0.2 ? ' warn' : '');
+
+            const drawEl = document.getElementById('insDraw');
+            drawEl.textContent = drawMs.toFixed(3) + 'ms';
+            drawEl.className = 'inspector-value' + (drawMs > 0.5 ? ' bad' : drawMs > 0.2 ? ' warn' : '');
+
+            document.getElementById('insAnim').textContent = animMs.toFixed(3) + 'ms';
+
+            const totalEl = document.getElementById('insTotal');
+            totalEl.textContent = totalMs.toFixed(3) + 'ms';
+            totalEl.className = 'inspector-value' + (totalMs > 1 ? ' bad' : totalMs > 0.5 ? ' warn' : ' good');
+
+            document.getElementById('inspectorOverlay').classList.add('visible');
+        }
+
+        function closeInspector() {
+            document.getElementById('inspectorOverlay').classList.remove('visible');
+        }
+
+        document.getElementById('inspectorClose').onclick = closeInspector;
+        document.getElementById('inspectorOverlay').onclick = (e) => {
+            if (e.target.id === 'inspectorOverlay') closeInspector();
+        };
 
         function updateChart() {
             const svg = d3.select('#frameChart');

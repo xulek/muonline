@@ -493,6 +493,8 @@ namespace Client.Main.DevTools
         public double UpdateMs;
         public double DrawMs;
         public double AnimationMs;
+        public string ModelName;       // BMD model name
+        public int CurrentAction;      // Animation action index
         public bool IsValid;
     }
 
@@ -539,6 +541,12 @@ namespace Client.Main.DevTools
 
         [JsonPropertyName("animMs")]
         public double AnimMs { get; set; }
+
+        [JsonPropertyName("model")]
+        public string ModelName { get; set; }
+
+        [JsonPropertyName("action")]
+        public int CurrentAction { get; set; }
     }
 
     /// <summary>

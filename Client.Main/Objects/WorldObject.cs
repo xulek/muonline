@@ -314,13 +314,21 @@ namespace Client.Main.Objects
 #if DEBUG
             LastUpdateTimeMs = DevTools.ControlTimingWrapper.ElapsedMsSince(_devToolsStart);
             // Report to profiler if enabled
+            string modelName = null;
+            int currentAction = 0;
+            if (this is ModelObject mo)
+            {
+                modelName = mo.Model?.Name;
+                currentAction = mo.CurrentAction;
+            }
             DevTools.DevToolsCollector.Instance?.RecordObjectTiming(
                 System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this),
                 DisplayName ?? ObjectName ?? GetType().Name,
                 GetType().Name,
                 Position.X,
                 Position.Y,
-                LastUpdateTimeMs, LastDrawTimeMs, 0);
+                LastUpdateTimeMs, LastDrawTimeMs, 0,
+                modelName, currentAction);
 #endif
         }
 

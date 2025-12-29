@@ -371,7 +371,7 @@ namespace Client.Main.DevTools
         /// Uses object hash as key, no allocations.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void RecordObjectTiming(int objectHash, string name, string typeName, float posX, float posY, double updateMs, double drawMs, double animMs)
+        public void RecordObjectTiming(int objectHash, string name, string typeName, float posX, float posY, double updateMs, double drawMs, double animMs, string modelName = null, int currentAction = 0)
         {
             if (_objectCount >= MaxTrackedObjects) return;
 
@@ -400,6 +400,8 @@ namespace Client.Main.DevTools
             entry.UpdateMs = updateMs;
             entry.DrawMs = drawMs;
             entry.AnimationMs = animMs;
+            entry.ModelName = modelName;
+            entry.CurrentAction = currentAction;
             entry.IsValid = true;
         }
 
@@ -833,7 +835,9 @@ namespace Client.Main.DevTools
                     TotalMs = e.UpdateMs + e.DrawMs,
                     UpdateMs = e.UpdateMs,
                     DrawMs = e.DrawMs,
-                    AnimMs = e.AnimationMs
+                    AnimMs = e.AnimationMs,
+                    ModelName = e.ModelName,
+                    CurrentAction = e.CurrentAction
                 });
             }
 
