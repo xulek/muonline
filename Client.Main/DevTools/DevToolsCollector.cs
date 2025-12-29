@@ -74,6 +74,20 @@ namespace Client.Main.DevTools
         // Render stats per frame (reset each frame)
         private RenderMetricsData _frameRenderStats;
 
+        // Network tracking
+        private const int MaxRecentPackets = 100;
+        private readonly PacketEntry[] _recentPackets = new PacketEntry[MaxRecentPackets];
+        private int _recentPacketIndex = 0;
+        private readonly object _networkLock = new();
+
+        // Network counters (rolling window for per-second calculation)
+        private long _totalPacketsReceived, _totalPacketsSent;
+        private long _totalBytesReceived, _totalBytesSent;
+        private int _windowPacketsReceived, _windowPacketsSent;
+        private int _windowBytesReceived, _windowBytesSent;
+        private long _lastNetworkWindowTick;
+        private NetworkMetricsData _lastNetworkMetrics;
+
         private DevToolsCollector()
         {
             // Pre-initialize arrays
@@ -188,6 +202,10 @@ namespace Client.Main.DevTools
 
             // Capture render metrics breakdown
             CaptureRenderMetrics();
+
+            // Update network rates
+            UpdateNetworkRates();
+            _currentFrame.Network = _lastNetworkMetrics;
 
             // Build scope tree for this frame
             BuildScopeTree();
@@ -360,6 +378,136 @@ namespace Client.Main.DevTools
         public void RecordBatchMerge(int mergedCount)
         {
             _frameRenderStats.BatchesMerged += mergedCount;
+        }
+
+        #endregion
+
+        #region Network Tracking (called from PacketRouter/NetworkManager)
+
+        /// <summary>
+        /// Record a received packet. Called from PacketRouter.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordPacketReceived(int size, byte headerType, byte code, byte subCode, string name = null)
+        {
+            lock (_networkLock)
+            {
+                _totalPacketsReceived++;
+                _totalBytesReceived += size;
+                _windowPacketsReceived++;
+                _windowBytesReceived += size;
+
+                // Add to recent packets ring buffer
+                _recentPackets[_recentPacketIndex] = new PacketEntry
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Direction = "RX",
+                    Code = $"{headerType:X2} {code:X2} {subCode:X2}",
+                    Size = size,
+                    Name = name ?? $"Packet_{code:X2}"
+                };
+                _recentPacketIndex = (_recentPacketIndex + 1) % MaxRecentPackets;
+            }
+        }
+
+        /// <summary>
+        /// Record a sent packet. Called from NetworkManager send methods.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RecordPacketSent(int size, string name = null)
+        {
+            lock (_networkLock)
+            {
+                _totalPacketsSent++;
+                _totalBytesSent += size;
+                _windowPacketsSent++;
+                _windowBytesSent += size;
+
+                // Add to recent packets ring buffer
+                _recentPackets[_recentPacketIndex] = new PacketEntry
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Direction = "TX",
+                    Code = "--",
+                    Size = size,
+                    Name = name ?? "Unknown"
+                };
+                _recentPacketIndex = (_recentPacketIndex + 1) % MaxRecentPackets;
+            }
+        }
+
+        /// <summary>
+        /// Update network per-second rates. Called once per frame.
+        /// </summary>
+        private void UpdateNetworkRates()
+        {
+            long now = Stopwatch.GetTimestamp();
+            long elapsedTicks = now - _lastNetworkWindowTick;
+            double elapsedMs = elapsedTicks * 1000.0 / Stopwatch.Frequency;
+
+            // Update rates every second
+            if (elapsedMs >= 1000.0)
+            {
+                lock (_networkLock)
+                {
+                    _lastNetworkMetrics.PacketsReceivedPerSec = _windowPacketsReceived;
+                    _lastNetworkMetrics.PacketsSentPerSec = _windowPacketsSent;
+                    _lastNetworkMetrics.BytesReceivedPerSec = _windowBytesReceived;
+                    _lastNetworkMetrics.BytesSentPerSec = _windowBytesSent;
+                    _lastNetworkMetrics.TotalPacketsReceived = _totalPacketsReceived;
+                    _lastNetworkMetrics.TotalPacketsSent = _totalPacketsSent;
+                    _lastNetworkMetrics.TotalBytesReceived = _totalBytesReceived;
+                    _lastNetworkMetrics.TotalBytesSent = _totalBytesSent;
+
+                    // Reset window counters
+                    _windowPacketsReceived = 0;
+                    _windowPacketsSent = 0;
+                    _windowBytesReceived = 0;
+                    _windowBytesSent = 0;
+                }
+                _lastNetworkWindowTick = now;
+            }
+
+            // Update connection status from NetworkManager
+            var network = MuGame.Network;
+            _lastNetworkMetrics.IsConnected = network?.IsConnected ?? false;
+        }
+
+        /// <summary>
+        /// Update ping asynchronously. Call periodically, not every frame.
+        /// </summary>
+        public async Task UpdatePingAsync()
+        {
+            var network = MuGame.Network;
+            if (network != null)
+            {
+                var ping = await network.PingServerAsync(1000);
+                lock (_networkLock)
+                {
+                    _lastNetworkMetrics.PingMs = ping ?? -1;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get list of recent packets.
+        /// </summary>
+        public List<PacketEntry> GetRecentPackets(int count = 50)
+        {
+            var result = new List<PacketEntry>(count);
+            lock (_networkLock)
+            {
+                // Read from ring buffer in reverse order (newest first)
+                int idx = (_recentPacketIndex - 1 + MaxRecentPackets) % MaxRecentPackets;
+                for (int i = 0; i < count && i < MaxRecentPackets; i++)
+                {
+                    var entry = _recentPackets[idx];
+                    if (entry != null)
+                        result.Add(entry);
+                    idx = (idx - 1 + MaxRecentPackets) % MaxRecentPackets;
+                }
+            }
+            return result;
         }
 
         #endregion

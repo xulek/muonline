@@ -625,6 +625,7 @@ namespace Client.Main.DevTools
                 <button class='nav-item' data-tab='hierarchy'>Hierarchy <span class='nav-badge' id='hierarchyCount'>0</span></button>
                 <button class='nav-item' data-tab='hotspots'>Hotspots <span class='nav-badge' id='hotspotsCount'>0</span></button>
                 <button class='nav-item' data-tab='scopes'>Scopes <span class='nav-badge' id='scopesCount'>0</span></button>
+                <button class='nav-item' data-tab='packets'>Packets <span class='nav-badge' id='packetsCount'>0</span></button>
             </nav>
             <div class='header-controls'>
                 <button class='btn' id='btnRecord'><span>●</span> Record</button>
@@ -775,6 +776,28 @@ namespace Client.Main.DevTools
                     </table>
                 </div>
             </div>
+
+            <!-- Packets (network traffic log) -->
+            <div class='tab-view' id='tab-packets'>
+                <div class='tab-toolbar'>
+                    <span style='color: var(--text-2);'>Recent network packets (last 50)</span>
+                    <button class='btn' id='btnRefreshPackets' style='margin-left: auto;'>Refresh</button>
+                </div>
+                <div class='hierarchy-scroll' id='packetsTable' style='padding: 16px 20px;'>
+                    <table style='width: 100%; border-collapse: collapse;'>
+                        <thead>
+                            <tr style='border-bottom: 1px solid var(--border);'>
+                                <th style='text-align: left; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>TIME</th>
+                                <th style='text-align: center; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>DIR</th>
+                                <th style='text-align: left; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>CODE</th>
+                                <th style='text-align: right; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>SIZE</th>
+                                <th style='text-align: left; padding: 10px 8px; color: var(--text-2); font-size: 11px; font-weight: 600;'>NAME</th>
+                            </tr>
+                        </thead>
+                        <tbody id='packetsBody'></tbody>
+                    </table>
+                </div>
+            </div>
         </main>
 
         <aside class='panel' id='panel'>
@@ -824,6 +847,15 @@ namespace Client.Main.DevTools
                     <div class='subsystem-row'><span class='subsystem-label'>GC Gen1</span><span class='subsystem-value' id='memGen1'>-</span></div>
                     <div class='subsystem-row'><span class='subsystem-label'>GC Gen2</span><span class='subsystem-value' id='memGen2'>-</span></div>
                     <div class='subsystem-row' id='memLeakRow' style='display: none;'><span class='subsystem-label' style='color: var(--danger);'>LEAK DETECTED</span><span class='subsystem-value' style='color: var(--danger);' id='memLeakFrames'>-</span></div>
+                </div>
+                <div class='subsystem-card'>
+                    <div class='subsystem-header'><div class='subsystem-icon'>N</div> Network</div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Status</span><span class='subsystem-value' id='netStatus'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Ping</span><span class='subsystem-value' id='netPing'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>RX</span><span class='subsystem-value' id='netRx'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>TX</span><span class='subsystem-value' id='netTx'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Packets In</span><span class='subsystem-value' id='netPktsIn'>-</span></div>
+                    <div class='subsystem-row'><span class='subsystem-label'>Packets Out</span><span class='subsystem-value' id='netPktsOut'>-</span></div>
                 </div>
             </div>
         </aside>
@@ -1129,6 +1161,21 @@ namespace Client.Main.DevTools
                 } else {
                     leakRow.style.display = 'none';
                 }
+            }
+
+            // Network metrics
+            if (data.network) {
+                const net = data.network;
+                const statusEl = document.getElementById('netStatus');
+                statusEl.textContent = net.connected ? 'Connected' : 'Disconnected';
+                statusEl.style.color = net.connected ? 'var(--success)' : 'var(--danger)';
+                const pingEl = document.getElementById('netPing');
+                pingEl.textContent = net.pingMs >= 0 ? net.pingMs + 'ms' : '--';
+                pingEl.style.color = net.pingMs > 200 ? 'var(--danger)' : net.pingMs > 100 ? 'var(--warning)' : 'var(--text-0)';
+                document.getElementById('netRx').textContent = formatBytes(net.rxBytes) + '/s';
+                document.getElementById('netTx').textContent = formatBytes(net.txBytes) + '/s';
+                document.getElementById('netPktsIn').textContent = (net.rxPkts || 0) + '/s';
+                document.getElementById('netPktsOut').textContent = (net.txPkts || 0) + '/s';
             }
 
             // Timeline View
@@ -1782,6 +1829,42 @@ namespace Client.Main.DevTools
             loadScopeStats();
         };
 
+        // Packets loading
+        let isPacketsLoading = false;
+        async function loadPackets() {
+            if (isPacketsLoading) return;
+            isPacketsLoading = true;
+            try {
+                const res = await fetch('/api/network/packets?count=50');
+                const data = await res.json();
+                document.getElementById('packetsCount').textContent = data.length;
+                const tbody = document.getElementById('packetsBody');
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan='5' style='padding: 40px; text-align: center; color: var(--text-2);'>No packets recorded yet.<br>Connect to a server to see network traffic.</td></tr>`;
+                    return;
+                }
+                const now = Date.now();
+                tbody.innerHTML = data.map(p => {
+                    const age = now - p.time;
+                    const timeStr = age < 1000 ? 'now' : age < 60000 ? Math.floor(age/1000) + 's ago' : Math.floor(age/60000) + 'm ago';
+                    const dirClass = p.dir === 'RX' ? 'color: var(--success)' : 'color: var(--accent)';
+                    const dirIcon = p.dir === 'RX' ? '↓' : '↑';
+                    return `<tr style='border-bottom: 1px solid var(--border);'>
+                        <td style='padding: 8px; font-size: 11px; color: var(--text-2);'>${timeStr}</td>
+                        <td style='padding: 8px; text-align: center; font-weight: 600; ${dirClass}'>${dirIcon} ${p.dir}</td>
+                        <td style='padding: 8px; font-family: monospace; font-size: 12px;'>${p.code}</td>
+                        <td style='padding: 8px; text-align: right; font-variant-numeric: tabular-nums;'>${p.size}B</td>
+                        <td style='padding: 8px; color: var(--text-1);'>${p.name || '--'}</td>
+                    </tr>`;
+                }).join('');
+            } catch (e) { console.error(e); }
+            finally { isPacketsLoading = false; }
+        }
+
+        document.getElementById('btnRefreshPackets').onclick = () => {
+            loadPackets();
+        };
+
         // Tab navigation (only nav items with data-tab attribute)
         document.querySelectorAll('.nav-item[data-tab]').forEach(tab => {
             tab.onclick = () => {
@@ -1796,6 +1879,8 @@ namespace Client.Main.DevTools
                 if (tab.dataset.tab === 'flame') setTimeout(loadFlameData, 50);
                 // Scopes: load aggregated stats
                 if (tab.dataset.tab === 'scopes') setTimeout(loadScopeStats, 50);
+                // Packets: load recent packets
+                if (tab.dataset.tab === 'packets') setTimeout(loadPackets, 50);
             };
         });
 
@@ -1896,6 +1981,8 @@ namespace Client.Main.DevTools
         setInterval(() => {
             // Scopes aggregates across session, refresh even when paused
             if (isTabActive('scopes')) loadScopeStats();
+            // Packets refresh for live view
+            if (isTabActive('packets')) loadPackets();
         }, 2000); // Every 2 seconds
     </script>
 </body>

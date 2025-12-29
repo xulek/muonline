@@ -137,9 +137,15 @@ namespace Client.Main.Networking
             _logger.LogInformation("✉️ Sending Public Chat: '{Message}'", message);
             try
             {
+                int packetSize = 0;
                 await _connectionManager.Connection.SendAsync(() =>
-                    PacketBuilder.BuildPublicChatMessagePacket(_connectionManager.Connection.Output, characterName, message)
-                );
+                {
+                    packetSize = PacketBuilder.BuildPublicChatMessagePacket(_connectionManager.Connection.Output, characterName, message);
+                    return packetSize;
+                });
+#if DEBUG
+                DevTools.DevToolsCollector.Instance?.RecordPacketSent(packetSize, "PublicChat");
+#endif
             }
             catch (Exception ex)
             {

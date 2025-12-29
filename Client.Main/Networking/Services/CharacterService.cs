@@ -814,10 +814,17 @@ namespace Client.Main.Networking.Services
 
             try
             {
+                int packetSize = 0;
                 await _connectionManager.Connection.SendAsync(() =>
-                    PacketBuilder.BuildWalkRequestPacket(
+                {
+                    packetSize = PacketBuilder.BuildWalkRequestPacket(
                         _connectionManager.Connection.Output,
-                        startX, startY, path));
+                        startX, startY, path);
+                    return packetSize;
+                });
+#if DEBUG
+                DevTools.DevToolsCollector.Instance?.RecordPacketSent(packetSize, "WalkRequest");
+#endif
                 _logger.LogInformation("Walk request sent.");
             }
             catch (Exception ex)

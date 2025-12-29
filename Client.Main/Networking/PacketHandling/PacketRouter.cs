@@ -45,6 +45,11 @@ namespace Client.Main.Networking.PacketHandling
         private readonly Dictionary<(byte MainCode, byte SubCode), Func<Memory<byte>, Task>> _packetHandlers
             = new();
 
+#if DEBUG
+        // Maps packet codes to handler method names for DevTools
+        private readonly Dictionary<(byte MainCode, byte SubCode), string> _handlerNames = new();
+#endif
+
         private bool _isConnectServerRouting;
 
         // ───────────────────────── Properties ─────────────────────────
@@ -169,6 +174,19 @@ namespace Client.Main.Networking.PacketHandling
             _logger.LogTrace("Dispatching {Mode} packet: Code={C:X2}, Sub={S}, Len={L}",
                 _isConnectServerRouting ? "CS" : "GS", code, subCode == NoSubCode ? "N/A" : subCode.ToString("X2"), packet.Length);
 
+#if DEBUG
+            // Record packet for DevTools profiler
+            string handlerName = null;
+            var packetKey = (code, subCode);
+            if (_handlerNames.TryGetValue(packetKey, out handlerName) ||
+                (subCode != NoSubCode && _handlerNames.TryGetValue((code, NoSubCode), out handlerName)))
+            {
+                // Use registered handler name
+            }
+            DevTools.DevToolsCollector.Instance?.RecordPacketReceived(
+                packet.Length, headerType, code, subCode, handlerName);
+#endif
+
             if (ShouldSkipPacket(code))
                 return Task.CompletedTask;
 
@@ -265,6 +283,9 @@ namespace Client.Main.Networking.PacketHandling
                     if (_packetHandlers.TryAdd(key, del))
                     {
                         registered++;
+#if DEBUG
+                        _handlerNames[key] = method.Name;
+#endif
                         _logger.LogTrace("Registered GS handler {C:X2}-{S} => {Type}.{Method}",
                             attr.MainCode, attr.SubCode, instance.GetType().Name, method.Name);
                     }
@@ -285,6 +306,12 @@ namespace Client.Main.Networking.PacketHandling
                 = _connectServerHandler.HandleServerListResponseAsync;
             _packetHandlers[(ConnectionInfoRequest.Code, ConnectionInfo.SubCode)]
                 = _connectServerHandler.HandleConnectionInfoResponseAsync;
+
+#if DEBUG
+            _handlerNames[(Hello.Code, Hello.SubCode)] = nameof(_connectServerHandler.HandleHelloAsync);
+            _handlerNames[(ServerListRequest.Code, ServerListResponse.SubCode)] = nameof(_connectServerHandler.HandleServerListResponseAsync);
+            _handlerNames[(ConnectionInfoRequest.Code, ConnectionInfo.SubCode)] = nameof(_connectServerHandler.HandleConnectionInfoResponseAsync);
+#endif
 
             _logger.LogInformation("Registered Connect Server handlers.");
         }

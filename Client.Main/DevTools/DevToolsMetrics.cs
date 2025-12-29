@@ -147,6 +147,9 @@ namespace Client.Main.DevTools
         // Detailed render metrics
         public RenderMetricsData Render;
 
+        // Network metrics
+        public NetworkMetricsData Network;
+
         // Profiler overhead tracking
         public double ProfilerOverheadMs;
     }
@@ -454,6 +457,9 @@ namespace Client.Main.DevTools
         [JsonPropertyName("renderStats")]
         public RenderMetricsData RenderStats { get; set; }
 
+        [JsonPropertyName("network")]
+        public NetworkMetricsData Network { get; set; }
+
         public static FrameMetricsJson FromData(in FrameMetricsData data)
         {
             return new FrameMetricsJson
@@ -475,7 +481,8 @@ namespace Client.Main.DevTools
                 RenderSettings = data.RenderSettings,
                 Process = data.Process,
                 Memory = data.Memory,
-                RenderStats = data.Render
+                RenderStats = data.Render,
+                Network = data.Network
             };
         }
     }
@@ -582,6 +589,59 @@ namespace Client.Main.DevTools
 
         [JsonPropertyName("children")]
         public List<ProfileScopeJson> Children { get; set; }
+    }
+
+    /// <summary>
+    /// Network metrics - packets, bandwidth, latency.
+    /// </summary>
+    public struct NetworkMetricsData
+    {
+        // Per-second rates (calculated from rolling window)
+        [JsonPropertyName("rxPkts")]
+        public int PacketsReceivedPerSec;
+        [JsonPropertyName("txPkts")]
+        public int PacketsSentPerSec;
+        [JsonPropertyName("rxBytes")]
+        public int BytesReceivedPerSec;
+        [JsonPropertyName("txBytes")]
+        public int BytesSentPerSec;
+
+        // Totals (session cumulative)
+        [JsonPropertyName("totalRxPkts")]
+        public long TotalPacketsReceived;
+        [JsonPropertyName("totalTxPkts")]
+        public long TotalPacketsSent;
+        [JsonPropertyName("totalRxBytes")]
+        public long TotalBytesReceived;
+        [JsonPropertyName("totalTxBytes")]
+        public long TotalBytesSent;
+
+        // Latency
+        [JsonPropertyName("pingMs")]
+        public int PingMs;
+        [JsonPropertyName("connected")]
+        public bool IsConnected;
+    }
+
+    /// <summary>
+    /// Single packet entry for recent packets list.
+    /// </summary>
+    public class PacketEntry
+    {
+        [JsonPropertyName("time")]
+        public long Timestamp { get; set; }
+
+        [JsonPropertyName("dir")]
+        public string Direction { get; set; } // "RX" or "TX"
+
+        [JsonPropertyName("code")]
+        public string Code { get; set; } // e.g. "C1 F3 01"
+
+        [JsonPropertyName("size")]
+        public int Size { get; set; }
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } // Packet type name if known
     }
 }
 #endif

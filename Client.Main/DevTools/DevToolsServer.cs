@@ -96,6 +96,9 @@ namespace Client.Main.DevTools
                 endpoints.MapGet("/api/scopestats", GetScopeStats);
                 endpoints.MapPost("/api/scopestats/reset", ResetScopeStats);
 
+                // Network endpoints
+                endpoints.MapGet("/api/network/packets", GetRecentPackets);
+
                 // Recording endpoints
                 endpoints.MapPost("/api/recording/start", StartRecording);
                 endpoints.MapPost("/api/recording/stop", StopRecording);
@@ -343,6 +346,23 @@ namespace Client.Main.DevTools
             DevToolsCollector.Instance?.ResetScopeStats();
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("{\"status\":\"reset\"}");
+        }
+
+        private async Task GetRecentPackets(HttpContext context)
+        {
+            context.Response.ContentType = "application/json";
+            int count = 50;
+            if (context.Request.Query.TryGetValue("count", out var countStr) && int.TryParse(countStr, out var parsedCount))
+                count = Math.Clamp(parsedCount, 1, 100);
+
+            var packets = DevToolsCollector.Instance?.GetRecentPackets(count);
+            if (packets == null || packets.Count == 0)
+            {
+                await context.Response.WriteAsync("[]");
+                return;
+            }
+
+            await context.Response.WriteAsync(JsonSerializer.Serialize(packets, JsonOptions));
         }
 
         private async Task StartRecording(HttpContext context)
