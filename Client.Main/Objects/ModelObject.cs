@@ -453,16 +453,19 @@ namespace Client.Main.Objects
         {
             if (World == null || !_contentLoaded) return;
 
-            bool isVisible = Visible;
+            // CRITICAL: Call base.Update FIRST so OutOfView/Visible flags are recalculated for the current frame.
+            // This ensures we don't perform expensive animation logic for objects that just left the view.
+            base.Update(gameTime);
 
-            // Process animation for the parent first. This ensures its BoneTransform is up-to-date.
-            // Centralized animation (includes cross-action blending). LinkParentAnimation skips.
-            if (isVisible && !LinkParentAnimation)
+            bool isVisible = Visible;
+            bool linkParent = LinkParentAnimation;
+
+            // AGGRESSIVE: Animation skipping for off-screen objects.
+            // Simplified logic: If the object is not visible, it doesn't need its bones updated.
+            if (isVisible && !linkParent)
             {
                 Animation(gameTime);
             }
-
-            base.Update(gameTime);
 
             if (isVisible)
             {
@@ -470,6 +473,7 @@ namespace Client.Main.Objects
                 EnsureModelChildrenCache();
 
                 // Use cached array to avoid per-frame type checks
+                // For equipment (wings, weapons), these follow the parent's bone state.
                 for (int i = 0; i < _cachedModelChildren.Length; i++)
                 {
                     var childModel = _cachedModelChildren[i];
@@ -490,21 +494,19 @@ namespace Client.Main.Objects
                 }
             }
 
-            // Throttle CPU skinning / buffer rebuild frequency for distant walkers (monsters/NPC/remote players).
-            // This affects SetDynamicBuffers() later in this Update call via AnimationUpdateStride.
+            // Throttle CPU skinning / buffer rebuild frequency for distant walkers
             if (this is WalkerObject walker)
             {
                 int desiredStride = 1;
                 if (!walker.IsMainWalker)
                 {
-                    // Keep nearby animations smooth; only throttle when low-quality is active.
                     desiredStride = walker.IsOneShotPlaying ? 1 : (LowQuality ? 4 : 1);
                 }
 
                 if (AnimationUpdateStride != desiredStride)
                     SetAnimationUpdateStride(desiredStride);
 
-                // Apply the same stride to linked child models (equipment/attachments) to avoid rebuilding all parts every frame.
+                // Apply the same stride to linked child models
                 if (isVisible && _cachedModelChildren.Length > 0)
                 {
                     for (int i = 0; i < _cachedModelChildren.Length; i++)
@@ -520,6 +522,7 @@ namespace Client.Main.Objects
             }
 
             if (!isVisible) return;
+            // ... (rest of the lighting logic follows)
 
             // Like old code: Check if lighting has changed significantly (for static objects)
             bool hasDynamicLightingShader = Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
@@ -620,7 +623,7 @@ namespace Client.Main.Objects
             _meshBufferCache = null;
             _animationStateValid = false;
 
-            ReleaseMeshGroups();
+            ClearAllMeshGroups();
             _meshGroupPool.Clear();
         }
 

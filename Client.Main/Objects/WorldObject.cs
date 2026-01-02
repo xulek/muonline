@@ -42,7 +42,11 @@ namespace Client.Main.Objects
         private SpriteFont _font;
         private Texture2D _whiteTexture;
         private float _cullingCheckTimer = 0;
-        private const float CullingCheckInterval = 0.1f; // Check culling every 100ms instead of every frame
+#if ANDROID
+        private const float CullingCheckInterval = 0.1f; // Check culling every 100ms
+#else
+        private const float CullingCheckInterval = 0.25f; // Check culling every 250ms on PC
+#endif
 
         // Advanced update optimization for invisible objects
         private float _lowPriorityUpdateTimer = 0;
@@ -196,6 +200,11 @@ namespace Client.Main.Objects
             return Task.CompletedTask;
         }
 
+        public virtual void UpdateReduced(GameTime gameTime)
+        {
+            Update(gameTime);
+        }
+
         public virtual void Update(GameTime gameTime)
         {
             if (Status == GameControlStatus.NonInitialized)
@@ -209,13 +218,15 @@ namespace Client.Main.Objects
 
             float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
-            // Update OutOfView flag with intelligent frequency based on object state
+            // ✅ OPTIMIZACIÓN: Update OutOfView flag with intelligent frequency based on object state
             bool shouldCheckCulling = false;
             if (World != null)
             {
                 _cullingCheckTimer += deltaTime;
 
                 // Adjust culling check frequency based on object state
+                // Objects in view: check every 0.1s
+                // Objects out of view: check every 0.2s (less frequent)
                 float checkInterval = _wasOutOfView ? CullingCheckInterval * 2f : CullingCheckInterval;
                 if (_cullingCheckTimer >= checkInterval)
                 {
@@ -230,6 +241,7 @@ namespace Client.Main.Objects
                 OutOfView = World != null && !World.IsObjectInView(this);
 
                 // If object was just marked as out of view, give it another chance soon
+                // This prevents objects from being culled too aggressively when they're at the edge
                 if (!_wasOutOfView && OutOfView)
                 {
                     _cullingCheckTimer = CullingCheckInterval - 0.016f; // Check again in ~1 frame
@@ -267,14 +279,17 @@ namespace Client.Main.Objects
             _lowPriorityUpdateTimer = 0;
 
             // Simplified distance-based optimization for visible objects
-            float distanceToCamera = float.MaxValue;
             if (World != null && Camera.Instance != null)
             {
-                distanceToCamera = Vector3.Distance(Camera.Instance.Position, WorldPosition.Translation);
-                _lastDistanceToCamera = distanceToCamera;
+                var camPos = Camera.Instance.Position;
+                var objPos = WorldPosition.Translation;
+                float dx = camPos.X - objPos.X;
+                float dy = camPos.Y - objPos.Y;
+                float dz = camPos.Z - objPos.Z;
+                float distSq = dx * dx + dy * dy + dz * dz;
 
                 // AGGRESSIVE: Skip every other frame for very distant visible objects
-                if (distanceToCamera > Constants.LOW_QUALITY_DISTANCE * 2f)
+                if (distSq > Constants.LOW_QUALITY_DISTANCE_SQ * 4f)
                 {
                     if (_globalFrameCounter % 2 != (_updateOffset % 2))
                     {
@@ -282,10 +297,14 @@ namespace Client.Main.Objects
                         return; // Skip every other frame for distant objects
                     }
                 }
-            }
 
-            // Full update for all visible objects (simplified)
-            PerformFullUpdate(gameTime, distanceToCamera);
+                // Full update for all visible objects (simplified)
+                PerformFullUpdate(gameTime, distSq);
+            }
+            else
+            {
+                PerformFullUpdate(gameTime, float.MaxValue);
+            }
         }
 
         private void UpdateChildrenSelectively(GameTime gameTime)
@@ -311,7 +330,7 @@ namespace Client.Main.Objects
             }
         }
 
-        private void PerformFullUpdate(GameTime gameTime, float distanceToCamera)
+        private void PerformFullUpdate(GameTime gameTime, float distSq)
         {
             TotalUpdatesPerformed++;
 
@@ -319,11 +338,10 @@ namespace Client.Main.Objects
             if (Environment.TickCount - _lastResetTime > 5000)
             {
                 _lastResetTime = Environment.TickCount;
-                // log these values or display them in debug UI
-                //Console.WriteLine($"WorldObject Optimization: {TotalSkippedUpdates} skipped, {TotalUpdatesPerformed} performed");
                 TotalSkippedUpdates = 0;
                 TotalUpdatesPerformed = 0;
             }
+
             // Determine whether the object should be rendered in low quality based on distance to the camera
             if (World != null)
             {
@@ -335,7 +353,7 @@ namespace Client.Main.Objects
                 }
                 else
                 {
-                    LowQuality = distanceToCamera > Constants.LOW_QUALITY_DISTANCE;
+                    LowQuality = distSq > Constants.LOW_QUALITY_DISTANCE_SQ;
                 }
             }
             else
@@ -344,7 +362,9 @@ namespace Client.Main.Objects
             }
 
             // Mouse hover detection optimization - skip for distant/out-of-view objects
-            bool withinHoverRange = distanceToCamera < Constants.LOW_QUALITY_DISTANCE * 1.5f;
+            float hoverRangeSq = Constants.LOW_QUALITY_DISTANCE_SQ * 2.25f; // (1.5 * 1.5)
+            bool withinHoverRange = distSq < hoverRangeSq;
+            
             // Cache frustum result only when within hover range
             bool inFrustum = withinHoverRange && (Camera.Instance?.Frustum.Contains(BoundingBoxWorld) != ContainmentType.Disjoint);
             // Defer expensive hover checks when many objects spawn: use a staggered cadence for non-interactive objects
@@ -723,8 +743,6 @@ namespace Client.Main.Objects
             GraphicsDevice.DepthStencilState = prevDepth;
             GraphicsDevice.RasterizerState = prevRaster;
         }
-
-
         private void DrawTextBackground(SpriteBatch spriteBatch, Rectangle rect, Color color, float layerDepth = 0f)
         {
             if (_whiteTexture == null)
@@ -759,21 +777,25 @@ namespace Client.Main.Objects
 
         protected virtual void UpdateWorldBoundingBox()
         {
-            Matrix worldPos = WorldPosition;
-            var min = BoundingBoxLocal.Min;
-            var max = BoundingBoxLocal.Max;
+            Matrix m = WorldPosition;
+            BoundingBox local = BoundingBoxLocal;
 
-            // Write corners directly into the reusable buffer (avoids GetCorners allocation)
-            _bboxCorners[0] = Vector3.Transform(new Vector3(min.X, min.Y, min.Z), worldPos);
-            _bboxCorners[1] = Vector3.Transform(new Vector3(max.X, min.Y, min.Z), worldPos);
-            _bboxCorners[2] = Vector3.Transform(new Vector3(max.X, max.Y, min.Z), worldPos);
-            _bboxCorners[3] = Vector3.Transform(new Vector3(min.X, max.Y, min.Z), worldPos);
-            _bboxCorners[4] = Vector3.Transform(new Vector3(min.X, min.Y, max.Z), worldPos);
-            _bboxCorners[5] = Vector3.Transform(new Vector3(max.X, min.Y, max.Z), worldPos);
-            _bboxCorners[6] = Vector3.Transform(new Vector3(max.X, max.Y, max.Z), worldPos);
-            _bboxCorners[7] = Vector3.Transform(new Vector3(min.X, max.Y, max.Z), worldPos);
+            // Faster OBB to AABB transform (Matrix * AABB)
+            // Based on: https://dev.theomader.com/transform-bounding-boxes/
+            
+            Vector3 center = (local.Max + local.Min) * 0.5f;
+            Vector3 extent = (local.Max - local.Min) * 0.5f;
 
-            BoundingBoxWorld = BoundingBox.CreateFromPoints(_bboxCorners);
+            // Transform center
+            Vector3 newCenter = Vector3.Transform(center, m);
+
+            // Transform extent
+            Vector3 newExtent;
+            newExtent.X = Math.Abs(m.M11) * extent.X + Math.Abs(m.M21) * extent.Y + Math.Abs(m.M31) * extent.Z;
+            newExtent.Y = Math.Abs(m.M12) * extent.X + Math.Abs(m.M22) * extent.Y + Math.Abs(m.M32) * extent.Z;
+            newExtent.Z = Math.Abs(m.M13) * extent.X + Math.Abs(m.M23) * extent.Y + Math.Abs(m.M33) * extent.Z;
+
+            BoundingBoxWorld = new BoundingBox(newCenter - newExtent, newCenter + newExtent);
         }
 
         public virtual ushort NetworkId { get; protected set; }

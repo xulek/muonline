@@ -68,6 +68,7 @@ namespace Client.Main.Controls.Terrain
         // State tracking for GPU optimization
         private Texture2D _lastBoundTexture = null;
         private BlendState _lastBlendState = null;
+        private Vector2 _lastTerrainUvScale = Vector2.Zero;
         private bool _useDynamicLightingShader = false;
         private bool _useTerrainIndexBatching = false;
 
@@ -556,14 +557,16 @@ namespace Client.Main.Controls.Terrain
             if (effect == null || Camera.Instance == null)
                 return false;
 
+            // PERFORMANCE: View, Projection, EyePosition, Sun, ShadowMap are now set ONCE per frame 
+            // by GraphicsManager.UpdateGlobalShaderParameters().
+            
             Matrix world = Matrix.Identity;
             effect.Parameters["World"]?.SetValue(world);
-            effect.Parameters["View"]?.SetValue(Camera.Instance.View);
-            effect.Parameters["Projection"]?.SetValue(Camera.Instance.Projection);
             effect.Parameters["WorldViewProjection"]?.SetValue(world * Camera.Instance.View * Camera.Instance.Projection);
-            effect.Parameters["EyePosition"]?.SetValue(Camera.Instance.Position);
+            
             // Use terrain technique instead of setting uniforms (better performance, no shader branches)
             effect.CurrentTechnique = effect.Techniques["DynamicLighting_Terrain"];
+            
             effect.Parameters["UseProceduralTerrainUV"]?.SetValue(_useTerrainIndexBatching ? 1.0f : 0.0f);
             effect.Parameters["IsWaterTexture"]?.SetValue(0.0f);
             effect.Parameters["TerrainUvScale"]?.SetValue(Vector2.Zero);
@@ -575,23 +578,9 @@ namespace Client.Main.Controls.Terrain
             effect.Parameters["Alpha"]?.SetValue(1f);
             effect.Parameters["DebugLightingAreas"]?.SetValue(Constants.DEBUG_LIGHTING_AREAS ? 1.0f : 0.0f);
 
-            // Ambient and sun are ignored when using baked vertex lighting, but keep sane defaults.
-            float ambientValue = AmbientLight * SunCycleManager.AmbientMultiplier;
-            effect.Parameters["AmbientLight"]?.SetValue(new Vector3(ambientValue));
-            // GlobalLightMultiplier dims vertex color lighting for day-night cycle
+            // Re-apply terrain-specific ambient multiplier (base ambient is set globally)
             effect.Parameters["GlobalLightMultiplier"]?.SetValue(SunCycleManager.AmbientMultiplier);
-            Vector3 sunDir = GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
-            if (sunDir.LengthSquared() < 0.0001f)
-                sunDir = new Vector3(1f, 0f, -0.6f);
-            sunDir = Vector3.Normalize(sunDir);
-            bool sunEnabled = Constants.SUN_ENABLED;
-            effect.Parameters["SunDirection"]?.SetValue(sunDir);
-            effect.Parameters["SunColor"]?.SetValue(new Vector3(1f, 0.95f, 0.85f));
-            effect.Parameters["SunStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
-            effect.Parameters["ShadowStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
-
-            // Apply global shadow map parameters when available so terrain receives the same shadows as objects
-            GraphicsManager.Instance.ShadowMapRenderer?.ApplyShadowParameters(effect);
+            
             UploadDynamicLights(effect);
             return true;
         }
@@ -1495,7 +1484,11 @@ namespace Client.Main.Controls.Terrain
                 _lastBoundTexture = texture;
             }
 
-            effect.Parameters["TerrainUvScale"]?.SetValue(_tileUvScaleWorld[texIndex]);
+            if (_lastTerrainUvScale != _tileUvScaleWorld[texIndex])
+            {
+                effect.Parameters["TerrainUvScale"]?.SetValue(_tileUvScaleWorld[texIndex]);
+                _lastTerrainUvScale = _tileUvScaleWorld[texIndex];
+            }
 
             bool noFlow = WaterSpeed == 0f && DistortionAmplitude == 0f;
             float isWater = (texIndex == 5 && !noFlow) ? 1.0f : 0.0f;

@@ -49,8 +49,17 @@ namespace Client.Main.Controls
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool UsesSpriteBatch(WorldObject obj) =>
+            obj is SpriteObject || obj is WaterMistParticleSystem || obj is ElfBuffOrbTrail;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Compare(WorldObject a, WorldObject b)
         {
+            // First: Group by SpriteBatch usage to avoid interleaving Begin/End calls
+            bool usbA = UsesSpriteBatch(a);
+            bool usbB = UsesSpriteBatch(b);
+            if (usbA != usbB) return usbA ? -1 : 1;
+
             if (a is ModelObject ma && b is ModelObject mb)
             {
                 // Prioritize by texture and blend state to minimize state changes
@@ -81,8 +90,17 @@ namespace Client.Main.Controls
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool UsesSpriteBatch(WorldObject obj) =>
+            obj is SpriteObject || obj is WaterMistParticleSystem || obj is ElfBuffOrbTrail;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Compare(WorldObject a, WorldObject b)
         {
+            // First: Group by SpriteBatch usage to avoid interleaving Begin/End calls
+            bool usbA = UsesSpriteBatch(a);
+            bool usbB = UsesSpriteBatch(b);
+            if (usbA != usbB) return usbA ? -1 : 1;
+
             if (a is ModelObject ma && b is ModelObject mb)
             {
                 // Prioritize by texture and blend state to minimize state changes
@@ -150,7 +168,11 @@ namespace Client.Main.Controls
 
         private const int StaticChunkSizeTiles = 16;
 
+#if ANDROID
+        private const float CullingOffset = 400f;
+#else
         private const float CullingOffset = 800f;
+#endif
 
         private int _renderCounter;
         private DepthStencilState _currentDepthState = DepthStencilState.Default;
@@ -183,13 +205,51 @@ namespace Client.Main.Controls
             return registeredType.IsAssignableFrom(obj.GetType());
         }
 
-        private readonly List<WorldObject> _solidBehind = new();
-        private readonly List<WorldObject> _transparentObjects = new();
-        private readonly List<WorldObject> _solidInFront = new();
-        private readonly List<WalkerObject> _walkers = new();
-        private readonly List<PlayerObject> _players = new();
-        private readonly List<MonsterObject> _monsters = new();
-        private readonly List<DroppedItemObject> _droppedItems = new();
+        // ✅ POOLING & CACHING
+        private static class ListPool<T>
+        {
+            private static readonly Stack<List<T>> _pool = new();
+            public static List<T> Get(int capacity = 0)
+            {
+                lock (_pool)
+                {
+                    if (_pool.Count > 0)
+                    {
+                        var list = _pool.Pop();
+                        if (list.Capacity < capacity) list.Capacity = capacity;
+                        return list;
+                    }
+                }
+                return new List<T>(capacity);
+            }
+            public static void Return(List<T> list)
+            {
+                if (list == null) return;
+                list.Clear();
+                lock (_pool) _pool.Push(list);
+            }
+        }
+
+        private readonly Dictionary<WorldObject, (BoundingBox Box, long Frame)> _boundsCache = new();
+        private long _currentFrame = 0;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private BoundingBox GetCachedBoundingBox(WorldObject obj)
+        {
+            if (_boundsCache.TryGetValue(obj, out var cached) && cached.Frame == _currentFrame)
+                return cached.Box;
+            var box = obj.BoundingBoxWorld;
+            _boundsCache[obj] = (box, _currentFrame);
+            return box;
+        }
+
+        private readonly List<WorldObject> _solidBehind;
+        private readonly List<WorldObject> _transparentObjects;
+        private readonly List<WorldObject> _solidInFront;
+        private readonly List<WalkerObject> _walkers;
+        private readonly List<PlayerObject> _players;
+        private readonly List<MonsterObject> _monsters;
+        private readonly List<DroppedItemObject> _droppedItems;
 
         public Dictionary<ushort, WalkerObject> WalkerObjectsById { get; } = new();
 
@@ -239,10 +299,23 @@ namespace Client.Main.Controls
                 Name = worldInfo.DisplayName;
             }
 
+            // ✅ Pre-allocate collections with optimized capacities
+#if ANDROID
+            const int INITIAL_CAPACITY = 100;
+#else
+            const int INITIAL_CAPACITY = 300;
+#endif
+            _solidBehind = ListPool<WorldObject>.Get(INITIAL_CAPACITY);
+            _transparentObjects = ListPool<WorldObject>.Get(INITIAL_CAPACITY);
+            _solidInFront = ListPool<WorldObject>.Get(INITIAL_CAPACITY);
+            _walkers = new List<WalkerObject>(INITIAL_CAPACITY / 2);
+            _players = new List<PlayerObject>(INITIAL_CAPACITY / 4);
+            _monsters = new List<MonsterObject>(INITIAL_CAPACITY / 4);
+            _droppedItems = new List<DroppedItemObject>(INITIAL_CAPACITY / 10);
+
             Controls.Add(Terrain = new TerrainControl { WorldIndex = worldIndex });
             Objects.ControlAdded += OnObjectAdded;
             Objects.ControlRemoved += OnObjectRemoved;
-
         }
 
         // --- Lifecycle Methods ---
@@ -312,13 +385,84 @@ namespace Client.Main.Controls
             base.Update(time);
             if (Status != GameControlStatus.Ready) return;
 
-            // Iterate over a stable snapshot to avoid per-object lock contention
+            _currentFrame++;
+
             var snapshot = Objects.GetSnapshot();
-            for (int i = 0; i < snapshot.Count; i++)
+
+#if ANDROID
+            const float BaseCullDistSq = 800f * 800f; // Even more aggressive for Android
+#else
+            const float BaseCullDistSq = 3000f * 3000f;
+#endif
+
+            var cam = Camera.Instance;
+            if (cam != null)
             {
-                var obj = snapshot[i];
-                if (obj != null && obj.Status != GameControlStatus.Disposed)
+                Vector2 camPos = new Vector2(cam.Position.X, cam.Position.Y);
+                float maxDist = cam.ViewFar + CullingOffset;
+                float maxDistSq = maxDist * maxDist;
+                var frustum = cam.Frustum;
+
+                if (_staticChunkCacheDirty || !_staticChunksReady)
+                {
+                    BuildStaticChunkCache();
+                    _staticChunkCacheDirty = false;
+                }
+
+                if (_staticChunksReady && _staticChunkCountWithObjects > 0)
+                {
+                    UpdateStaticChunkVisibility(camPos, maxDistSq, frustum);
+                }
+
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    var obj = snapshot[i];
+                    if (obj == null || obj.Status == GameControlStatus.Disposed) continue;
+
+                    // Skip static objects in invisible chunks
+                    if (_staticChunksReady && IsChunkableStaticObject(obj))
+                    {
+                        var pos = obj.Position;
+                        int cx = (int)(pos.X / _staticChunkWorldSize);
+                        int cy = (int)(pos.Y / _staticChunkWorldSize);
+                        if (cx >= 0 && cx < _staticChunkGridSize && cy >= 0 && cy < _staticChunkGridSize)
+                        {
+                            var chunk = _staticChunks[cy * _staticChunkGridSize + cx];
+                            if (!chunk.IsVisible) continue;
+                        }
+                    }
+
+                    // Distance-based update frequency
+                    var objPos = obj.Position;
+                    float dx = objPos.X - camPos.X;
+                    float dy = objPos.Y - camPos.Y;
+                    float distSq = dx * dx + dy * dy;
+
+                    bool isEffect = obj.GetType().Namespace?.Contains("Effects") == true;
+                    bool important = isEffect || (obj is WalkerObject walker && walker.IsMainWalker) || obj is PlayerObject;
+
+                    if (!important)
+                    {
+                        if (distSq > BaseCullDistSq * 4f) continue;
+                        if (distSq > BaseCullDistSq)
+                        {
+                            if (obj is WalkerObject || obj is MonsterObject)
+                                obj.UpdateReduced(time);
+                            continue;
+                        }
+                    }
+
                     obj.Update(time);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    var obj = snapshot[i];
+                    if (obj != null && obj.Status != GameControlStatus.Disposed)
+                        obj.Update(time);
+                }
             }
         }
 
@@ -568,19 +712,18 @@ namespace Client.Main.Controls
             _solidInFront.Clear();
 
             var objects = Objects.GetSnapshot();
-            var metrics = new ObjectPerformanceMetrics
-            {
-                TotalObjects = objects.Count,
-                StaticChunksTotal = _staticChunkCountWithObjects
-            };
+            int totalObjects = objects.Count;
+            if (totalObjects == 0) return;
 
             var cam = Camera.Instance;
-            var frustum = cam?.Frustum;
-            if (cam == null || frustum == null) return;
+            if (cam == null) return;
 
             Vector2 cam2D = new(cam.Position.X, cam.Position.Y);
             float maxDist = cam.ViewFar + CullingOffset;
             float maxDistSq = maxDist * maxDist;
+            var frustum = cam.Frustum;
+
+            int considered = 0, culled = 0, drawnSolid = 0, drawnTransparent = 0;
 
             if (_staticChunkCacheDirty || !_staticChunksReady)
             {
@@ -588,63 +731,137 @@ namespace Client.Main.Controls
                 _staticChunkCacheDirty = false;
             }
 
-            bool chunkCullingActive = _staticChunksReady && _staticChunkCountWithObjects > 0;
-            if (chunkCullingActive)
+            bool useChunks = _staticChunksReady && _staticChunkCountWithObjects > 0;
+            if (useChunks)
             {
                 UpdateStaticChunkVisibility(cam2D, maxDistSq, frustum);
+
+                // Process NON-static objects
+                for (int i = 0; i < totalObjects; i++)
+                {
+                    var obj = objects[i];
+                    if (obj == null || !obj.Visible || obj.Status == GameControlStatus.Disposed) continue;
+                    if (IsChunkableStaticObject(obj)) continue;
+
+                    considered++;
+                    if (!FastIsInView(obj, cam2D, maxDistSq, frustum))
+                    {
+                        culled++;
+                        continue;
+                    }
+
+                    AddToRenderList(obj, ref drawnSolid, ref drawnTransparent);
+                }
+
+                // Process STATIC objects from visible chunks
+                for (int i = 0; i < _staticChunks.Length; i++)
+                {
+                    var chunk = _staticChunks[i];
+                    if (chunk.Objects.Count == 0 || !chunk.IsVisible) continue;
+
+                    for (int j = 0; j < chunk.Objects.Count; j++)
+                    {
+                        var obj = chunk.Objects[j];
+                        if (obj == null || !obj.Visible || obj.Status == GameControlStatus.Disposed)
+                            continue;
+
+                        considered++;
+                        AddToRenderList(obj, ref drawnSolid, ref drawnTransparent);
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: process all objects
+                for (int i = 0; i < totalObjects; i++)
+                {
+                    var obj = objects[i];
+                    if (obj == null || !obj.Visible || obj.Status == GameControlStatus.Disposed) continue;
+
+                    considered++;
+                    if (!FastIsInView(obj, cam2D, maxDistSq, frustum))
+                    {
+                        culled++;
+                        continue;
+                    }
+
+                    AddToRenderList(obj, ref drawnSolid, ref drawnTransparent);
+                }
             }
 
-            // Classify objects using the cached snapshot to avoid per-object locks
-            for (int i = 0; i < objects.Count; i++)
+            ObjectMetrics = new ObjectPerformanceMetrics
             {
-                var obj = objects[i];
-                if (chunkCullingActive && IsChunkableStaticObject(obj))
-                    continue; // Static objects handled via chunk culling
+                TotalObjects = totalObjects,
+                ConsideredForRender = considered,
+                CulledByFrustum = culled,
+                DrawnSolid = drawnSolid,
+                DrawnTransparent = drawnTransparent,
+                StaticChunksTotal = _staticChunkCountWithObjects
+            };
 
-                ClassifyObject(obj, cam2D, maxDistSq, frustum, ref metrics, skipViewCheck: false);
-            }
+            const int SORT_THRESHOLD = 5;
 
-            // Chunk-based culling/classification for static map objects
-            if (chunkCullingActive)
-            {
-                ClassifyStaticChunks(cam2D, maxDistSq, frustum, ref metrics);
-            }
-
-            ObjectMetrics = metrics;
-
-            // Draw solid behind objects
-            if (_solidBehind.Count > 1)
-            {
+            // Render with adaptive sorting
+            if (_solidBehind.Count > SORT_THRESHOLD)
                 _solidBehind.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
-            }
             DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
 
-            // Draw transparent objects
-            if (_transparentObjects.Count > 1)
-            {
-                // Transparent rendering requires strict back-to-front ordering, so never batch-optimize.
+            if (_transparentObjects.Count > SORT_THRESHOLD)
                 _transparentObjects.Sort(_cmpDesc);
-            }
             DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
 
-            // Draw solid in front objects
-            if (_solidInFront.Count > 1)
-            {
+            if (_solidInFront.Count > SORT_THRESHOLD)
                 _solidInFront.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
-            }
             DrawListWithSpriteBatchGrouping(_solidInFront, DepthStateDefault, time);
 
-            // Draw post-pass (DrawAfter)
+            // Post-pass
             DrawAfterPass(_solidBehind, DepthStateDefault, time);
             DrawAfterPass(_transparentObjects, DepthStateDepthRead, time);
             DrawAfterPass(_solidInFront, DepthStateDefault, time);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool FastIsInView(WorldObject obj, Vector2 cam2D, float maxDistSq, BoundingFrustum frustum)
+        {
+            var pos = obj.Position;
+            float dx = pos.X - cam2D.X;
+            float dy = pos.Y - cam2D.Y;
+            float distSq2D = dx * dx + dy * dy;
+
+            if (distSq2D > maxDistSq) return false;
+
+            // Optimization: If very close, it's almost certainly in view, skip frustum check.
+            // Using a constant distance (e.g. 5 tiles) or a small fraction of maxDistSq.
+            if (distSq2D < (maxDistSq * 0.05f)) return true;
+
+            // For objects further out, check the frustum to cull them if they are off-screen sideways/behind.
+            var bounds = GetCachedBoundingBox(obj);
+            return frustum.Contains(bounds) != ContainmentType.Disjoint;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void AddToRenderList(WorldObject obj, ref int drawnSolid, ref int drawnTransparent)
+        {
+            if (obj.IsTransparent)
+            {
+                _transparentObjects.Add(obj);
+                drawnTransparent++;
+            }
+            else if (obj.AffectedByTransparency)
+            {
+                _solidBehind.Add(obj);
+                drawnSolid++;
+            }
+            else
+            {
+                _solidInFront.Add(obj);
+                drawnSolid++;
+            }
+        }
+
         private void DrawListWithSpriteBatchGrouping(List<WorldObject> list, DepthStencilState depthState, GameTime time)
         {
-            if (list.Count == 0)
-                return;
-
+            if (list.Count == 0) return;
             SetDepthState(depthState);
 
             var spriteBatch = GraphicsManager.Instance.Sprite;
@@ -653,64 +870,92 @@ namespace Client.Main.Controls
             SamplerState currentSampler = null;
             DepthStencilState currentBatchDepth = null;
 
+            int batchStart = 0;
+            bool inSpriteBatch = false;
+
             for (int i = 0; i < list.Count; i++)
             {
                 var obj = list[i];
-                if (obj == null)
-                    continue;
+                if (obj == null) continue;
 
                 obj.DepthState = depthState;
 
-                bool usesSpriteBatch =
-                    obj is SpriteObject ||
-                    obj is WaterMistParticleSystem ||
-                    obj is ElfBuffOrbTrail;
+                bool usesSpriteBatch = obj is SpriteObject ||
+                                      obj is WaterMistParticleSystem ||
+                                      obj is ElfBuffOrbTrail;
 
-                if (usesSpriteBatch)
+                if (usesSpriteBatch && !inSpriteBatch)
                 {
-                    var blend = obj.BlendState ?? BlendState.AlphaBlend;
-                    SamplerState sampler;
-                    if (obj is WaterMistParticleSystem || obj is ElfBuffOrbTrail)
-                    {
-                        sampler = SamplerState.LinearClamp;
-                    }
-                    else
-                    {
-                        sampler = ReferenceEquals(blend, BlendState.Additive)
-                            ? GraphicsManager.GetQualityLinearSamplerState()
-                            : GraphicsManager.GetQualitySamplerState();
-                    }
-                    var batchDepth = obj is WaterMistParticleSystem ? DepthStencilState.DepthRead : depthState;
-
-                    if (scope == null ||
-                        !ReferenceEquals(blend, currentBlend) ||
-                        !ReferenceEquals(sampler, currentSampler) ||
-                        !ReferenceEquals(batchDepth, currentBatchDepth))
-                    {
-                        scope?.Dispose();
-                        scope = new Helpers.SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, blend, sampler, batchDepth);
-                        currentBlend = blend;
-                        currentSampler = sampler;
-                        currentBatchDepth = batchDepth;
-                    }
+                    inSpriteBatch = true;
+                    batchStart = i;
+                }
+                else if (!usesSpriteBatch && inSpriteBatch)
+                {
+                    RenderSpriteBatchRange(list, batchStart, i, spriteBatch, ref scope,
+                                          ref currentBlend, ref currentSampler, ref currentBatchDepth, time);
+                    inSpriteBatch = false;
 
                     obj.Draw(time);
+                    obj.RenderOrder = ++_renderCounter;
+                    continue;
                 }
-                else
+                else if (!usesSpriteBatch)
                 {
-                    scope?.Dispose();
-                    scope = null;
-                    currentBlend = null;
-                    currentSampler = null;
-                    currentBatchDepth = null;
-
                     obj.Draw(time);
+                    obj.RenderOrder = ++_renderCounter;
                 }
+            }
 
-                obj.RenderOrder = ++_renderCounter;
+            if (inSpriteBatch)
+            {
+                RenderSpriteBatchRange(list, batchStart, list.Count, spriteBatch, ref scope,
+                                      ref currentBlend, ref currentSampler, ref currentBatchDepth, time);
             }
 
             scope?.Dispose();
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void RenderSpriteBatchRange(List<WorldObject> list, int start, int end,
+                                           SpriteBatch spriteBatch, ref Helpers.SpriteBatchScope? scope,
+                                           ref BlendState currentBlend, ref SamplerState currentSampler,
+                                           ref DepthStencilState currentBatchDepth, GameTime time)
+        {
+            for (int i = start; i < end; i++)
+            {
+                var obj = list[i];
+                if (obj == null) continue;
+
+                var blend = obj.BlendState ?? BlendState.AlphaBlend;
+                SamplerState sampler;
+                if (obj is WaterMistParticleSystem || obj is ElfBuffOrbTrail)
+                {
+                    sampler = SamplerState.LinearClamp;
+                }
+                else
+                {
+                    sampler = ReferenceEquals(blend, BlendState.Additive)
+                        ? GraphicsManager.GetQualityLinearSamplerState()
+                        : GraphicsManager.GetQualitySamplerState();
+                }
+                var batchDepth = obj is WaterMistParticleSystem ? DepthStencilState.DepthRead : obj.DepthState;
+
+                if (scope == null ||
+                    !ReferenceEquals(blend, currentBlend) ||
+                    !ReferenceEquals(sampler, currentSampler) ||
+                    !ReferenceEquals(batchDepth, currentBatchDepth))
+                {
+                    scope?.Dispose();
+                    scope = new Helpers.SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred,
+                                                        blend, sampler, batchDepth);
+                    currentBlend = blend;
+                    currentSampler = sampler;
+                    currentBatchDepth = batchDepth;
+                }
+
+                obj.Draw(time);
+                obj.RenderOrder = ++_renderCounter;
+            }
         }
 
         private void DrawAfterPass(List<WorldObject> list, DepthStencilState state, GameTime time)
@@ -731,70 +976,6 @@ namespace Client.Main.Controls
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ClassifyObject(WorldObject obj, Vector2 cam2D, float maxDistSq, BoundingFrustum frustum,
-            ref ObjectPerformanceMetrics metrics, bool skipViewCheck)
-        {
-            if (obj == null) return;
-            if (obj.Status == GameControlStatus.Disposed || !obj.Visible) return;
-
-            metrics.ConsideredForRender++;
-
-            if (!skipViewCheck && !IsObjectInView(obj, cam2D, maxDistSq, frustum))
-            {
-                metrics.CulledByFrustum++;
-                return;
-            }
-
-            if (obj.IsTransparent)
-            {
-                _transparentObjects.Add(obj);
-                metrics.DrawnTransparent++;
-            }
-            else if (obj.AffectedByTransparency)
-            {
-                _solidBehind.Add(obj);
-                metrics.DrawnSolid++;
-            }
-            else
-            {
-                _solidInFront.Add(obj);
-                metrics.DrawnSolid++;
-            }
-        }
-
-        private void ClassifyStaticChunks(Vector2 cam2D, float maxDistSq, BoundingFrustum frustum,
-            ref ObjectPerformanceMetrics metrics)
-        {
-            if (_staticChunks == null) return;
-
-            for (int i = 0; i < _staticChunks.Length; i++)
-            {
-                var chunk = _staticChunks[i];
-                if (chunk.Objects.Count == 0) continue;
-
-                if (!chunk.IsVisible)
-                {
-                    metrics.StaticChunksCulled++;
-                    // Count all valid objects in this chunk as culled
-                    for (int n = 0; n < chunk.Objects.Count; n++)
-                    {
-                        var obj = chunk.Objects[n];
-                        if (obj == null) continue;
-                        if (obj.Status == GameControlStatus.Disposed) continue;
-                        metrics.ConsideredForRender++;
-                        metrics.CulledByFrustum++;
-                        metrics.StaticObjectsCulledByChunk++;
-                    }
-                    continue;
-                }
-
-                metrics.StaticChunksVisible++;
-                for (int n = 0; n < chunk.Objects.Count; n++)
-                    ClassifyObject(chunk.Objects[n], cam2D, maxDistSq, frustum, ref metrics, skipViewCheck: true);
-            }
-        }
-
         // --- View Frustum & Culling ---
 
         public bool IsObjectInView(WorldObject obj)
@@ -812,22 +993,11 @@ namespace Client.Main.Controls
             return cam.Frustum.Contains(obj.BoundingBoxWorld) != ContainmentType.Disjoint;
         }
 
-        // Fast path for loops where camera info is already cached
-        private static bool IsObjectInView(WorldObject obj, Vector2 cam2, float maxDistSq, BoundingFrustum frustum)
-        {
-            var pos3 = obj.WorldPosition.Translation;
-            var obj2 = new Vector2(pos3.X, pos3.Y);
-            if (Vector2.DistanceSquared(cam2, obj2) > maxDistSq)
-                return false;
-
-            return frustum != null && frustum.Contains(obj.BoundingBoxWorld) != ContainmentType.Disjoint;
-        }
-
         private void UpdateStaticChunkVisibility(Vector2 cam2, float maxDistSq, BoundingFrustum frustum)
         {
             if (_staticChunks == null || frustum == null) return;
 
-            const float DistancePadding = 400f;
+            const float DistancePadding = 0f;
             float paddedMaxDistSq = maxDistSq + DistancePadding * DistancePadding;
 
             for (int i = 0; i < _staticChunks.Length; i++)
@@ -976,6 +1146,11 @@ namespace Client.Main.Controls
             _monsters.Clear();
             _droppedItems.Clear();
 
+            // ✅ Return pooled lists
+            ListPool<WorldObject>.Return(_solidBehind);
+            ListPool<WorldObject>.Return(_transparentObjects);
+            ListPool<WorldObject>.Return(_solidInFront);
+
             // Dispose static chunk cached surfaces
             if (_staticChunks != null)
             {
@@ -984,6 +1159,7 @@ namespace Client.Main.Controls
                 _staticChunks = null;
             }
             _staticChunksReady = false;
+            _boundsCache.Clear();
 
             sw.Stop();
             var elapsedObjects = sw.ElapsedMilliseconds;

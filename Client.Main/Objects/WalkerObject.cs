@@ -179,6 +179,31 @@ namespace Client.Main.Objects
                 Angle = _direction.ToAngle();
         }
 
+        public override void UpdateReduced(GameTime gameTime)
+        {
+            // Base WorldObject.Update handles culling and basic status checks
+            base.Update(gameTime);
+            if (Status != GameControlStatus.Ready) return;
+
+            // Only update movement for distant objects so they don't teleport when we get closer
+            bool moving = IsMoving || (_currentPath != null && _currentPath.Count > 0);
+            if (moving)
+            {
+                BeforeUpdatePosition(gameTime);
+                UpdatePosition(gameTime);
+
+                if (_currentPath != null && _currentPath.Count > 0 && !IsMoving)
+                {
+                    var next = _currentPath.Dequeue();
+                    MoveTowards(next, gameTime);
+                }
+            }
+
+            // Animation controller update is still needed for smooth blending when they re-enter view,
+            // but ModelObject will already throttle the bone matrix generation via stride.
+            _animationController?.Update((float)gameTime.ElapsedGameTime.TotalSeconds);
+        }
+
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
@@ -566,7 +591,9 @@ namespace Client.Main.Objects
                     _movementIntent = false;
             }
             else
+            {
                 UpdateCameraPosition(MoveTargetPosition + moveVector);
+            }
         }
 
         private void UpdateCameraPosition(Vector3 position)

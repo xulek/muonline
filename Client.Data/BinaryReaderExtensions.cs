@@ -5,24 +5,23 @@ namespace Client.Data
 {
     public static class BinaryReaderExtensions
     {
-        public static string ReadString(this BinaryReader br, int length, Encoding? encoding = null)
+        public static string ReadString(this BinaryReader br, int length)
         {
-            _ = encoding ?? Encoding.ASCII;
             var buff = br.ReadBytes(length);
             var idx = Array.IndexOf(buff, (byte)0);
-            return Encoding.ASCII.GetString(buff, 0, idx > 0 ? idx : buff.Length);
+            return Encoding.ASCII.GetString(buff, 0, idx >= 0 ? idx : buff.Length);
         }
 
         public static T ReadStruct<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(this BinaryReader br) where T : struct
         {
             int size = Marshal.SizeOf<T>();
-            byte[] buffer = br.ReadBytes(size);
-            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            byte[] data = br.ReadBytes(size);
+            if (data.Length < size) throw new EndOfStreamException();
 
+            GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                IntPtr ptr = handle.AddrOfPinnedObject();
-                return Marshal.PtrToStructure<T>(ptr);
+                return Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject());
             }
             finally
             {
@@ -32,13 +31,12 @@ namespace Client.Data
 
         public static T[] ReadStructArray<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(this BinaryReader br, int length) where T : struct
         {
+            if (length <= 0) return Array.Empty<T>();
             var structs = new T[length];
-
             for (int i = 0; i < length; i++)
             {
                 structs[i] = br.ReadStruct<T>();
             }
-
             return structs;
         }
     }

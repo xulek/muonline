@@ -160,8 +160,10 @@ namespace Client.Main.Controls.Terrain
             // Calculate dynamic light once per tile (tile center), but only for near grass.
             // Farther away, the extra CPU work is not worth the visual benefit.
             Vector3 dynTile = Vector3.Zero;
+#if !ANDROID
             if (Constants.ENABLE_DYNAMIC_LIGHTS && distSq < GrassNearSq)
                 dynTile = _lightManager.EvaluateDynamicLight(new Vector2(tileCx, tileCy));
+#endif
             var combined = new Vector3(staticLight.R, staticLight.G, staticLight.B) + dynTile;
             combined = Vector3.Clamp(combined, Vector3.Zero, new Vector3(255f));
             var tileLight = new Color(
@@ -309,10 +311,17 @@ namespace Client.Main.Controls.Terrain
         private static int GrassCount(float distSq, float lodFactor = 1.0f)
         {
             int baseCount;
+#if ANDROID
+            if (distSq < GrassNearSq) baseCount = 4; // Reduced from 10
+            else if (distSq < GrassMidSq) baseCount = 2; // Reduced from 4
+            else if (distSq < GrassFarSq) baseCount = 1; // Reduced from 2
+            else return 0;
+#else
             if (distSq < GrassNearSq) baseCount = 10;
             else if (distSq < GrassMidSq) baseCount = 4;
             else if (distSq < GrassFarSq) baseCount = 2;
             else return 0;
+#endif
 
             // Reduce grass count for higher LOD levels
             return lodFactor > 1.0f ? Math.Max(1, baseCount / 2) : baseCount;

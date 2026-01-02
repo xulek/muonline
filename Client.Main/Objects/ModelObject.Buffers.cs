@@ -279,7 +279,12 @@ namespace Client.Main.Objects
             {
                 _sortTextureHintDirty = true;
                 _sortTextureHint = null;
+                _meshGroupsInvalidated = true;
             }
+            
+            // Any material or animation change might require regrouping (e.g. blend mode change)
+            if ((flags & (BUFFER_FLAG_MATERIAL | BUFFER_FLAG_ANIMATION)) != 0)
+                _meshGroupsInvalidated = true;
 
             for (int i = 0; i < Children.Count; i++)
             {
@@ -342,6 +347,8 @@ namespace Client.Main.Objects
                     cache.IsValid = false;
                 }
             }
+
+            ClearAllMeshGroups();
         }
     }
 }

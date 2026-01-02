@@ -524,6 +524,9 @@ namespace Client.Main
                 // Initialize frame-based optimizations
                 DynamicBufferPool.BeginFrame(FrameIndex);
                 BMDLoader.Instance.BeginFrame();
+
+                // Update global shader parameters once per frame before any rendering
+                GraphicsManager.Instance.UpdateGlobalShaderParameters(gameTime);
                 
                 FPSCounter.Instance.CalcFPS(gameTime);
                 DrawSceneToMainRenderTarget(gameTime);
@@ -567,6 +570,9 @@ namespace Client.Main
                 _logger.LogDebug("--- ChangeSceneInternal: Disposing previous scene ({SceneType})...", ActiveScene.GetType().Name);
                 ActiveScene.Dispose();
                 _logger.LogDebug("--- ChangeSceneInternal: Previous scene disposed.");
+
+                // Clear BMD buffer caches to prevent accumulation across scene transitions
+                BMDLoader.Instance.ClearBufferCache();
             }
             ActiveScene = null; // Ensure there's no reference while loading the new one
 

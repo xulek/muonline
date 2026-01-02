@@ -13,6 +13,12 @@ using System.Threading.Tasks;
 using static Client.Main.Core.Utilities.Utils;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Numerics;
+using Vector2 = Microsoft.Xna.Framework.Vector2;
+using Vector3Xna = Microsoft.Xna.Framework.Vector3;
+using MatrixXna = Microsoft.Xna.Framework.Matrix;
 
 namespace Client.Main.Content
 {
@@ -51,6 +57,7 @@ namespace Client.Main.Content
 
         // Enhanced cache state for GetModelBuffers to avoid redundant calculations
         private readonly Dictionary<MeshCacheKey, BufferCacheEntry> _bufferCacheState = [];
+        private int _currentFrame;
         // Per-mesh optimization: track which bones influence a mesh
         private readonly Dictionary<MeshCacheKey, short[]> _meshUsedBones = [];
         // Cache per (asset,mesh) vertex count to avoid per-frame summing
@@ -81,12 +88,14 @@ namespace Client.Main.Content
         {
             public Color LastColor;
             public int LastBoneMatrixHash;
+            public int LastFrame;
             public bool IsValid;
 
-            public BufferCacheEntry(Color color, int boneMatrixHash)
+            public BufferCacheEntry(Color color, int boneMatrixHash, int frame)
             {
                 LastColor = color;
                 LastBoneMatrixHash = boneMatrixHash;
+                LastFrame = frame;
                 IsValid = true;
             }
         }
@@ -168,6 +177,8 @@ namespace Client.Main.Content
         /// </summary>
         public void BeginFrame()
         {
+            _currentFrame++;
+
             // Snapshot previous frame for UI stability
             LastFrameVBUpdates = FrameVBUpdates;
             LastFrameIBUploads = FrameIBUploads;
@@ -186,11 +197,11 @@ namespace Client.Main.Content
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Vector3 FastTransformPosition(in Matrix m, in System.Numerics.Vector3 p)
+        private static Vector3Xna FastTransformPosition(in MatrixXna m, in System.Numerics.Vector3 p)
         {
-            // Row-major transform (matching XNA):
-            // x' = p.x*m.M11 + p.y*m.M21 + p.z*m.M31 + m.M41, etc.
-            return new Vector3(
+            // Row-major transform (matching XNA / Numerics)
+            // System.Numerics.Vector3 is used for input 'p'
+            return new Vector3Xna(
                 p.X * m.M11 + p.Y * m.M21 + p.Z * m.M31 + m.M41,
                 p.X * m.M12 + p.Y * m.M22 + p.Z * m.M32 + m.M42,
                 p.X * m.M13 + p.Y * m.M23 + p.Z * m.M33 + m.M43);
@@ -364,6 +375,7 @@ namespace Client.Main.Content
                                cacheEntry.IsValid &&
                                cacheEntry.LastColor == color &&
                                cacheEntry.LastBoneMatrixHash == boneMatrixHash &&
+                               (_currentFrame - cacheEntry.LastFrame) < 3 && // ✅ Cache for up to 3 frames if state is same
                                vertexBuffer != null &&
                                indexBuffer != null;
 
@@ -418,64 +430,69 @@ namespace Client.Main.Content
 
             // Build vertex data with unique-vertex transform caching
             VertexPositionColorNormalTexture[] vertices = null;
-            Vector3[] posCache = null;
-            bool[] visited = null;
+            Vector3Xna[] posCache = null;
 
             try
             {
+                int vertexCount = mesh.Vertices.Length;
                 vertices = ArrayPool<VertexPositionColorNormalTexture>.Shared.Rent(totalVertices);
-                posCache = ArrayPool<Vector3>.Shared.Rent(mesh.Vertices.Length);
-                visited = ArrayPool<bool>.Shared.Rent(mesh.Vertices.Length);
-                Array.Clear(visited, 0, mesh.Vertices.Length);
+                posCache = ArrayPool<Vector3Xna>.Shared.Rent(vertexCount);
+
+                // EXTREME OPTIMIZATION: Transform all unique vertices in parallel pass first.
+                // This maximizes SIMD usage and hardware thread utilization while avoiding 
+                // redundant transformations and complex 'visited' logic inside the assembly loop.
+                Action<int> transformAction = vi =>
+                {
+                    ref readonly var vert = ref mesh.Vertices[vi];
+                    if (vert.Node >= 0 && vert.Node < boneMatrix.Length)
+                    {
+                        posCache[vi] = FastTransformPosition(in boneMatrix[vert.Node], in vert.Position);
+                    }
+                    else
+                    {
+                        posCache[vi] = new Vector3Xna(vert.Position.X, vert.Position.Y, vert.Position.Z);
+                    }
+
+                    if (vertexDeformer != null)
+                    {
+                        posCache[vi] = vertexDeformer.DeformVertex(in vert, in posCache[vi]);
+                    }
+                };
+
+                // Use parallel processing only for non-trivial mesh sizes to avoid scheduling overhead.
+                if (vertexCount > 128)
+                    Parallel.For(0, vertexCount, transformAction);
+                else
+                    for (int i = 0; i < vertexCount; i++) transformAction(i);
 
                 int v = 0;
-                int uniqueTransformed = 0;
-                foreach (var tri in mesh.Triangles)
+                var tris = mesh.Triangles;
+                var norms = mesh.Normals;
+                var uvs = mesh.TexCoords;
+
+                // ASSEMBLY PASS: Fast sequential copy of pre-transformed positions.
+                for (int i = 0; i < tris.Length; i++)
                 {
+                    ref readonly var tri = ref tris[i];
                     for (int j = 0; j < tri.Polygon; j++)
                     {
                         int vi = tri.VertexIndex[j];
-
-                        if (!visited[vi])
-                        {
-                            visited[vi] = true;
-                            uniqueTransformed++;
-                            var vert = mesh.Vertices[vi];
-                            if (vert.Node >= 0 && vert.Node < boneMatrix.Length)
-                            {
-                                posCache[vi] = FastTransformPosition(in boneMatrix[vert.Node], in vert.Position);
-                            }
-                            else
-                            {
-                                posCache[vi] = vert.Position;
-                            }
-
-                            if (vertexDeformer != null)
-                            {
-                                posCache[vi] = vertexDeformer.DeformVertex(in vert, in posCache[vi]);
-                            }
-                        }
-
                         int ni = tri.NormalIndex[j];
-                        var normal = mesh.Normals[ni].Normal; // keep as-is (object space path)
-
                         int ti = tri.TexCoordIndex[j];
-                        var uv = mesh.TexCoords[ti];
 
                         vertices[v] = new VertexPositionColorNormalTexture(
                             posCache[vi],
                             color,
-                            normal,
-                            new Vector2(uv.U, uv.V));
+                            norms[ni].Normal,
+                            new Vector2(uvs[ti].U, uvs[ti].V));
                         v++;
                     }
                 }
 
                 // Always discard the previous contents because we rewrite the whole buffer each time.
-                // Using NoOverwrite was causing DX to reuse in-flight data -> animated meshes glitch.
                 vertexBuffer.SetData(vertices, 0, totalVertices, SetDataOptions.Discard);
                 FrameVBUpdates++;
-                FrameVerticesTransformed += uniqueTransformed;
+                FrameVerticesTransformed += vertexCount;
 
                 // Upload index data only if needed (new or resized buffer or not yet initialized)
                 if (createdOrResizedIndex || !_indexInitialized.Contains(cacheKey))
@@ -514,25 +531,16 @@ namespace Client.Main.Content
                 // Update cache entry only if caching is enabled for this platform
                 if (!skipCache && !DisableGlobalMeshCache)
                 {
-                    _bufferCacheState[cacheKey] = new BufferCacheEntry(color, boneMatrixHash);
+                    _bufferCacheState[cacheKey] = new BufferCacheEntry(color, boneMatrixHash, _currentFrame);
                 }
             }
             finally
             {
                 if (vertices != null)
-                {
                     ArrayPool<VertexPositionColorNormalTexture>.Shared.Return(vertices);
-                }
 
                 if (posCache != null)
-                {
-                    ArrayPool<Vector3>.Shared.Return(posCache);
-                }
-
-                if (visited != null)
-                {
-                    ArrayPool<bool>.Shared.Return(visited, clearArray: true);
-                }
+                    ArrayPool<Vector3Xna>.Shared.Return(posCache);
             }
         }
 
@@ -618,28 +626,27 @@ namespace Client.Main.Content
             };
         }
 
-        private int CalculateBoneMatrixHashSubset(Matrix[] boneMatrix, short[] usedBones)
+        private int CalculateBoneMatrixHashSubset(MatrixXna[] boneMatrix, short[] usedBones)
         {
             if (boneMatrix == null || usedBones == null || usedBones.Length == 0) return 0;
-            int hash = 17;
+            
+            // Use a faster hashing approach for bone subsets
+            HashCode hash = new HashCode();
             for (int i = 0; i < usedBones.Length; i++)
             {
                 int idx = usedBones[i];
                 if ((uint)idx >= (uint)boneMatrix.Length) continue;
-                ref var m = ref boneMatrix[idx];
-                hash = hash * 31 + m.Translation.GetHashCode();
-                // Include more rotation/scale components to reduce false cache hits
-                hash = hash * 31 + m.M11.GetHashCode();
-                hash = hash * 31 + m.M12.GetHashCode();
-                hash = hash * 31 + m.M13.GetHashCode();
-                hash = hash * 31 + m.M21.GetHashCode();
-                hash = hash * 31 + m.M22.GetHashCode();
-                hash = hash * 31 + m.M23.GetHashCode();
-                hash = hash * 31 + m.M31.GetHashCode();
-                hash = hash * 31 + m.M32.GetHashCode();
-                hash = hash * 31 + m.M33.GetHashCode();
+                
+                ref readonly var m = ref boneMatrix[idx];
+                // Hashing only key components for performance while maintaining uniqueness
+                hash.Add(m.M41);
+                hash.Add(m.M42);
+                hash.Add(m.M43);
+                hash.Add(m.M11);
+                hash.Add(m.M22);
+                hash.Add(m.M33);
             }
-            return hash;
+            return hash.ToHashCode();
         }
 
         public string GetTexturePath(BMD bmd, string texturePath)

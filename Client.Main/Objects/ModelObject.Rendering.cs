@@ -14,8 +14,8 @@ namespace Client.Main.Objects
 {
     public abstract partial class ModelObject
     {
-        // Struct to hold shader selection results
-        private readonly struct ShaderSelection
+        // Struct to hold shader selection results - now optimized for key comparison
+        private readonly struct ShaderSelection : IEquatable<ShaderSelection>
         {
             public readonly bool UseDynamicLighting;
             public readonly bool UseItemMaterial;
@@ -29,26 +29,39 @@ namespace Client.Main.Objects
                 UseMonsterMaterial = useMonsterMaterial;
                 NeedsSpecialShader = useItemMaterial || useMonsterMaterial || useDynamicLighting;
             }
+
+            public bool Equals(ShaderSelection other) =>
+                UseDynamicLighting == other.UseDynamicLighting &&
+                UseItemMaterial == other.UseItemMaterial &&
+                UseMonsterMaterial == other.UseMonsterMaterial;
+
+            public override bool Equals(object obj) => obj is ShaderSelection other && Equals(other);
+
+            public override int GetHashCode() =>
+                (UseDynamicLighting ? 1 : 0) | (UseItemMaterial ? 2 : 0) | (UseMonsterMaterial ? 4 : 0);
         }
 
-        // State grouping optimization
+        // State grouping optimization - now includes shader selection
         private readonly struct MeshStateKey : IEquatable<MeshStateKey>
         {
             public readonly Texture2D Texture;
             public readonly BlendState BlendState;
             public readonly bool TwoSided;
+            public readonly ShaderSelection Shader;
 
-            public MeshStateKey(Texture2D tex, BlendState blend, bool twoSided)
+            public MeshStateKey(Texture2D tex, BlendState blend, bool twoSided, ShaderSelection shader)
             {
                 Texture = tex;
                 BlendState = blend;
                 TwoSided = twoSided;
+                Shader = shader;
             }
 
             public bool Equals(MeshStateKey other) =>
                 ReferenceEquals(Texture, other.Texture) &&
                 ReferenceEquals(BlendState, other.BlendState) &&
-                TwoSided == other.TwoSided;
+                TwoSided == other.TwoSided &&
+                Shader.Equals(other.Shader);
 
             public override bool Equals(object obj) => obj is MeshStateKey o && Equals(o);
 
@@ -60,34 +73,43 @@ namespace Client.Main.Objects
                     h = h * 31 + (Texture?.GetHashCode() ?? 0);
                     h = h * 31 + (BlendState?.GetHashCode() ?? 0);
                     h = h * 31 + (TwoSided ? 1 : 0);
+                    h = h * 31 + Shader.GetHashCode();
                     return h;
                 }
             }
         }
 
-        // Reuse for grouping to avoid allocations
-        private readonly Dictionary<MeshStateKey, List<int>> _meshGroups = new Dictionary<MeshStateKey, List<int>>(32);
+        // State grouping optimization - now persistent to avoid per-frame classification
+        private readonly Dictionary<MeshStateKey, List<int>> _meshGroupsSolid = new Dictionary<MeshStateKey, List<int>>(16);
+        private readonly Dictionary<MeshStateKey, List<int>> _meshGroupsAfter = new Dictionary<MeshStateKey, List<int>>(16);
+        private bool _meshGroupsInvalidated = true;
         private readonly Stack<List<int>> _meshGroupPool = new Stack<List<int>>(32);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private List<int> RentMeshList()
             => _meshGroupPool.Count > 0 ? _meshGroupPool.Pop() : new List<int>(8);
 
-        private void ReleaseMeshGroups()
+        private void ReleaseMeshGroups(Dictionary<MeshStateKey, List<int>> groups)
         {
-            if (_meshGroups.Count == 0)
+            if (groups.Count == 0)
                 return;
 
-            foreach (var list in _meshGroups.Values)
+            foreach (var list in groups.Values)
             {
                 list.Clear();
-                // Avoid unbounded growth in extreme cases
                 if (list.Capacity > 128)
                     list.Capacity = 128;
                 _meshGroupPool.Push(list);
             }
 
-            _meshGroups.Clear();
+            groups.Clear();
+        }
+
+        private void ClearAllMeshGroups()
+        {
+            ReleaseMeshGroups(_meshGroupsSolid);
+            ReleaseMeshGroups(_meshGroupsAfter);
+            _meshGroupsInvalidated = true;
         }
 
         // Hint for world-level batching: returns first visible mesh texture (if any)
@@ -271,14 +293,14 @@ namespace Client.Main.Objects
         {
             if (Model?.Meshes == null || _boneVertexBuffers == null)
             {
-                ReleaseMeshGroups();
+                ClearAllMeshGroups();
                 return;
             }
 
             int meshCount = Model.Meshes.Length;
             if (meshCount == 0)
             {
-                ReleaseMeshGroups();
+                ClearAllMeshGroups();
                 return;
             }
 
@@ -323,7 +345,10 @@ namespace Client.Main.Objects
             }
 
             // Group meshes by render state to minimize state changes
-            GroupMeshesByState(isAfterDraw);
+            if (_meshGroupsInvalidated || _meshGroupsSolid.Count == 0 || _meshGroupsAfter.Count == 0)
+                RebuildMeshGroups();
+
+            var meshGroups = isAfterDraw ? _meshGroupsAfter : _meshGroupsSolid;
 
             // Render each group with minimal state changes
             try
@@ -334,15 +359,19 @@ namespace Client.Main.Objects
                 if (effect != null && effect.Alpha != TotalAlpha)
                     effect.Alpha = TotalAlpha;
 
-                foreach (var kvp in _meshGroups)
+                // Pass shared parameters once per object to avoid redundant shader sets
+                ApplySharedShaderParameters();
+
+                foreach (var kvp in meshGroups)
                 {
                     var stateKey = kvp.Key;
                     var meshIndices = kvp.Value;
                     if (meshIndices.Count == 0) continue;
 
-                    // Apply render state once per group (with object depth bias)
+                    // Apply basic render state once per group
                     if (gd.BlendState != stateKey.BlendState)
                         gd.BlendState = stateKey.BlendState;
+
                     float depthBias = GetDepthBias();
                     RasterizerState targetRasterizer;
                     if (depthBias != 0f)
@@ -354,48 +383,55 @@ namespace Client.Main.Objects
                     {
                         targetRasterizer = stateKey.TwoSided ? RasterizerState.CullNone : RasterizerState.CullClockwise;
                     }
+
                     if (gd.RasterizerState != targetRasterizer)
                         gd.RasterizerState = targetRasterizer;
-                    if (effect != null && effect.Texture != stateKey.Texture)
-                        effect.Texture = stateKey.Texture;
 
-                    // Bind effect once per group
-                    if (effect != null)
+                    // Specialized shader setup once per group
+                    var shader = stateKey.Shader;
+                    bool isSpecial = shader.NeedsSpecialShader;
+                    
+                    if (isSpecial)
                     {
+                        // Some special shaders need per-mesh param updates, but we can still
+                        // avoid re-applying the basic effect in this loop branch.
+                    }
+                    else if (effect != null)
+                    {
+                        if (effect.Texture != stateKey.Texture)
+                                effect.Texture = stateKey.Texture;
+
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
                     }
 
-                    // Object-level shadow and highlight passes
+                    // Object-level shadow/highlight passes (only if not after-draw)
                     if (doShadow && !useShadowMap)
                         DrawMeshesShadow(meshIndices, shadowMatrix, view, projection, shadowOpacity);
                     if (highlightAllowed)
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
 
-                    // Shadow/highlight passes change the active shader; reapply the main effect before fast draws.
-                    if (effect != null)
+                    // Restore state if shadow/highlight pass changed it
+                    if (!isSpecial && (doShadow || highlightAllowed) && effect != null)
                     {
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
                     }
 
-                    // Draw all meshes in this state group
-                    // When dynamic lighting is disabled and blend state is non-opaque, force per-mesh path
-                    // to ensure proper DepthStencilState handling and BasicEffect usage for alpha blending
-                    bool forcePerMeshTransparency = !Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
-                                                    stateKey.BlendState != BlendState.Opaque;
+                    // Draw meshes
+                    bool forcePerMesh = isSpecial || (!Constants.ENABLE_DYNAMIC_LIGHTING_SHADER && stateKey.BlendState != BlendState.Opaque);
+                    
                     for (int n = 0; n < meshIndices.Count; n++)
                     {
                         int mi = meshIndices[n];
-                        if (NeedsSpecialShaderForMesh(mi) || forcePerMeshTransparency)
+                        if (forcePerMesh)
                         {
-                            DrawMesh(mi); // Falls back to full per-mesh path for special shaders or forced transparency
-
-                            // Per-mesh draws can change the active shader; reapply the group effect
-                            // before any fast draws that follow.
-                            if (!forcePerMeshTransparency && effect != null)
+                            DrawMesh(mi); 
+                            
+                            // Restore basic effect if next meshes might need it (after special shader or per-mesh alpha)
+                            if (!isSpecial && effect != null)
                             {
                                 var passes = effect.CurrentTechnique.Passes;
                                 for (int p = 0; p < passes.Count; p++)
@@ -404,15 +440,14 @@ namespace Client.Main.Objects
                         }
                         else
                         {
-                            DrawMeshFastAlpha(mi); // Fast path: VB/IB bind + draw only
+                            DrawMeshFastAlpha(mi);
                         }
                     }
                 }
             }
             finally
             {
-                // Drop state groups promptly to avoid retaining stale texture references between frames/passes.
-                ReleaseMeshGroups();
+                // Groups are now persistent, no need to release them per pass.
             }
         }
 
@@ -438,10 +473,10 @@ namespace Client.Main.Objects
             gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
         }
 
-        private void GroupMeshesByState(bool isAfterDraw)
+        private void RebuildMeshGroups()
         {
-            // Release previous frame state to avoid retaining textures/blend states longer than needed
-            ReleaseMeshGroups();
+            ReleaseMeshGroups(_meshGroupsSolid);
+            ReleaseMeshGroups(_meshGroupsAfter);
 
             if (Model?.Meshes == null)
                 return;
@@ -455,33 +490,41 @@ namespace Client.Main.Objects
                 bool isBlend = IsBlendMesh(i);
                 bool isRGBA = _meshIsRGBA != null && i < _meshIsRGBA.Length && _meshIsRGBA[i];
 
-                // Skip based on pass and low quality settings
-                if (LowQuality && isBlend) continue;
-                bool shouldDraw = isAfterDraw ? (isRGBA || isBlend) : (!isRGBA && !isBlend);
-                if (!shouldDraw) continue;
-
                 if (_boneTextures == null || i >= _boneTextures.Length)
                     continue;
 
                 var tex = _boneTextures[i];
                 bool twoSided = IsMeshTwoSided(i, isBlend);
                 BlendState blend = GetMeshBlendState(i, isBlend);
+                var shader = DetermineShaderForMesh(i);
+                var key = new MeshStateKey(tex, blend, twoSided, shader);
 
-                var key = new MeshStateKey(tex, blend, twoSided);
-                if (!_meshGroups.TryGetValue(key, out var list))
+                // Sort into appropriate pass grouping
+                bool isTransparent = isRGBA || isBlend;
+                var targetGroups = isTransparent ? _meshGroupsAfter : _meshGroupsSolid;
+
+                if (!targetGroups.TryGetValue(key, out var list))
                 {
                     list = RentMeshList();
-                    _meshGroups[key] = list;
+                    targetGroups[key] = list;
                 }
 
                 list.Add(i);
             }
+
+            _meshGroupsInvalidated = false;
+        }
+
+        // Keep legacy for compatibility if needed, but redirects to persistent state
+        private void GroupMeshesByState(bool isAfterDraw)
+        {
+            if (_meshGroupsInvalidated)
+                RebuildMeshGroups();
         }
 
         private void DrawMeshesShadow(List<int> meshIndices, Matrix shadowMatrix, Matrix view, Matrix projection, float shadowOpacity)
         {
-            for (int n = 0; n < meshIndices.Count; n++)
-                DrawShadowMesh(meshIndices[n], view, projection, shadowMatrix, shadowOpacity);
+            DrawShadowMeshes(meshIndices, view, projection, shadowMatrix, shadowOpacity);
         }
 
         private void DrawMeshesHighlight(List<int> meshIndices, Matrix highlightMatrix, Vector3 highlightColor)
@@ -633,6 +676,67 @@ namespace Client.Main.Objects
             }
         }
 
+        /// <summary>
+        /// PERFORMANCE: Applies common shader parameters (matrices, eye, sun) once per ModelObject
+        /// to avoid redundant per-mesh updates.
+        /// </summary>
+        private void ApplySharedShaderParameters()
+        {
+            var gd = GraphicsDevice;
+            var gm = GraphicsManager.Instance;
+            
+            // Shared parameters like View, Projection, Sun, Time are now updated once per frame 
+            // in GraphicsManager.UpdateGlobalShaderParameters() called in MuGame.Draw().
+            
+            // We only need to set object-specific parameters here.
+            var world = WorldPosition;
+            var cam = Camera.Instance;
+            if (cam == null) return;
+            
+            var worldViewProj = world * cam.View * cam.Projection;
+            float alpha = TotalAlpha;
+
+            // Use a bitmask or flags from RebuildMeshGroups to know which shaders are actually used
+            // by this specific object instance this frame.
+            bool usesDL = false;
+            bool usesIM = false;
+            bool usesMM = false;
+
+            foreach (var key in _meshGroupsSolid.Keys)
+            {
+                if (key.Shader.UseDynamicLighting) usesDL = true;
+                if (key.Shader.UseItemMaterial) usesIM = true;
+                if (key.Shader.UseMonsterMaterial) usesMM = true;
+            }
+            foreach (var key in _meshGroupsAfter.Keys)
+            {
+                if (key.Shader.UseDynamicLighting) usesDL = true;
+                if (key.Shader.UseItemMaterial) usesIM = true;
+                if (key.Shader.UseMonsterMaterial) usesMM = true;
+            }
+
+            if (usesDL && gm.DynamicLightingEffect != null)
+            {
+                gm.DynamicLightingEffect.Parameters["WorldViewProjection"]?.SetValue(worldViewProj);
+                gm.DynamicLightingEffect.Parameters["World"]?.SetValue(world);
+                gm.DynamicLightingEffect.Parameters["Alpha"]?.SetValue(alpha);
+            }
+
+            if (usesIM && gm.ItemMaterialEffect != null)
+            {
+                gm.ItemMaterialEffect.Parameters["WorldViewProjection"]?.SetValue(worldViewProj);
+                gm.ItemMaterialEffect.Parameters["World"]?.SetValue(world);
+                gm.ItemMaterialEffect.Parameters["Alpha"]?.SetValue(alpha);
+            }
+
+            if (usesMM && gm.MonsterMaterialEffect != null)
+            {
+                gm.MonsterMaterialEffect.Parameters["WorldViewProjection"]?.SetValue(worldViewProj);
+                gm.MonsterMaterialEffect.Parameters["World"]?.SetValue(world);
+                gm.MonsterMaterialEffect.Parameters["Alpha"]?.SetValue(alpha);
+            }
+        }
+
         public virtual void DrawMeshWithItemMaterial(int mesh)
         {
             if (Model?.Meshes == null || mesh < 0 || mesh >= Model.Meshes.Length)
@@ -684,36 +788,18 @@ namespace Client.Main.Objects
 
                     gd.BlendState = blendState;
 
-                    Vector3 sunDir = GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
-                    if (sunDir.LengthSquared() < 0.0001f)
-                        sunDir = new Vector3(1f, 0f, -0.6f);
-                    sunDir = Vector3.Normalize(sunDir);
-                    bool worldAllowsSun = World is WorldControl wc ? wc.IsSunWorld : true;
-                    bool sunEnabled = Constants.SUN_ENABLED && worldAllowsSun && UseSunLight && !HasWalkerAncestor();
-
-                    // Set world view projection matrix
-                    Matrix worldViewProjection = WorldPosition * Camera.Instance.View * Camera.Instance.Projection;
-                    effect.Parameters["WorldViewProjection"]?.SetValue(worldViewProjection);
-                    effect.Parameters["World"]?.SetValue(WorldPosition);
-                    effect.Parameters["View"]?.SetValue(Camera.Instance.View);
-                    effect.Parameters["Projection"]?.SetValue(Camera.Instance.Projection);
-                    effect.Parameters["EyePosition"]?.SetValue(Camera.Instance.Position);
-                    effect.Parameters["LightDirection"]?.SetValue(sunDir);
-                    effect.Parameters["ShadowStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
-
-                    // Set texture
-                    effect.Parameters["DiffuseTexture"]?.SetValue(texture);
-
-                    // Set item properties
+                    // Shared parameters are now applied once per object in ApplySharedShaderParameters()
+                    // only parameters that vary PER-MESH should be here.
+                    
+                    // Set item properties (can vary per mesh if needed)
                     int itemOptions = ItemLevel & 0x0F;
                     if (IsExcellentItem)
                         itemOptions |= 0x10;
 
                     effect.Parameters["ItemOptions"]?.SetValue(itemOptions);
-                    effect.Parameters["Time"]?.SetValue(GetCachedTime());
                     effect.Parameters["IsAncient"]?.SetValue(IsAncientItem);
                     effect.Parameters["IsExcellent"]?.SetValue(IsExcellentItem);
-                    effect.Parameters["Alpha"]?.SetValue(TotalAlpha);
+                    effect.Parameters["DiffuseTexture"]?.SetValue(texture);
 
                     gd.SetVertexBuffer(vertexBuffer);
                     gd.Indices = indexBuffer;

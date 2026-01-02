@@ -13,7 +13,7 @@ namespace Client.Main
 
         // Camera control
         public const float MIN_CAMERA_DISTANCE = 800f;
-        public const float MAX_CAMERA_DISTANCE = 1800f;
+        public const float MAX_CAMERA_DISTANCE = 1300f;
         public const float ZOOM_SPEED = 4f;
 
         // Camera rotation
@@ -22,7 +22,7 @@ namespace Client.Main
         public const float ROTATION_SENSITIVITY = 0.003f;
 
         // Default camera values
-        public const float DEFAULT_CAMERA_DISTANCE = 1700f;
+        public const float DEFAULT_CAMERA_DISTANCE = 1110f;
         public static readonly float DEFAULT_CAMERA_PITCH = MathHelper.ToRadians(135.87f);
         public static readonly float DEFAULT_CAMERA_YAW = MathHelper.ToRadians(-41.99f);
 
@@ -40,7 +40,12 @@ namespace Client.Main
         public const bool SHOW_NAMES_ON_HOVER = true;
 
         // Distance thresholds
-        public const float LOW_QUALITY_DISTANCE = 3500f;
+#if ANDROID
+        public const float LOW_QUALITY_DISTANCE = 1000f;
+#else
+        public const float LOW_QUALITY_DISTANCE = 1500f;
+#endif
+        public const float LOW_QUALITY_DISTANCE_SQ = LOW_QUALITY_DISTANCE * LOW_QUALITY_DISTANCE;
 
         // Scene / audio
         public static Type ENTRY_SCENE;
@@ -234,7 +239,7 @@ namespace Client.Main
             SHADOW_BIAS = 0.005f;
             SHADOW_NORMAL_BIAS = 0.008f;
 
-            DataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+            DataPath = @"C:\Users\Usuario\Documents\Mu Mono and Open mu project\MU_Red_1_20_61_Full\Data";
         }
 
 #if DEBUG
@@ -242,10 +247,7 @@ namespace Client.Main
         {
             BACKGROUND_MUSIC = false;
             SHOW_DEBUG_PANEL = true;
-
-#if WINDOWS
-            DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";
-#endif
+            DataPath = @"C:\Users\Usuario\Documents\Mu Mono and Open mu project\MU_Red_1_20_61_Full\Data";
         }
 #endif
 
@@ -258,12 +260,14 @@ namespace Client.Main
             ENABLE_TERRAIN_GPU_LIGHTING = false;
             OPTIMIZE_FOR_INTEGRATED_GPU = true;
             ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = true;
-            ENABLE_ITEM_MATERIAL_SHADER = true;
-            ENABLE_MONSTER_MATERIAL_SHADER = true;
+            ENABLE_ITEM_MATERIAL_SHADER = false;
+            ENABLE_MONSTER_MATERIAL_SHADER = false;
             ENABLE_WEAPON_TRAIL = false;
             HIGH_QUALITY_TEXTURES = false;
-            RENDER_SCALE = 0.75f;
+            RENDER_SCALE = 0.5f;
             DYNAMIC_LIGHT_UPDATE_FPS = 30;
+            // Ruta interna de la app, compatible con todas las versiones de Android
+            DataPath = global::Android.App.Application.Context.FilesDir.AbsolutePath + "/Data";
         }
 #endif
     }

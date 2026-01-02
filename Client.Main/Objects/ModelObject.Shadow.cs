@@ -81,72 +81,81 @@ namespace Client.Main.Objects
 
         public virtual void DrawShadowMesh(int mesh, Matrix view, Matrix projection, Matrix shadowWorld, float shadowOpacity)
         {
+            // This is now a legacy stub, since DrawMeshesShadow handles batching
+            DrawShadowMeshes(new[] { mesh }, view, projection, shadowWorld, shadowOpacity);
+        }
+
+        public virtual void DrawShadowMeshes(IEnumerable<int> meshIndices, Matrix view, Matrix projection, Matrix shadowWorld, float shadowOpacity)
+        {
             try
             {
                 // Skip shadow rendering if shadows are disabled for this world
                 if (MuGame.Instance.ActiveScene?.World is WorldControl world && !world.EnableShadows)
                     return;
 
-                if (IsHiddenMesh(mesh) || _boneVertexBuffers == null)
+                if (_boneVertexBuffers == null || _boneIndexBuffers == null || _boneTextures == null)
                     return;
 
                 if (!ValidateWorldMatrix(WorldPosition))
-                {
-                    _logger?.LogDebug("Invalid WorldPosition matrix detected - skipping shadow rendering");
-                    return;
-                }
-
-                VertexBuffer vertexBuffer = _boneVertexBuffers[mesh];
-                IndexBuffer indexBuffer = _boneIndexBuffers[mesh];
-                if (vertexBuffer == null || indexBuffer == null)
                     return;
 
-                int primitiveCount = indexBuffer.IndexCount / 3;
-
-                var prevBlendState = GraphicsDevice.BlendState;
-                var prevDepthState = GraphicsDevice.DepthStencilState;
-                var prevRasterizerState = GraphicsDevice.RasterizerState;
+                var gd = GraphicsDevice;
+                var prevBlendState = gd.BlendState;
+                var prevDepthState = gd.DepthStencilState;
+                var prevRasterizerState = gd.RasterizerState;
 
                 float constBias = 1f / (1 << 24);
+                RasterizerState shadowRasterizer = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
 
-                // PERFORMANCE: Use cached RasterizerState to avoid per-mesh allocation
-                RasterizerState ShadowRasterizer = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
-
-                GraphicsDevice.BlendState = Blendings.ShadowBlend;
-                GraphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
-                GraphicsDevice.RasterizerState = ShadowRasterizer;
+                gd.BlendState = Blendings.ShadowBlend;
+                gd.DepthStencilState = DepthStencilState.DepthRead;
+                gd.RasterizerState = shadowRasterizer;
 
                 try
                 {
                     var effect = GraphicsManager.Instance.ShadowEffect;
-                    if (effect == null || _boneTextures?[mesh] == null)
+                    if (effect == null)
                         return;
 
                     effect.Parameters["World"]?.SetValue(shadowWorld);
                     effect.Parameters["ViewProjection"]?.SetValue(view * projection);
                     effect.Parameters["ShadowTint"]?.SetValue(new Vector4(0, 0, 0, shadowOpacity));
-                    effect.Parameters["ShadowTexture"]?.SetValue(_boneTextures[mesh]);
 
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
-                        GraphicsDevice.SetVertexBuffer(vertexBuffer);
-                        GraphicsDevice.Indices = indexBuffer;
-                        GraphicsDevice.DrawIndexedPrimitives(
-                            PrimitiveType.TriangleList,
-                            0, 0, primitiveCount);
+
+                        foreach (int mi in meshIndices)
+                        {
+                            if (IsHiddenMesh(mi) || mi >= _boneVertexBuffers.Length || mi >= _boneIndexBuffers.Length || mi >= _boneTextures.Length)
+                                continue;
+
+                            var vb = _boneVertexBuffers[mi];
+                            var ib = _boneIndexBuffers[mi];
+                            var tex = _boneTextures[mi];
+
+                            if (vb == null || ib == null || tex == null)
+                                continue;
+
+                            effect.Parameters["ShadowTexture"]?.SetValue(tex);
+                            pass.Apply();
+
+                            gd.SetVertexBuffer(vb);
+                            gd.Indices = ib;
+                            gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, ib.IndexCount / 3);
+                        }
                     }
                 }
                 finally
                 {
-                    GraphicsDevice.BlendState = prevBlendState;
-                    GraphicsDevice.DepthStencilState = prevDepthState;
-                    GraphicsDevice.RasterizerState = prevRasterizerState;
+                    gd.BlendState = prevBlendState;
+                    gd.DepthStencilState = prevDepthState;
+                    gd.RasterizerState = prevRasterizerState;
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogDebug("Error in DrawShadowMesh: {Message}", ex.Message);
+                _logger?.LogDebug("Error in DrawShadowMeshes: {Message}", ex.Message);
             }
         }
 

@@ -28,9 +28,9 @@ namespace Client.Main.Controls.Terrain
         private const int BlockSize = 4;
         private const int MaxLodLevels = 3;
         private const float LodDistanceMultiplier = 3000f;
-        private const float CameraMoveThreshold = 32f;
-        // Slight conservative padding (world units) to avoid edge popping
-        private const float CullingPaddingXY = 64f; // ~0.64 tile with TERRAIN_SCALE=100
+        private const float CameraMoveThreshold = 50f; // Increased from 32f to reduce updates
+        // Tightened padding: ~0.32 tile (32 world units) for both platforms
+        private const float CullingPaddingXY = 32f; 
         private const float CullingPaddingZ = 32f;  // Small vertical slack
 
         private readonly TerrainData _data;
@@ -96,11 +96,19 @@ namespace Client.Main.Controls.Terrain
             _lastCameraPosition = cameraPosition;
             _visibleBlocks.Clear();
 
-            float renderDist = Camera.Instance.ViewFar * 1.7f;
+#if ANDROID
+            float renderDist = Camera.Instance.ViewFar * 1.3f;
+#else
+            float renderDist = Camera.Instance.ViewFar * 1.4f; // Reduced from 1.7x to 1.4x for tighter PC culling
+#endif
             float renderDistSq = renderDist * renderDist;
             int cellWorld = (int)(BlockSize * Constants.TERRAIN_SCALE);
 
+#if ANDROID
+            const int Extra = 2;
+#else
             const int Extra = 4;
+#endif
             int tilesPerAxis = Constants.TERRAIN_SIZE / BlockSize;
 
             int startX = Math.Max(0, (int)((cameraPosition.X - renderDist) / cellWorld) - Extra);
@@ -131,7 +139,11 @@ namespace Client.Main.Controls.Terrain
                         continue;
                     }
 
+#if ANDROID
+                    block.LODLevel = MaxLodLevels - 1; // Force lowest detail
+#else
                     block.LODLevel = GetLodLevel(MathF.Sqrt(distSq));
+#endif
 
                     var paddedBounds = Inflate(block.Bounds, CullingPaddingXY, CullingPaddingZ);
                     var containment = frustum.Contains(paddedBounds);

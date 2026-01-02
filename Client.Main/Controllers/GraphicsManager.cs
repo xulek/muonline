@@ -52,6 +52,71 @@ namespace Client.Main.Controllers
             DepthBufferWriteEnable = false
         };
 
+        private long _lastUpdateFrame = -1;
+
+        public void UpdateGlobalShaderParameters(GameTime gameTime)
+        {
+            var cam = Camera.Instance;
+            if (cam == null) return;
+
+            // Ensure global parameters are updated every frame to prevent jitter at high FPS
+
+            var view = cam.View;
+            var proj = cam.Projection;
+            var eyePos = cam.Position;
+            float time = (float)gameTime.TotalGameTime.TotalSeconds;
+
+            Vector3 sunDir = ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
+            if (sunDir.LengthSquared() < 0.0001f) sunDir = new Vector3(1f, 0f, -0.6f);
+            sunDir = Vector3.Normalize(sunDir);
+
+            float sunStrength = SunCycleManager.GetEffectiveSunStrength();
+            float shadowStrength = SunCycleManager.GetEffectiveShadowStrength();
+            float globalLightMul = SunCycleManager.AmbientMultiplier;
+            Vector3 ambientColor = new Vector3(SunCycleManager.AmbientMultiplier);
+
+            // Update all effects known to the manager
+            Effect[] effects = { DynamicLightingEffect, ItemMaterialEffect, MonsterMaterialEffect };
+
+            foreach (var effect in effects)
+            {
+                if (effect == null) continue;
+
+                effect.Parameters["View"]?.SetValue(view);
+                effect.Parameters["Projection"]?.SetValue(proj);
+                effect.Parameters["EyePosition"]?.SetValue(eyePos);
+                effect.Parameters["SunDirection"]?.SetValue(sunDir);
+                effect.Parameters["SunColor"]?.SetValue(new Vector3(1f, 0.95f, 0.85f));
+                effect.Parameters["SunStrength"]?.SetValue(sunStrength);
+                effect.Parameters["ShadowStrength"]?.SetValue(shadowStrength);
+                effect.Parameters["GlobalLightMultiplier"]?.SetValue(globalLightMul);
+                effect.Parameters["AmbientLight"]?.SetValue(ambientColor);
+                effect.Parameters["Time"]?.SetValue(time);
+
+                // Apply shadow map parameters if this effect needs them
+                ShadowMapRenderer?.ApplyShadowParameters(effect);
+            }
+
+            // Also update standard effects
+            if (AlphaTestEffect3D != null)
+            {
+                AlphaTestEffect3D.View = view;
+                AlphaTestEffect3D.Projection = proj;
+            }
+
+            if (BasicEffect3D != null)
+            {
+                BasicEffect3D.View = view;
+                BasicEffect3D.Projection = proj;
+            }
+
+            if (BoundingBoxEffect3D != null)
+            {
+                BoundingBoxEffect3D.View = view;
+                BoundingBoxEffect3D.Projection = proj;
+            }
+        }
+
         public void Init(GraphicsDevice graphicsDevice, ContentManager content)
         {
             _graphicsDevice = graphicsDevice;
