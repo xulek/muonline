@@ -219,7 +219,22 @@ namespace Client.Main.Controls
             float traveled = 0f;
 
             var lastPos = ray.Position;
-            var lastDiff = lastPos.Z - Terrain.RequestTerrainHeight(lastPos.X, lastPos.Y) + ExtraHeight;
+            // Local cache for terrain height lookups to avoid repeated expensive calls
+            var heightCache = new System.Collections.Generic.Dictionary<long, float>(128);
+            float GetHeightAt(Vector3 p)
+            {
+                int tx = (int)Math.Floor(p.X / Constants.TERRAIN_SCALE);
+                int ty = (int)Math.Floor(p.Y / Constants.TERRAIN_SCALE);
+                long key = ((long)tx << 32) | (uint)ty;
+                if (heightCache.TryGetValue(key, out var h))
+                    return h;
+                // sample at exact position for precision
+                h = Terrain.RequestTerrainHeight(p.X, p.Y);
+                heightCache[key] = h;
+                return h;
+            }
+
+            var lastDiff = lastPos.Z - (GetHeightAt(lastPos) + ExtraHeight);
             bool hit = false;
             Vector3 hitPos = Vector3.Zero;
 
@@ -227,7 +242,7 @@ namespace Client.Main.Controls
             {
                 traveled += coarseStep;
                 var pos = ray.Position + ray.Direction * traveled;
-                float terrainZ = Terrain.RequestTerrainHeight(pos.X, pos.Y) + ExtraHeight;
+                float terrainZ = GetHeightAt(pos) + ExtraHeight;
                 float diff = pos.Z - terrainZ;
 
                 if (lastDiff > 0f && diff <= 0f)
@@ -242,8 +257,8 @@ namespace Client.Main.Controls
                     {
                         refineTraveled += fineStep;
                         var refinePos = ray.Position + ray.Direction * refineTraveled;
-                        float refineTerrainZ = Terrain.RequestTerrainHeight(refinePos.X, refinePos.Y) + ExtraHeight;
-                        float refineDiff = refinePos.Z - refineTerrainZ;
+                            float refineTerrainZ = GetHeightAt(refinePos) + ExtraHeight;
+                            float refineDiff = refinePos.Z - refineTerrainZ;
 
                         if (refineLastDiff > 0f && refineDiff <= 0f)
                         {

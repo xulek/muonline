@@ -6,6 +6,7 @@ using Client.Main.Objects.Player;
 using Client.Main.Scenes;
 using Client.Main.Objects;
 using Microsoft.Xna.Framework;
+using Microsoft.Extensions.Logging;
 
 namespace Client.Main.Objects.Effects
 {
@@ -75,17 +76,58 @@ namespace Client.Main.Objects.Effects
                 target = gameScene.Hero;
             }
 
-            if (target == null || target.Status != GameControlStatus.Ready)
+            if (target == null)
+            {
+                // Debug: missing player target when attaching buff visuals
+                var factory = ModelObject.AppLoggerFactory;
+                var log = factory?.CreateLogger(nameof(ElfBuffEffectManager));
+                log?.LogWarning("ElfBuffEffectManager.Attach: Player {PlayerId} not found in world.", playerId);
                 return;
+            }
+
+            if (target.Status != GameControlStatus.Ready)
+            {
+                var factory2 = ModelObject.AppLoggerFactory;
+                var log2 = factory2?.CreateLogger(nameof(ElfBuffEffectManager));
+                log2?.LogDebug("ElfBuffEffectManager.Attach: Player {PlayerId} exists but is not Ready (Status={Status}). Will retry on EnsureBuffsForPlayer.", playerId, target.Status);
+                return;
+            }
 
             var left = CreateEmitter(target, PlayerObject.LeftHandBoneIndex, new Vector3(-6f, 0f, 16f));
             var right = CreateEmitter(target, PlayerObject.RightHandBoneIndex, new Vector3(6f, 0f, 16f));
             List<ElfBuffOrbitingLight> orbits = CreateOrbits(target);
 
+            // Initialize positions so Load() computes a correct bounding box and they are not culled
+            if (target.TryGetBoneWorldMatrix(PlayerObject.LeftHandBoneIndex, out var leftMat))
+                left.Position = leftMat.Translation + new Vector3(-6f, 0f, 16f);
+            else
+                left.Position = target.WorldPosition.Translation + new Vector3(-6f, 0f, 16f);
+
+            if (target.TryGetBoneWorldMatrix(PlayerObject.RightHandBoneIndex, out var rightMat))
+                right.Position = rightMat.Translation + new Vector3(6f, 0f, 16f);
+            else
+                right.Position = target.WorldPosition.Translation + new Vector3(6f, 0f, 16f);
+
+            for (int i = 0; i < orbits.Count; i++)
+                orbits[i].Position = target.WorldPosition.Translation;
+
             world.Objects.Add(left);
             world.Objects.Add(right);
             for (int i = 0; i < orbits.Count; i++)
                 world.Objects.Add(orbits[i]);
+
+            // Force initial trail samples and immediate bounding box / visibility calculations
+            try
+            {
+                left.RecalculateOutOfView();
+                right.RecalculateOutOfView();
+                for (int i = 0; i < orbits.Count; i++)
+                {
+                    try { orbits[i].ForceSample(); } catch { }
+                    orbits[i].RecalculateOutOfView();
+                }
+            }
+            catch { }
 
             _ = left.Load();
             _ = right.Load();

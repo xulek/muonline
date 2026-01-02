@@ -171,6 +171,14 @@ namespace Client.Main.Objects
             OutOfView = World is null || Hidden || Camera.Instance.Frustum.Contains(BoundingBoxWorld) == ContainmentType.Disjoint;
         }
 
+        /// <summary>
+        /// Public wrapper to force recalculation of visibility from external controllers (camera moves).
+        /// </summary>
+        public void RecalculateOutOfView()
+        {
+            CalculateOutOfView();
+        }
+
         private void OnHiddenChanged()
         {
             CalculateOutOfView();

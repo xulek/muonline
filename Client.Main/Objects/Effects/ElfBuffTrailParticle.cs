@@ -28,7 +28,8 @@ namespace Client.Main.Objects.Effects
             BlendState = BlendState.Additive;
             DepthState = DepthStencilState.DepthRead;
             LightEnabled = true;
-            BoundingBoxLocal = new BoundingBox(Vector3.Zero, Vector3.Zero);
+            // Ensure the trail particle has a small bounding box so it's considered in-frustum
+            BoundingBoxLocal = new BoundingBox(new Vector3(-16f, -16f, -8f), new Vector3(16f, 16f, 24f));
 
             // Randomize trail particle properties
             _lifetime = MathHelper.Lerp(0.6f, 1.2f, (float)MuGame.Random.NextDouble());

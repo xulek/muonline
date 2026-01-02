@@ -1,5 +1,6 @@
 ﻿using Microsoft.Xna.Framework;
 using System;
+using System.Diagnostics;
 
 namespace Client.Main.Graphics
 {
@@ -16,6 +17,11 @@ namespace Client.Main.Graphics
         private Vector3 _position = Vector3.Zero;
         private Vector3 _target = Vector3.Zero;
         private readonly BoundingFrustum _frustum = new BoundingFrustum(Matrix.Identity);
+
+        // Throttle CameraMoved events to avoid flooding subscribers during rapid camera updates
+        private long _lastCameraMovedTimeMs = 0;
+        private const int CAMERA_MOVED_COOLDOWN_MS = 300; // milliseconds
+        private readonly object _cameraMovedLock = new object();
 
         // Public Properties
         public float AspectRatio
@@ -76,6 +82,20 @@ namespace Client.Main.Graphics
             UpdateFrustum();
         }
 
+        /// <summary>
+        /// Atomically set camera position and target to avoid firing CameraMoved twice.
+        /// </summary>
+        public void SetView(Vector3 position, Vector3 target)
+        {
+            bool posChanged = _position != position;
+            bool targetChanged = _target != target;
+            if (!posChanged && !targetChanged) return;
+
+            _position = position;
+            _target = target;
+            UpdateView();
+        }
+
         // Private Methods
         private void UpdateProjection()
         {
@@ -99,12 +119,28 @@ namespace Client.Main.Graphics
             View = Matrix.CreateLookAt(Position, Target, cameraUp);
 
             UpdateFrustum();
-            CameraMoved?.Invoke(this, EventArgs.Empty);
+            RaiseCameraMovedThrottled();
         }
 
         private void UpdateFrustum()
         {
             _frustum.Matrix = View * Projection;
+        }
+
+        /// <summary>
+        /// Raises the CameraMoved event but limits firing to once every CAMERA_MOVED_COOLDOWN_MS milliseconds.
+        /// </summary>
+        private void RaiseCameraMovedThrottled()
+        {
+            long nowMs = Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
+            lock (_cameraMovedLock)
+            {
+                if (nowMs - _lastCameraMovedTimeMs >= CAMERA_MOVED_COOLDOWN_MS)
+                {
+                    _lastCameraMovedTimeMs = nowMs;
+                    CameraMoved?.Invoke(this, EventArgs.Empty);
+                }
+            }
         }
     }
 }

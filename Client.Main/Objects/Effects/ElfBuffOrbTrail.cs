@@ -133,6 +133,21 @@ namespace Client.Main.Objects.Effects
             }
         }
 
+        public void ForceSample()
+        {
+            if (SamplePoint == null || ReferencePoint == null)
+                return;
+
+            Vector3 currentOrb = SamplePoint.Invoke();
+            Vector3 currentRef = ReferencePoint.Invoke();
+            Vector3 currentOffset = currentOrb - currentRef;
+
+            AddPoint(currentOffset);
+            _lastOffset = currentOffset;
+            _timeSinceLastSample = 0f;
+            _hasLastPosition = true;
+        }
+
         private void AddPoint(Vector3 offset)
         {
             // Find next available slot

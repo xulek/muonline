@@ -104,6 +104,10 @@ namespace Client.Main.Objects.Effects
             _trail.SamplePoint = GetCurrentOrbPosition;
             _trail.ReferencePoint = GetOwnerPosition;
 
+            // Ensure initial sample so trail has a bounding box and isn't culled before the first Update
+            // (the Effect manager calls ForceSample again after adding to the world, but this is a local safeguard)
+            try { _trail.ForceSample(); } catch { }
+
             float lightGreen = MathHelper.Clamp(0.85f * _trailHue, 0.6f, 1.1f);
             _dynamicLight = new DynamicLight
             {
@@ -147,6 +151,14 @@ namespace Client.Main.Objects.Effects
                 _dynamicLight.Position = GetCurrentOrbPosition();
                 World.Terrain.AddDynamicLight(_dynamicLight);
             }
+        }
+
+        /// <summary>
+        /// Force the trail to sample immediately so bounding box is established.
+        /// </summary>
+        public void ForceSample()
+        {
+            try { _trail.ForceSample(); } catch { }
         }
 
         public override void Update(GameTime gameTime)

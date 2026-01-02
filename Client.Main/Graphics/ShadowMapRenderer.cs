@@ -7,6 +7,8 @@ using Client.Main.Objects;
 using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace Client.Main.Graphics
 {
@@ -88,6 +90,7 @@ namespace Client.Main.Graphics
 
         public void RenderShadowMap(WorldControl world)
         {
+            var sw = Stopwatch.StartNew();
             if (world == null || !world.EnableShadows || !Constants.ENABLE_SHADOW_MAPPING || !Constants.SUN_ENABLED)
                 return;
 
@@ -102,14 +105,30 @@ namespace Client.Main.Graphics
             _frameCounter++;
             int updateInterval = Math.Max(1, Constants.SHADOW_UPDATE_INTERVAL);
 
+            // Compute camera per-frame movement to detect fast camera motion. When the camera
+            // is moving quickly, increase the effective shadow update interval to avoid
+            // expensive shadow-map renders every frame which cause FPS drops during camera motion.
+            float cameraDelta = Vector3.Distance(camera.Position, _lastCameraPosition);
+            float targetDelta = Vector3.Distance(camera.Target, _lastCameraTarget);
+            float maxDelta = Math.Max(cameraDelta, targetDelta);
+
             EnsureRenderTarget();
 
             float shadowDistance = ComputeShadowDistance(camera);
             bool cameraChanged = HasCameraChanged(camera, shadowDistance);
             float frustumGuardBand = Math.Max(5f, shadowDistance * 0.01f);
 
+            // Increase interval temporarily when camera moves more than a few texels per-frame
+            float texelWorldSize = Math.Max(1f, shadowDistance) / Math.Max(1, _shadowMap?.Width ?? Math.Max(256, Constants.SHADOW_MAP_SIZE));
+            int effectiveInterval = updateInterval;
+            if (maxDelta > texelWorldSize * 2f)
+            {
+                // Camera moving quickly: back off shadow updates to reduce GPU work
+                effectiveInterval = Math.Max(effectiveInterval, 8);
+            }
+
             // Always update when camera/light range changed; otherwise respect interval for static views
-            if (!_forceRender && !cameraChanged && _frameCounter % updateInterval != 0)
+            if (!_forceRender && !cameraChanged && _frameCounter % effectiveInterval != 0)
                 return;
 
             UpdateLightMatrices(camera, shadowDistance);
@@ -149,6 +168,10 @@ namespace Client.Main.Graphics
                     focus = Camera.Instance.Position;
 
                 _casterCandidates.Clear();
+                int maxCasters = Math.Max(1, Constants.SHADOW_MAX_CASTERS);
+
+                // Maintain a fixed-size collection of the closest casters without sorting the whole set.
+                // For small maxCasters (typical), this is faster than collecting and sorting a large list.
                 var snapshot = world.Objects.GetSnapshot();
                 for (int i = 0; i < snapshot.Count; i++)
                 {
@@ -167,14 +190,34 @@ namespace Client.Main.Graphics
                     if (distSq > maxDistanceSq)
                         continue;
 
-                    _casterCandidates.Add((model, distSq));
+                    if (_casterCandidates.Count < maxCasters)
+                    {
+                        _casterCandidates.Add((model, distSq));
+                    }
+                    else
+                    {
+                        // Replace the farthest candidate if this one is closer
+                        int worstIndex = 0;
+                        float worstDist = _casterCandidates[0].distSq;
+                        for (int j = 1; j < _casterCandidates.Count; j++)
+                        {
+                            if (_casterCandidates[j].distSq > worstDist)
+                            {
+                                worstDist = _casterCandidates[j].distSq;
+                                worstIndex = j;
+                            }
+                        }
+
+                        if (distSq < worstDist)
+                            _casterCandidates[worstIndex] = (model, distSq);
+                    }
                 }
 
-                // Sort by distance (closest first) and limit count
-                _casterCandidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
-                int maxCasters = Math.Max(1, Constants.SHADOW_MAX_CASTERS);
-                int casterCount = Math.Min(_casterCandidates.Count, maxCasters);
+                // Draw selected casters (order by closeness for quality)
+                if (_casterCandidates.Count > 1)
+                    _casterCandidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
 
+                int casterCount = _casterCandidates.Count;
                 for (int i = 0; i < casterCount; i++)
                 {
                     var (model, _) = _casterCandidates[i];
@@ -192,6 +235,13 @@ namespace Client.Main.Graphics
                 else
                     _graphicsDevice.SetRenderTargets(previousTargets);
                 _graphicsDevice.Viewport = previousViewport;
+                sw.Stop();
+                // Log slow shadow renders (>8ms) for diagnostics when logging is available
+                if (sw.ElapsedMilliseconds > 8)
+                {
+                    var logger = MuGame.AppLoggerFactory?.CreateLogger("ShadowProfiler");
+                    logger?.LogWarning("Slow shadow render: {Ms}ms, casters={Casters}, shadowSize={Size}", sw.ElapsedMilliseconds, _casterCandidates.Count, _shadowMap?.Width ?? 0);
+                }
             }
         }
 

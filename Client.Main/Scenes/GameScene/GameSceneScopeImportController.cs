@@ -106,7 +106,7 @@ namespace Client.Main.Scenes
 
                         _activePlayerIds.Add(s.Id);
 
-                        ElfBuffEffectManager.Instance?.EnsureBuffsForPlayer(s.Id);
+                        BuffEffectManager.Instance?.EnsureBuffsForPlayer(s.Id);
                     }
                     catch (Exception ex)
                     {

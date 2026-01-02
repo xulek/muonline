@@ -26,7 +26,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         private readonly CharacterState _characterState;
         private readonly NetworkManager _networkManager;
         private readonly TargetProtocolVersion _targetVersion;
-        private readonly ElfBuffEffectManager _elfBuffEffectManager;
+        private readonly BuffEffectManager _buffEffectManager;
 
         // ───────────────────────── Constructors ─────────────────────────
         public CharacterDataHandler(
@@ -39,7 +39,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             _characterState = characterState;
             _networkManager = networkManager;
             _targetVersion = targetVersion;
-            _elfBuffEffectManager = new ElfBuffEffectManager();
+            _buffEffectManager = new BuffEffectManager();
         }
 
         // ───────────────────────── Packet Handlers ─────────────────────────
@@ -1218,6 +1218,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                             if (Objects.Effects.Skills.SkillVisualEffectRegistry.TrySpawn(skillId, effectContext, out var effect))
                             {
                                 world.Objects.Add(effect!);
+                                // Ensure the effect has a sensible world position immediately so it won't be culled
+                                effect!.Position = effectContext.TargetPosition ?? effectContext.Caster?.WorldPosition.Translation ?? effect.Position;
                                 _ = effect!.Load();
                             }
                         }
@@ -1306,6 +1308,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                             if (Objects.Effects.Skills.SkillVisualEffectRegistry.TrySpawn(skillId, effectContext, out var effect))
                             {
                                 world.Objects.Add(effect!);
+                                // Assign initial position so Load() computes a correct bounding box and avoids culling
+                                effect!.Position = effectContext.TargetPosition ?? effectContext.Caster?.WorldPosition.Translation ?? effect.Position;
                                 _ = effect!.Load();
                             }
                         }
@@ -1326,6 +1330,6 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         }
 
         private void HandleElfBuffVisual(byte effectId, ushort playerId, bool isActive) =>
-            _elfBuffEffectManager.HandleBuff(effectId, playerId, isActive);
+            _buffEffectManager.HandleBuff(effectId, playerId, isActive);
     }
 }

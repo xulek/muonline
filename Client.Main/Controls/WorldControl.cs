@@ -134,7 +134,8 @@ namespace Client.Main.Controls
         public short WorldIndex { get; private set; }
         public bool IsSunWorld { get; protected set; } = true;
 
-        public bool EnableShadows { get; protected set; } = true;
+        // Disable shadows by default to avoid heavy shadow-map renders during camera movement
+        public bool EnableShadows { get; protected set; } = false;
 
         public ChildrenCollection<WorldObject> Objects { get; private set; }
         = new ChildrenCollection<WorldObject>(null);
@@ -193,7 +194,167 @@ namespace Client.Main.Controls
             };
 
             _categorizedChildren = new CategorizedChildren<WorldObject, CategoryChildrenObject>(Objects, rules);
+            // Central camera move handler: recompute visibility for all objects in a single pass
+            Camera.Instance.CameraMoved += Camera_Instance_CameraMoved;
         }
+
+        // ==================== CAMPOS DE OPTIMIZACIÓN ====================
+        // Debounced camera moved handling
+        private volatile bool _cameraMovePending = false;
+        private const int CAMERA_PROCESS_COOLDOWN_MS = 16; // 1 frame @ 60fps
+        private long _lastCameraProcessTime = 0;
+
+        // Sistema incremental: procesa N objetos por frame en lugar de todos
+        private int _visibilityCheckIndex = 0;
+        private const int OBJECTS_PER_FRAME = 100; // Ajusta según rendimiento
+        private bool _isProcessingVisibility = false;
+
+        // Cache de datos de cámara
+        private Vector2 _cachedCameraPos2D;
+        private float _cachedMaxDistSq;
+
+        // Procesamiento incremental de movimiento: detecta objetos fuera de vista que entran en el frustum por su destino
+        private int _movementCheckIndex = 0;
+        private const int MOVEMENT_CHECKS_PER_FRAME = 100; // Ajusta según rendimiento
+        private int _movementChecksPerformed = 0;
+        private int _movementForcesTriggered = 0;
+        // --- Sort flags to avoid sorting every frame ---
+        private bool _needSortSolidBehind = true;
+        private bool _needSortTransparent = true;
+        private bool _needSortSolidInFront = true;
+        private int _sortsSkipped = 0;
+        private int _sortsPerformed = 0;
+        private void Camera_Instance_CameraMoved(object? sender, EventArgs e)
+        {
+            // Marca como pendiente y resetea el índice para empezar desde el principio
+            _cameraMovePending = true;
+            _visibilityCheckIndex = 0;
+
+            // Camera changed — transparent ordering depends on camera; request re-sort when needed
+            _needSortTransparent = true;
+            _needSortSolidBehind = true;
+            _needSortSolidInFront = true;
+        }
+
+        // Solución rápida: cálculo inline, sin snapshot, con caché de frustum y posición
+        // ==================== PROCESAMIENTO INCREMENTAL (RECOMENDADO) ====================
+        private void ProcessPendingCameraMoveIncremental()
+        {
+            // Si no hay trabajo pendiente, salir
+            if (!_cameraMovePending && !_isProcessingVisibility) 
+                return;
+
+            var camera = Camera.Instance;
+            if (camera == null) return;
+
+            // Cooldown: evita procesar demasiado frecuentemente
+            long now = Stopwatch.GetTimestamp() / (Stopwatch.Frequency / 1000);
+            if (now - _lastCameraProcessTime < CAMERA_PROCESS_COOLDOWN_MS)
+                return;
+            _lastCameraProcessTime = now;
+
+            // Marcar que estamos procesando y resetear flag de movimiento
+            if (_cameraMovePending)
+            {
+                _cameraMovePending = false;
+                _isProcessingVisibility = true;
+                _visibilityCheckIndex = 0;
+
+                // Actualizar cache de cámara
+                _cachedCameraPos2D = new Vector2(camera.Position.X, camera.Position.Y);
+                float maxInfluence = Math.Max(2000f, camera.ViewFar * 0.5f);
+                _cachedMaxDistSq = maxInfluence * maxInfluence;
+            }
+
+            if (!_isProcessingVisibility)
+                return;
+
+            // Procesar un lote de objetos
+            int objectCount = Objects.Count;
+            if (objectCount == 0)
+            {
+                _isProcessingVisibility = false;
+                return;
+            }
+
+            int processed = 0;
+            int startIndex = _visibilityCheckIndex;
+
+            // Procesar hasta OBJECTS_PER_FRAME objetos
+            while (processed < OBJECTS_PER_FRAME && _visibilityCheckIndex < objectCount)
+            {
+                try
+                {
+                    var obj = Objects[_visibilityCheckIndex];
+                    if (obj != null && obj.Status != GameControlStatus.Disposed)
+                    {
+                        // Cálculo inline de distancia (más rápido)
+                        var pos = obj.WorldPosition.Translation;
+                        float dx = pos.X - _cachedCameraPos2D.X;
+                        float dy = pos.Y - _cachedCameraPos2D.Y;
+                        float distSq = dx * dx + dy * dy;
+
+                        if (distSq <= _cachedMaxDistSq)
+                        {
+                            obj.RecalculateOutOfView();
+                        }
+                    }
+                }
+                catch { /* Evitar romper el loop */ }
+
+                _visibilityCheckIndex++;
+                processed++;
+            }
+
+            // Si terminamos de procesar todos los objetos
+            if (_visibilityCheckIndex >= objectCount)
+            {
+                _isProcessingVisibility = false;
+                _visibilityCheckIndex = 0;
+            }
+        }
+
+        // Revisa incrementalmente objetos fuera de vista que se mueven hacia la cámara y fuerza su visibilidad (bajo presupuesto)
+        private void ProcessMovementEnteringFrustumIncremental()
+        {
+            int count = Objects.Count;
+            if (count == 0) return;
+
+            int processed = 0;
+            while (processed < MOVEMENT_CHECKS_PER_FRAME && _movementCheckIndex < count)
+            {
+                try
+                {
+                    var obj = Objects[_movementCheckIndex];
+                    if (obj != null && obj.Status == GameControlStatus.Ready && obj.OutOfView)
+                    {
+                        if (obj is WalkerObject walker)
+                        {
+                            // Solo comprobar si parece moverse (evita activar estáticos innecesarios)
+                            Vector3 moveTarget = walker.MoveTargetPosition;
+                            if (Vector3.DistanceSquared(moveTarget, walker.Position) > 0.001f)
+                            {
+                                var bbox = new BoundingBox(
+                                    new Vector3(moveTarget.X - 16f, moveTarget.Y - 16f, moveTarget.Z - 16f),
+                                    new Vector3(moveTarget.X + 16f, moveTarget.Y + 16f, moveTarget.Z + 16f));
+                                if (Camera.Instance.Frustum.Contains(bbox) != ContainmentType.Disjoint)
+                                {
+                                    walker.ForceInView();
+                                    _movementForcesTriggered++;
+                                }
+                                _movementChecksPerformed++;
+                            }
+                        }
+                    }
+                }
+                catch { /* no fallar el loop */ }
+
+                _movementCheckIndex = (_movementCheckIndex + 1) % Math.Max(1, count);
+                processed++;
+            }
+        }
+
+        // Para máximo rendimiento: considerar procesamiento incremental y spatial partitioning en el futuro
 
         // --- Lifecycle Methods ---
 
@@ -262,12 +423,54 @@ namespace Client.Main.Controls
             base.Update(time);
             if (Status != GameControlStatus.Ready) return;
 
+            // Procesamiento incremental de visibilidad (recomendado)
+            ProcessPendingCameraMoveIncremental();
+
+            // Procesamiento incremental que activa objetos fuera de vista cuando su destino entra en el frustum
+            ProcessMovementEnteringFrustumIncremental();
+
             var objects = _categorizedChildren.Get(CategoryChildrenObject.ObjectsInView);
             for (int i = 0; i < objects.Count; i++)
             {
                 var obj = objects[i];
                 if (obj != null && obj.Status != GameControlStatus.Disposed)
                     obj.Update(time);
+            }
+
+            // Also advance a small batch of out-of-view movers.
+            // This keeps remote walkers in sync without rendering them, so when they enter the frustum
+            // they don't "teleport" to the final target.
+            ProcessOutOfViewMovingWalkersIncremental(time);
+        }
+
+        private const int OUT_OF_VIEW_MOVERS_PER_FRAME = 8;
+        private int _outOfViewMoverIndex;
+
+        private void ProcessOutOfViewMovingWalkersIncremental(GameTime time)
+        {
+            int count = Objects.Count;
+            if (count == 0) return;
+
+            int processed = 0;
+            while (processed < OUT_OF_VIEW_MOVERS_PER_FRAME)
+            {
+                if (_outOfViewMoverIndex >= count)
+                    _outOfViewMoverIndex = 0;
+
+                var obj = Objects[_outOfViewMoverIndex++];
+                processed++;
+
+                if (obj == null || obj.Status != GameControlStatus.Ready || !obj.OutOfView)
+                    continue;
+
+                if (obj is WalkerObject walker)
+                {
+                    // Only update walkers which are currently moving or have movement intent.
+                    if (walker.MovementIntent || walker.IsMoving)
+                    {
+                        walker.Update(time);
+                    }
+                }
             }
         }
 
@@ -316,6 +519,11 @@ namespace Client.Main.Controls
             e.Control.World = this;
 
             TrackObjectType(e.Control);
+
+            // Track matrix changes to mark sort-dirty when position/depth changes
+            e.Control.MatrixChanged += OnObjectMatrixChanged;
+            _needSortSolidBehind = _needSortTransparent = _needSortSolidInFront = true;
+
             if (e.Control is WalkerObject walker &&
                 walker.NetworkId != 0 &&
                 walker.NetworkId != 0xFFFF)
@@ -336,6 +544,11 @@ namespace Client.Main.Controls
         private void OnObjectRemoved(object sender, ChildrenEventArgs<WorldObject> e)
         {
             UntrackObjectType(e.Control);
+
+            // Stop tracking matrix changes and mark sorts needed
+            e.Control.MatrixChanged -= OnObjectMatrixChanged;
+            _needSortSolidBehind = _needSortTransparent = _needSortSolidInFront = true;
+
             if (e.Control is WalkerObject walker &&
                 walker.NetworkId != 0 &&
                 walker.NetworkId != 0xFFFF)
@@ -539,7 +752,16 @@ namespace Client.Main.Controls
             // Draw solid behind objects
             if (_solidBehind.Count > 1)
             {
-                _solidBehind.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
+                if (_needSortSolidBehind)
+                {
+                    _solidBehind.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
+                    _needSortSolidBehind = false;
+                    _sortsPerformed++;
+                }
+                else
+                {
+                    _sortsSkipped++;
+                }
             }
             DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
 
@@ -547,14 +769,32 @@ namespace Client.Main.Controls
             if (_transparentObjects.Count > 1)
             {
                 // Transparent rendering requires strict back-to-front ordering, so never batch-optimize.
-                _transparentObjects.Sort(_cmpDesc);
+                if (_needSortTransparent)
+                {
+                    _transparentObjects.Sort(_cmpDesc);
+                    _needSortTransparent = false;
+                    _sortsPerformed++;
+                }
+                else
+                {
+                    _sortsSkipped++;
+                }
             }
             DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
 
             // Draw solid in front objects
             if (_solidInFront.Count > 1)
             {
-                _solidInFront.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
+                if (_needSortSolidInFront)
+                {
+                    _solidInFront.Sort(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? _cmpBatchAsc : _cmpAsc);
+                    _needSortSolidInFront = false;
+                    _sortsPerformed++;
+                }
+                else
+                {
+                    _sortsSkipped++;
+                }
             }
             DrawListWithSpriteBatchGrouping(_solidInFront, DepthStateDefault, time);
 
@@ -665,6 +905,14 @@ namespace Client.Main.Controls
                 return false;
 
             return frustum != null && frustum.Contains(obj.BoundingBoxWorld) != ContainmentType.Disjoint;
+        }
+
+        private void OnObjectMatrixChanged(object sender, EventArgs e)
+        {
+            // Mark sort flags so render lists will be sorted next frame as needed
+            _needSortSolidBehind = true;
+            _needSortTransparent = true;
+            _needSortSolidInFront = true;
         }
 
         // --- NEW METHOD FOR LIGHT CULLING ---

@@ -234,7 +234,7 @@ namespace Client.Main
             SHADOW_BIAS = 0.005f;
             SHADOW_NORMAL_BIAS = 0.008f;
 
-            DataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+            DataPath = @"C:\Users\Usuario\Documents\Mu Mono and Open mu project\MU_Red_1_20_61_Full\Data";
         }
 
 #if DEBUG
@@ -246,7 +246,7 @@ namespace Client.Main
             SHOW_DEBUG_PANEL = true;
 
 #if WINDOWS
-            DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";
+            DataPath = @"C:\Users\Usuario\Documents\Mu Mono and Open mu project\MU_Red_1_20_61_Full\Data";
 #endif
         }
 #endif

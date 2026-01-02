@@ -29,6 +29,7 @@ using Client.Main.Controls.UI.Game.Hud;
 using MUnique.OpenMU.Network.Packets;
 using Client.Main.Controllers;
 using Client.Main.Helpers;
+using Client.Main.Objects.Effects;
 
 namespace Client.Main.Scenes
 {
@@ -513,6 +514,8 @@ namespace Client.Main.Scenes
 
             base.Update(gameTime);
             _inputController?.HandleGlobalInput(currentKeyboardState);
+
+            BuffEffectManager.Instance.Update(gameTime);
 
             _notificationManager?.Update(gameTime);
             _notificationController?.ProcessPending();

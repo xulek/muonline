@@ -48,7 +48,8 @@ namespace Client.Main.Objects.Effects
             BlendState = BlendState.Additive;
             DepthState = DepthStencilState.DepthRead;
             LightEnabled = false;
-            BoundingBoxLocal = new BoundingBox(Vector3.Zero, Vector3.Zero);
+            // Small bounding box so sparkles aren't incorrectly culled by frustum checks
+            BoundingBoxLocal = new BoundingBox(new Vector3(-12f, -12f, -12f), new Vector3(12f, 12f, 12f));
             Hidden = false;
 
             _age = 0f;

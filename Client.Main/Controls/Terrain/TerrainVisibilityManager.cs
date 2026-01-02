@@ -177,6 +177,11 @@ namespace Client.Main.Controls.Terrain
         {
             block.VisibleTileCount = 0;
 
+            // Local references for faster access
+            var heightMap = _data.HeightMap;
+            int terrainSize = Constants.TERRAIN_SIZE;
+            int mask = Constants.TERRAIN_SIZE_MASK;
+
             for (int tileY = 0; tileY < BlockSize; tileY++)
             {
                 for (int tileX = 0; tileX < BlockSize; tileX++)
@@ -184,16 +189,19 @@ namespace Client.Main.Controls.Terrain
                     int x = block.Xi + tileX;
                     int y = block.Yi + tileY;
 
-                    // 4 corner heights for tight AABB
-                    int i1 = GetTerrainIndexRepeat(x, y);
-                    int i2 = GetTerrainIndexRepeat(x + 1, y);
-                    int i3 = GetTerrainIndexRepeat(x + 1, y + 1);
-                    int i4 = GetTerrainIndexRepeat(x, y + 1);
+                    // Inline index computation to avoid function call overhead
+                    int i1 = ((y & mask) * terrainSize) + (x & mask);
+                    int i2 = ((y & mask) * terrainSize) + ((x + 1) & mask);
+                    int i3 = (((y + 1) & mask) * terrainSize) + ((x + 1) & mask);
+                    int i4 = (((y + 1) & mask) * terrainSize) + (x & mask);
 
-                    float hmin = MathF.Min(MathF.Min(_data.HeightMap[i1].R, _data.HeightMap[i2].R),
-                                           MathF.Min(_data.HeightMap[i3].R, _data.HeightMap[i4].R)) * 1.5f;
-                    float hmax = MathF.Max(MathF.Max(_data.HeightMap[i1].R, _data.HeightMap[i2].R),
-                                           MathF.Max(_data.HeightMap[i3].R, _data.HeightMap[i4].R)) * 1.5f;
+                    float h1 = heightMap[i1].R;
+                    float h2 = heightMap[i2].R;
+                    float h3 = heightMap[i3].R;
+                    float h4 = heightMap[i4].R;
+
+                    float hmin = MathF.Min(MathF.Min(h1, h2), MathF.Min(h3, h4)) * 1.5f;
+                    float hmax = MathF.Max(MathF.Max(h1, h2), MathF.Max(h3, h4)) * 1.5f;
 
                     float sx = x * Constants.TERRAIN_SCALE;
                     float sy = y * Constants.TERRAIN_SCALE;

@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using MUnique.OpenMU.Network.Packets;
 using Client.Main.Controls;
+using Client.Main.Graphics;
 using Microsoft.Xna.Framework;
 using System.Collections.Generic;
 using Client.Main.Models;
@@ -144,7 +145,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     {
                         byte effectId = c[e].Id;
                         _characterState.ActivateBuff(effectId, raw);
-                        ElfBuffEffectManager.Instance?.HandleBuff(effectId, raw, true);
+                        BuffEffectManager.Instance?.HandleBuff(effectId, raw, true);
                     }
                 }
 
@@ -284,7 +285,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 world.Objects.Add(p);
                 _logger.LogDebug($"[Spawn] Added {name} to world.Objects.");
 
-                ElfBuffEffectManager.Instance?.EnsureBuffsForPlayer(maskedId);
+                BuffEffectManager.Instance?.EnsureBuffsForPlayer(maskedId);
 
                 // Set final position
                 if (p.World != null && p.World.Terrain != null)
@@ -1361,8 +1362,39 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         var objToMove = world.FindWalkerById(maskedId);
                         if (objToMove != null)
                         {
+                            // If this is the local player, do NOT hard-snap.
+                            // Hard-snapping here causes the local character to teleport to the destination.
+                            if (maskedId == _characterState.Id && world.Walker == objToMove)
+                            {
+                                objToMove.MoveTo(new Vector2(x, y), sendToServer: false, usePathfinding: false);
+                                return;
+                            }
+
                             objToMove.Location = new Vector2(x, y);
+
+                            // Remote objects: ObjectMoved acts as a hard correction from the server.
+                            // Ensure we don't continue an old path which would cause desync/ghost walking.
+                            try
+                            {
+                                var targetPos = objToMove.TargetPosition;
+                                objToMove.Position = targetPos;
+                                objToMove.MoveTargetPosition = targetPos;
+                                objToMove.StopMovement();
+                            }
+                            catch { /* best-effort sync */ }
                             _logger.LogDebug("Updated visual position for {Type} {Id:X4}", objToMove.GetType().Name, maskedId);
+
+                            // If the new position is inside (or near) camera frustum, force it to be in-view
+                            try
+                            {
+                                float worldX = x * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
+                                float worldY = y * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
+                                float worldZ = world.Terrain.RequestTerrainHeight(worldX, worldY);
+                                var bbox = new BoundingBox(new Vector3(worldX - 16f, worldY - 16f, worldZ - 16f), new Vector3(worldX + 16f, worldY + 16f, worldZ + 16f));
+                                if (Camera.Instance.Frustum.Contains(bbox) != ContainmentType.Disjoint)
+                                    objToMove.ForceInView();
+                            }
+                            catch { /* best-effort check - ignore errors */ }
                         }
                     }
                 });
@@ -1418,10 +1450,188 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
 
-                walker.MoveTo(new Vector2(x, y), sendToServer: false);
+                var targetTile = new Vector2(x, y);
+                bool snappedToServerPosition = false;
+
+                // Decode server-provided walk steps (nibble-packed). This matches the packing in PacketBuilder.BuildWalkRequestPacket.
+                static byte UnpackDirectionNibble(Span<byte> data, int index)
+                {
+                    byte b = data[index / 2];
+                    return (index % 2 == 0) ? (byte)(b >> 4) : (byte)(b & 0x0F);
+                }
+
+                static (int dx, int dy) ClientDirToDelta(byte dir)
+                {
+                    return dir switch
+                    {
+                        0 => (-1, 0),   // West
+                        1 => (-1, 1),   // South-West
+                        2 => (0, 1),    // South
+                        3 => (1, 1),    // South-East
+                        4 => (1, 0),    // East
+                        5 => (1, -1),   // North-East
+                        6 => (0, -1),   // North
+                        7 => (-1, -1),  // North-West
+                        _ => (0, 0)
+                    };
+                }
+
+                static Dictionary<byte, byte> BuildInverseDirectionMap(IReadOnlyDictionary<byte, byte> clientToServer)
+                {
+                    var inverse = new Dictionary<byte, byte>();
+                    if (clientToServer == null)
+                        return inverse;
+                    foreach (var kv in clientToServer)
+                    {
+                        // serverDir -> clientDir
+                        if (!inverse.ContainsKey(kv.Value))
+                            inverse.Add(kv.Value, kv.Key);
+                    }
+                    return inverse;
+                }
+
+                bool TryDecodeServerSteps(Memory<byte> pkt, Vector2 currentTile, out List<Vector2> steps, out Vector2 computedSource)
+                {
+                    steps = null;
+                    computedSource = currentTile;
+
+                    try
+                    {
+                        var walkPacket = new ObjectWalked(pkt);
+                        int stepCount = walkPacket.StepCount;
+                        var stepData = walkPacket.StepData;
+                        if (stepCount <= 0 || stepData.Length <= 0)
+                            return false;
+
+                        var inverseMap = BuildInverseDirectionMap(MuGame.Network?.GetDirectionMap());
+
+                        // Decode directions first so we can compute the real source if needed.
+                        var deltas = new List<(int dx, int dy)>(stepCount);
+                        for (int i = 0; i < stepCount; i++)
+                        {
+                            byte serverDir = UnpackDirectionNibble(stepData, i);
+                            if (serverDir == 0x0F)
+                                break;
+
+                            byte clientDir = inverseMap.TryGetValue(serverDir, out var mapped) ? mapped : serverDir;
+                            if (clientDir > 7)
+                                break;
+
+                            deltas.Add(ClientDirToDelta(clientDir));
+                        }
+
+                        if (deltas.Count == 0)
+                            return false;
+
+                        // Build step tiles forward from currentTile.
+                        var cursor = new Vector2((int)currentTile.X, (int)currentTile.Y);
+                        var tiles = new List<Vector2>(deltas.Count);
+                        foreach (var (dx, dy) in deltas)
+                        {
+                            cursor = new Vector2(cursor.X + dx, cursor.Y + dy);
+                            tiles.Add(cursor);
+                        }
+
+                        // Also compute the theoretical source from the target by reversing deltas.
+                        var src = new Vector2((int)targetTile.X, (int)targetTile.Y);
+                        for (int i = deltas.Count - 1; i >= 0; i--)
+                        {
+                            var (dx, dy) = deltas[i];
+                            src = new Vector2(src.X - dx, src.Y - dy);
+                        }
+
+                        steps = tiles;
+                        computedSource = src;
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+
+                // IMPORTANT: When the walker is out of view, it usually doesn't get Update() calls.
+                // MoveTo() depends on Update() to advance movement, so remote players would stay at their
+                // old spawn position until they become visible again (then they "walk" from the spawn).
+                // To keep them consistent AND preserve animation when they become visible:
+                // - If we have server steps, apply them (even if OutOfView).
+                // - If our local start tile doesn't match, compute the real source from (target + steps)
+                //   and correct while OutOfView (safe, not visible).
+                bool appliedServerPath = false;
+                var currentTile = new Vector2((int)walker.Location.X, (int)walker.Location.Y);
+                if (TryDecodeServerSteps(packet, currentTile, out var decodedSteps, out var computedSourceTile))
+                {
+                    if (decodedSteps != null && decodedSteps.Count > 0)
+                    {
+                        var last = decodedSteps[^1];
+
+                        if (last != targetTile)
+                        {
+                            // If we are out of view, it's safe to correct our start tile using the computed source.
+                            if (walker.OutOfView)
+                            {
+                                walker.Location = computedSourceTile;
+                                var srcPos = walker.TargetPosition;
+                                walker.Position = srcPos;
+                                walker.MoveTargetPosition = srcPos;
+                                walker.StopMovement();
+
+                                // Rebuild steps from the corrected source so that the last step matches the target.
+                                currentTile = new Vector2((int)walker.Location.X, (int)walker.Location.Y);
+                                if (TryDecodeServerSteps(packet, currentTile, out var rebuiltSteps, out _)
+                                    && rebuiltSteps != null
+                                    && rebuiltSteps.Count > 0
+                                    && rebuiltSteps[^1] == targetTile)
+                                {
+                                    walker.ApplyServerWalkPath(rebuiltSteps);
+                                    appliedServerPath = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            walker.ApplyServerWalkPath(decodedSteps);
+                            appliedServerPath = true;
+                        }
+                    }
+                }
+
+                if (!appliedServerPath)
+                {
+                    // Fallback: animate a direct path (no pathfinding) so we don't teleport.
+                    // If OutOfView, this will still progress because we will update moving out-of-view walkers with a budget.
+                    walker.MoveTo(targetTile, sendToServer: false, usePathfinding: false);
+                }
+
+                if (walker.OutOfView && appliedServerPath)
+                {
+                    // Ensure the movement state is active so our background out-of-view updates can advance it.
+                    // (ApplyServerWalkPath sets MovementIntent=true)
+                }
+
+                    // If the target position is inside/near camera frustum, force the walker in view so Update() runs
+                    try
+                    {
+                        float worldX = x * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
+                        float worldY = y * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
+                        float worldZ = world.Terrain.RequestTerrainHeight(worldX, worldY);
+                        var bbox = new BoundingBox(new Vector3(worldX - 16f, worldY - 16f, worldZ - 16f), new Vector3(worldX + 16f, worldY + 16f, worldZ + 16f));
+                        if (Camera.Instance.Frustum.Contains(bbox) != ContainmentType.Disjoint)
+                            walker.ForceInView();
+                    }
+                    catch { }
+                
+                // NOTE: When we corrected start tile while out-of-view, we intentionally avoid snapping to the destination.
+                // The object will advance along the server steps and animate correctly when it comes into view.
+
+                // When we snapped an out-of-view object, avoid forcing walk animations for an object that didn't
+                // actually simulate movement on-screen.
 
                 if (walker is PlayerObject player)
                 {
+                    if (snappedToServerPosition)
+                        return;
+
                     bool isFemale = PlayerActionMapper.IsCharacterFemale(player.CharacterClass);
                     PlayerAction walkAction;
 
@@ -1457,10 +1667,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 }
                 else if (walker is MonsterObject)
                 {
+                    if (snappedToServerPosition)
+                        return;
+
                     walker.PlayAction((ushort)MonsterActionType.Walk, fromServer: true);
                 }
                 else if (walker is NPCObject)
                 {
+                    if (snappedToServerPosition)
+                        return;
+
                     const PlayerAction walkAction = PlayerAction.PlayerWalkMale;
                     if (walker.CurrentAction != (int)walkAction)
                         walker.PlayAction((ushort)walkAction, fromServer: true);

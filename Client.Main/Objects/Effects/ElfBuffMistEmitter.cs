@@ -164,13 +164,10 @@ namespace Client.Main.Objects.Effects
             if (Parent != null)
             {
                 Parent.Children.Remove(this);
-                return;
             }
-
-            if (World != null)
+            else if (World != null)
             {
                 World.Objects.Remove(this);
-                return;
             }
 
             Dispose();

@@ -823,6 +823,7 @@ namespace Client.Main
 
         private void DrawSceneToMainRenderTarget(GameTime gameTime)
         {
+            var swTotal = System.Diagnostics.Stopwatch.StartNew();
             GraphicsDevice.SetRenderTarget(GraphicsManager.Instance.MainRenderTarget);
             GraphicsDevice.Clear(Color.Black);
 
@@ -831,8 +832,17 @@ namespace Client.Main
             GraphicsDevice.DepthStencilState = DepthStencilState.Default;
             GraphicsDevice.BlendState = BlendState.AlphaBlend;
 
+            var swScene = System.Diagnostics.Stopwatch.StartNew();
             ActiveScene?.Draw(gameTime);
+            swScene.Stop();
             ActiveScene?.DrawAfter(gameTime);
+            swTotal.Stop();
+
+            if (swTotal.ElapsedMilliseconds > 16)
+            {
+                var logger = MuGame.AppLoggerFactory?.CreateLogger("FrameProfiler");
+                logger?.LogWarning("Slow frame: totalDraw={Total}ms, sceneDraw={Scene}ms, objects={Count}", swTotal.ElapsedMilliseconds, swScene.ElapsedMilliseconds, GraphicsManager.Instance?.ShadowMapRenderer == null ? 0 : GraphicsManager.Instance.ShadowMapRenderer.ShadowMap?.Width ?? 0);
+            }
 
             GraphicsDevice.SetRenderTarget(null);
         }
