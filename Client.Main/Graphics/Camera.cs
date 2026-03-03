@@ -70,6 +70,7 @@ namespace Client.Main.Graphics
         public Matrix View { get; private set; }
         public Matrix Projection { get; private set; }
         public BoundingFrustum Frustum => _frustum;
+        public ulong StateVersion { get; private set; }
 
         // Events
         public event EventHandler CameraMoved;
@@ -134,6 +135,10 @@ namespace Client.Main.Graphics
             );
 
             UpdateFrustum();
+            unchecked
+            {
+                StateVersion++;
+            }
             RaiseCameraMovedThrottled();
         }
 
@@ -162,6 +167,10 @@ namespace Client.Main.Graphics
             View = Matrix.CreateLookAt(pos, tgt, cameraUp);
 
             UpdateFrustum();
+            unchecked
+            {
+                StateVersion++;
+            }
             RaiseCameraMovedThrottled();
         }
 

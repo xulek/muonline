@@ -144,7 +144,12 @@ namespace Client.Main.Controls.UI
                        .Append($"Terrain: Drw:{terrainMetrics.DrawCalls} ")
                        .Append($"Tri:{terrainMetrics.DrawnTriangles} ")
                        .Append($"Blk:{terrainMetrics.DrawnBlocks} ")
-                       .Append($"Cel:{terrainMetrics.DrawnCells}");
+                       .Append($"Cel:{terrainMetrics.DrawnCells} ")
+                       .Append($"| Cull:{(walkableWorld.LastCullWasRebuild ? "R" : "-")} ")
+                       .Append($"C:{walkableWorld.LastCullCandidateCount} ")
+                       .Append($"V:{walkableWorld.LastCullVisibleCount} ")
+                       .Append($"Ms:{walkableWorld.LastCullRebuildMs:F2} ")
+                       .Append($"CamV:{walkableWorld.LastCullCameraVersion}");
                     _performanceMetricsLabel.Text = _sb.ToString();
 
                     // Update BMD buffer metrics

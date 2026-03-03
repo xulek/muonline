@@ -146,6 +146,9 @@ namespace Client.Main.Controls
         private readonly HashSet<WorldObject> _positionDirtyObjects = [];
         private readonly object _visibleMergeLock = new();
         private bool _dirtyVisibleObjects = true;
+        private bool _hasVisibilitySnapshot;
+        private ulong _lastCulledCameraVersion;
+        private readonly Stopwatch _cullingStopwatch = new();
         private const float NearUpdateDistanceSq = 2200f * 2200f;
         private const float MidUpdateDistanceSq = 4200f * 4200f;
         private const float FarUpdateDistanceSq = 6200f * 6200f;
@@ -187,6 +190,11 @@ namespace Client.Main.Controls
         public IReadOnlyList<PlayerObject> Players => _players;
         public IReadOnlyList<MonsterObject> Monsters => _monsters;
         public IReadOnlyList<DroppedItemObject> DroppedItems => _droppedItems;
+        public ulong LastCullCameraVersion => _lastCulledCameraVersion;
+        public int LastCullCandidateCount { get; private set; }
+        public int LastCullVisibleCount { get; private set; }
+        public float LastCullRebuildMs { get; private set; }
+        public bool LastCullWasRebuild { get; private set; }
 
         public Type[] MapTileObjects { get; } = new Type[Constants.TERRAIN_SIZE];
 
@@ -217,8 +225,6 @@ namespace Client.Main.Controls
             Objects.ControlAdded += OnObjectAdded;
             Objects.ControlRemoved += OnObjectRemoved;
 
-            Camera.Instance.CameraMoved += Camera_Moved;
-
             for (int y = 0; y < SpatialSectorsPerAxis; y++)
             {
                 for (int x = 0; x < SpatialSectorsPerAxis; x++)
@@ -226,11 +232,6 @@ namespace Client.Main.Controls
                     _spatialSectors[x, y] = new List<WorldObject>(16);
                 }
             }
-        }
-
-        private void Camera_Moved(object sender, EventArgs e)
-        {
-            _dirtyVisibleObjects = true;
         }
 
         private void Object_PositionChanged(object sender, EventArgs e)
@@ -327,6 +328,7 @@ namespace Client.Main.Controls
             base.Update(time);
 
             if (Status != GameControlStatus.Ready) return;
+            LastCullWasRebuild = false;
 
             if (_objectsToInitialize.Count > 0)
             {
@@ -341,17 +343,32 @@ namespace Client.Main.Controls
                 }
             }
 
-            if (_dirtyVisibleObjects)
-            {
-                RebuildVisibleObjects();
-                _dirtyVisibleObjects = false;
-            }
-            else if (_positionDirtyObjects.Count > 0)
+            // Keep update list current for object movement, but defer full camera recull to end of update
+            // so rendering uses the latest camera state from this frame.
+            if (_positionDirtyObjects.Count > 0 && !_dirtyVisibleObjects)
             {
                 RefreshDirtyVisibleObjects();
             }
 
             UpdateVisibleObjects(time);
+
+            ulong cameraVersion = Camera.Instance.StateVersion;
+            bool needsFullRebuild =
+                _dirtyVisibleObjects ||
+                _spatialObjectSectors.Count != Objects.Count ||
+                _lastCulledCameraVersion != cameraVersion ||
+                !_hasVisibilitySnapshot;
+
+            if (needsFullRebuild)
+            {
+                RebuildVisibleObjects();
+                _dirtyVisibleObjects = false;
+                _lastCulledCameraVersion = cameraVersion;
+            }
+            else if (_positionDirtyObjects.Count > 0)
+            {
+                RefreshDirtyVisibleObjects();
+            }
         }
 
         public override void Draw(GameTime time)
@@ -1009,6 +1026,7 @@ namespace Client.Main.Controls
 
         private void RebuildVisibleObjects()
         {
+            _cullingStopwatch.Restart();
             _visibleObjects.Clear();
             _visibleObjectSet.Clear();
             _positionDirtyObjects.Clear();
@@ -1027,6 +1045,7 @@ namespace Client.Main.Controls
             var focus = camera.Target;
             BuildSpatialCandidates(new Vector2(focus.X, focus.Y), maxViewDistance);
             var snapshot = _spatialCandidates;
+            LastCullCandidateCount = snapshot.Count;
             bool useParallel = Environment.ProcessorCount > 1 &&
                                snapshot.Count >= ParallelVisibleRebuildThreshold;
 
@@ -1078,6 +1097,12 @@ namespace Client.Main.Controls
                 if (obj != null)
                     _visibleObjectSet.Add(obj);
             }
+
+            _cullingStopwatch.Stop();
+            _hasVisibilitySnapshot = true;
+            LastCullVisibleCount = _visibleObjects.Count;
+            LastCullRebuildMs = (float)_cullingStopwatch.Elapsed.TotalMilliseconds;
+            LastCullWasRebuild = true;
         }
 
         private void RefreshDirtyVisibleObjects()
@@ -1270,6 +1295,7 @@ namespace Client.Main.Controls
             _spatialOffGridObjects.Clear();
             _spatialCandidates.Clear();
             _spatialCandidateSet.Clear();
+            _hasVisibilitySnapshot = false;
             foreach (var bucket in _spatialSectors)
                 bucket.Clear();
 
