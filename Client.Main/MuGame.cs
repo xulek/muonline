@@ -216,8 +216,26 @@ namespace Client.Main
                     logger.LogError("❌ UI virtual resolution {W}x{H} invalid.", settings.Graphics.UiVirtualWidth, settings.Graphics.UiVirtualHeight);
                     isValid = false;
                 }
+
+                settings.Graphics.DynamicLightUpdateFps = Constants.ClampPerformanceFps(settings.Graphics.DynamicLightUpdateFps);
+                settings.Graphics.AnimationUpdateFps = Constants.ClampPerformanceFps(settings.Graphics.AnimationUpdateFps);
             }
             return isValid;
+        }
+
+        private static void ApplyPerformanceCapsFromSettings(GraphicsSettings graphics)
+        {
+            if (graphics == null)
+                return;
+
+            int dynamicLightUpdateFps = Constants.ClampPerformanceFps(graphics.DynamicLightUpdateFps);
+            int animationUpdateFps = Constants.ClampPerformanceFps(graphics.AnimationUpdateFps);
+
+            graphics.DynamicLightUpdateFps = dynamicLightUpdateFps;
+            graphics.AnimationUpdateFps = animationUpdateFps;
+
+            Constants.DYNAMIC_LIGHT_UPDATE_FPS = dynamicLightUpdateFps;
+            Constants.ANIMATION_UPDATE_FPS = animationUpdateFps;
         }
 
         public static void DisposeInstance()
@@ -358,6 +376,7 @@ namespace Client.Main
 
             ApplyGraphicsConfiguration(AppSettings.Graphics);
             GraphicsQualityManager.ApplyFromSettings(AppSettings.Graphics, GraphicsDevice?.Adapter ?? GraphicsAdapter.DefaultAdapter, _logger);
+            ApplyPerformanceCapsFromSettings(AppSettings.Graphics);
             ApplyGraphicsOptions();
 
             // Configure screen size for mobile platforms AFTER graphics device is ready
@@ -1184,6 +1203,42 @@ namespace Client.Main
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Failed to persist display settings to disk.");
+            }
+        }
+
+        public static void PersistGraphicsPerformanceCaps(int dynamicLightFps, int animationFps)
+        {
+            int clampedDynamicLightFps = Constants.ClampPerformanceFps(dynamicLightFps);
+            int clampedAnimationFps = Constants.ClampPerformanceFps(animationFps);
+
+            var logger = AppLoggerFactory?.CreateLogger<MuGame>();
+            try
+            {
+                Directory.CreateDirectory(ConfigDirectory ?? AppContext.BaseDirectory);
+
+                JsonObject root = LoadLocalSettings(logger);
+                if (root["MuOnlineSettings"] is not JsonObject muSettings)
+                {
+                    muSettings = new JsonObject();
+                    root["MuOnlineSettings"] = muSettings;
+                }
+
+                if (muSettings["Graphics"] is not JsonObject graphics)
+                {
+                    graphics = new JsonObject();
+                    muSettings["Graphics"] = graphics;
+                }
+
+                graphics["DynamicLightUpdateFps"] = clampedDynamicLightFps;
+                graphics["AnimationUpdateFps"] = clampedAnimationFps;
+
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(LocalSettingsPath, root.ToJsonString(options));
+                logger?.LogInformation("Saved graphics performance caps to {Path}", LocalSettingsPath);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Failed to persist graphics performance caps to disk.");
             }
         }
 

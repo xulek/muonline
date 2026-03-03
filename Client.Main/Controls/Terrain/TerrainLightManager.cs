@@ -13,7 +13,7 @@ namespace Client.Main.Controls.Terrain
 {
     /// <summary>
     /// Manages static and dynamic lights for terrain/object rendering.
-    /// Dynamic-light state is rebuilt deterministically every frame.
+    /// Dynamic-light state is rebuilt at a configurable fixed rate.
     /// </summary>
     public class TerrainLightManager
     {
@@ -27,6 +27,8 @@ namespace Client.Main.Controls.Terrain
         private readonly GameControl _parent;
         private int _activeLightsVersion;
         private int _visibleLightsVersion;
+        private float _lightUpdateAccumulatorSeconds;
+        private bool _forceSnapshotRefresh = true;
 
         public IReadOnlyList<DynamicLight> DynamicLights => _dynamicLights;
         public IReadOnlyList<DynamicLightSnapshot> ActiveLights => _activeLights;
@@ -58,6 +60,7 @@ namespace Client.Main.Controls.Terrain
 
             _dynamicLights.Add(light);
             RegisterOwnerLight(light);
+            MarkSnapshotsDirty();
         }
 
         public void RemoveDynamicLight(DynamicLight light)
@@ -70,6 +73,7 @@ namespace Client.Main.Controls.Terrain
 
             _dynamicLights.Remove(light);
             UnregisterOwnerLight(light);
+            MarkSnapshotsDirty();
         }
 
         public void RemoveDynamicLightsByOwner(WorldObject owner)
@@ -90,6 +94,7 @@ namespace Client.Main.Controls.Terrain
             }
 
             _lightsByOwner.Remove(owner);
+            MarkSnapshotsDirty();
         }
 
         public void CreateTerrainNormals()
@@ -136,18 +141,46 @@ namespace Client.Main.Controls.Terrain
         public void UpdateActiveLights(float deltaTime)
         {
             var world = _parent.World;
-            SweepInvalidLights(world);
+            if (SweepInvalidLights(world))
+                MarkSnapshotsDirty();
+
+            LastFrameRegisteredCount = _dynamicLights.Count;
+
+            if (!Constants.ENABLE_DYNAMIC_LIGHTS || world == null || _dynamicLights.Count == 0)
+            {
+                ClearSnapshots();
+                _lightUpdateAccumulatorSeconds = 0f;
+                _forceSnapshotRefresh = true;
+                return;
+            }
+
+            float safeDeltaTime = float.IsFinite(deltaTime) && deltaTime > 0f ? deltaTime : 0f;
+            if (safeDeltaTime > 0f)
+                _lightUpdateAccumulatorSeconds = MathF.Min(_lightUpdateAccumulatorSeconds + safeDeltaTime, 1f);
+
+            int updateFps = Constants.ClampPerformanceFps(Constants.DYNAMIC_LIGHT_UPDATE_FPS);
+            float updateInterval = 1f / updateFps;
+
+            if (!_forceSnapshotRefresh)
+            {
+                if (_lightUpdateAccumulatorSeconds < updateInterval)
+                    return;
+
+                _lightUpdateAccumulatorSeconds %= updateInterval;
+            }
+            else
+            {
+                _lightUpdateAccumulatorSeconds = 0f;
+            }
+
+            _forceSnapshotRefresh = false;
 
             _activeLightsVersion++;
             _visibleLightsVersion++;
             _activeLights.Clear();
             _visibleLights.Clear();
-            LastFrameRegisteredCount = _dynamicLights.Count;
             LastFrameActiveCount = 0;
             LastFrameVisibleCount = 0;
-
-            if (!Constants.ENABLE_DYNAMIC_LIGHTS || world == null || _dynamicLights.Count == 0)
-                return;
 
             bool isLoginScene = _parent.Scene is LoginScene;
             bool useLowQualityDistance =
@@ -302,6 +335,29 @@ namespace Client.Main.Controls.Terrain
             }
 
             return changed;
+        }
+
+        private void MarkSnapshotsDirty()
+        {
+            _forceSnapshotRefresh = true;
+        }
+
+        private void ClearSnapshots()
+        {
+            if (_activeLights.Count == 0 &&
+                _visibleLights.Count == 0 &&
+                LastFrameActiveCount == 0 &&
+                LastFrameVisibleCount == 0)
+            {
+                return;
+            }
+
+            _activeLightsVersion++;
+            _visibleLightsVersion++;
+            _activeLights.Clear();
+            _visibleLights.Clear();
+            LastFrameActiveCount = 0;
+            LastFrameVisibleCount = 0;
         }
 
         private static bool IsLightValid(DynamicLight light, WorldControl world)

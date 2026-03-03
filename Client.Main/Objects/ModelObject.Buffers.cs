@@ -66,7 +66,8 @@ namespace Client.Main.Objects
                     (_invalidatedBufferFlags & ~(BUFFER_FLAG_ANIMATION | BUFFER_FLAG_TRANSFORM)) == 0 &&
                     AnimationUpdateStride > 1)
                 {
-                    const double strideFrameMs = 1000.0 / 60.0;
+                    int animationUpdateFps = Constants.ClampPerformanceFps(Constants.ANIMATION_UPDATE_FPS);
+                    double strideFrameMs = 1000.0 / animationUpdateFps;
                     double nowMs = _lastFrameTimeMs;
                     double intervalMs = strideFrameMs * AnimationUpdateStride;
 

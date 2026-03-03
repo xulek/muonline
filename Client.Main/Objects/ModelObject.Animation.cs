@@ -42,7 +42,8 @@ namespace Client.Main.Objects
             if (action == null) return; // Skip animation if action is null
 
             int totalFrames = Math.Max(action.LockPositions ? action.NumAnimationKeys - 1 : action.NumAnimationKeys, 1);
-            float delta = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            float frameDelta = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            bool actionChanged = _priorActionIndex != currentActionIndex;
 
             // Detect death action for walkers to clamp on second-to-last key
             bool isDeathAction = false;
@@ -66,7 +67,7 @@ namespace Client.Main.Objects
 
             if (totalFrames == 1 && !ContinuousAnimation)
             {
-                if (_priorActionIndex != currentActionIndex)
+                if (actionChanged)
                 {
                     GenerateBoneMatrix(currentActionIndex, 0, 0, 0);
                     _priorActionIndex = currentActionIndex;
@@ -76,7 +77,7 @@ namespace Client.Main.Objects
                 return;
             }
 
-            if (_priorActionIndex != currentActionIndex)
+            if (actionChanged)
             {
                 _blendFromAction = _priorActionIndex;
                 _blendFromTime = _animTime;
@@ -85,6 +86,12 @@ namespace Client.Main.Objects
                 _animTime = 0.0;
 
                 // _blendFromBones is pre-allocated in LoadContent - no need to allocate here
+            }
+
+            if (!TryConsumeAnimationDelta(frameDelta, actionChanged, out float delta))
+            {
+                _priorActionIndex = currentActionIndex;
+                return;
             }
 
             _animTime += delta * (action.PlaySpeed == 0 ? 1.0f : action.PlaySpeed) * AnimationSpeed;
@@ -155,6 +162,33 @@ namespace Client.Main.Objects
             }
 
             _priorActionIndex = currentActionIndex;
+        }
+
+        private bool TryConsumeAnimationDelta(float frameDelta, bool forceStep, out float animationDelta)
+        {
+            animationDelta = 0f;
+
+            if (!float.IsFinite(frameDelta) || frameDelta <= 0f)
+                return false;
+
+            if (forceStep)
+            {
+                _animationStepAccumulatorSeconds = 0f;
+                animationDelta = frameDelta;
+                return true;
+            }
+
+            int animationUpdateFps = Constants.ClampPerformanceFps(Constants.ANIMATION_UPDATE_FPS);
+            float animationStepInterval = 1f / animationUpdateFps;
+
+            _animationStepAccumulatorSeconds = MathF.Min(_animationStepAccumulatorSeconds + frameDelta, 0.5f);
+            int availableSteps = (int)(_animationStepAccumulatorSeconds / animationStepInterval);
+            if (availableSteps <= 0)
+                return false;
+
+            animationDelta = availableSteps * animationStepInterval;
+            _animationStepAccumulatorSeconds -= animationDelta;
+            return animationDelta > 0f;
         }
 
         protected void GenerateBoneMatrix(int actionIdx, int frame0, int frame1, float t)
@@ -330,24 +364,8 @@ namespace Client.Main.Objects
                 if (anyBoneChanged || forceUpdate)
                 {
                     Array.Copy(tempBoneTransforms, BoneTransform, bones.Length);
-
-                    // Always invalidate animation for walkers (players/monsters/NPCs) to preserve smooth pacing
-                    bool isImportantObject = RequiresPerFrameAnimation;
-                    if (forceUpdate || isImportantObject)
-                    {
-                        InvalidateBuffers(BUFFER_FLAG_ANIMATION);
-                    }
-                    else
-                    {
-                        // Only throttle animation updates for non-critical objects (NPCs, monsters)
-                        const double ANIMATION_UPDATE_INTERVAL_MS = 20; // Max 20 Hz for non-critical objects
-
-                        if (_lastFrameTimeMs - _lastAnimationUpdateTime > ANIMATION_UPDATE_INTERVAL_MS)
-                        {
-                            InvalidateBuffers(BUFFER_FLAG_ANIMATION);
-                            _lastAnimationUpdateTime = _lastFrameTimeMs;
-                        }
-                    }
+                    _animationPoseVersion++;
+                    InvalidateBuffers(BUFFER_FLAG_ANIMATION);
                 }
 
                 // Always update cache for objects that should use it

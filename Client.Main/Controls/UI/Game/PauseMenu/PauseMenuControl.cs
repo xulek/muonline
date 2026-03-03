@@ -919,6 +919,34 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
             {
                 BuildCategory("Performance & Debug", (ref int currentY) =>
                 {
+                    AddVolumeControl("Dynamic Light Update FPS", () => Constants.DYNAMIC_LIGHT_UPDATE_FPS, value =>
+                    {
+                        int fps = Constants.ClampPerformanceFps((int)value);
+                        Constants.DYNAMIC_LIGHT_UPDATE_FPS = fps;
+
+                        var graphicsSettings = MuGame.AppSettings?.Graphics;
+                        if (graphicsSettings != null)
+                        {
+                            graphicsSettings.DynamicLightUpdateFps = fps;
+                            MuGame.PersistGraphicsPerformanceCaps(graphicsSettings.DynamicLightUpdateFps, graphicsSettings.AnimationUpdateFps);
+                        }
+                    }, ref currentY, OptionRowHeight,
+                    Constants.MIN_PERFORMANCE_FPS_CAP, Constants.MAX_PERFORMANCE_FPS_CAP, 1f, " FPS");
+
+                    AddVolumeControl("Animation Update FPS", () => Constants.ANIMATION_UPDATE_FPS, value =>
+                    {
+                        int fps = Constants.ClampPerformanceFps((int)value);
+                        Constants.ANIMATION_UPDATE_FPS = fps;
+
+                        var graphicsSettings = MuGame.AppSettings?.Graphics;
+                        if (graphicsSettings != null)
+                        {
+                            graphicsSettings.AnimationUpdateFps = fps;
+                            MuGame.PersistGraphicsPerformanceCaps(graphicsSettings.DynamicLightUpdateFps, graphicsSettings.AnimationUpdateFps);
+                        }
+                    }, ref currentY, OptionRowHeight,
+                    Constants.MIN_PERFORMANCE_FPS_CAP, Constants.MAX_PERFORMANCE_FPS_CAP, 1f, " FPS");
+
                     AddOption("Unlimited FPS", () => Constants.UNLIMITED_FPS, value => _owner.SetUnlimitedFps(value), ref currentY, OptionRowHeight, RefreshOptions);
                     AddOption("Dynamic Buffer Pool", () => Constants.ENABLE_DYNAMIC_BUFFER_POOL, value =>
                     {
@@ -1129,9 +1157,9 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 }
             }
 
-            private void AddVolumeControl(string label, Func<float> getter, Action<float> setter, ref int currentY, int rowHeight, float minValue = 0f, float maxValue = 100f, float step = 5f)
+            private void AddVolumeControl(string label, Func<float> getter, Action<float> setter, ref int currentY, int rowHeight, float minValue = 0f, float maxValue = 100f, float step = 5f, string valueSuffix = "%")
             {
-                var option = new OptionVolume(label, getter, setter, currentY, _panelWidth, minValue, maxValue, step);
+                var option = new OptionVolume(label, getter, setter, currentY, _panelWidth, minValue, maxValue, step, valueSuffix);
                 option.AddTo(Controls);
                 option.CollectControls(_dynamicControls);
                 _options.Add(option);
@@ -1219,14 +1247,16 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 private readonly float _minValue;
                 private readonly float _maxValue;
                 private readonly float _step;
+                private readonly string _valueSuffix;
 
-                public OptionVolume(string label, Func<float> getter, Action<float> setter, int y, int panelWidth, float minValue = 0f, float maxValue = 100f, float step = 5f)
+                public OptionVolume(string label, Func<float> getter, Action<float> setter, int y, int panelWidth, float minValue = 0f, float maxValue = 100f, float step = 5f, string valueSuffix = "%")
                 {
                     _getter = getter;
                     _setter = setter;
                     _minValue = minValue;
                     _maxValue = maxValue;
                     _step = step;
+                    _valueSuffix = string.IsNullOrWhiteSpace(valueSuffix) ? string.Empty : valueSuffix;
 
                     _label = new LabelControl
                     {
@@ -1303,7 +1333,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 public void Refresh()
                 {
                     float value = MathHelper.Clamp(_getter(), _minValue, _maxValue);
-                    _valueLabel.Text = $"{Math.Round(value)}%";
+                    _valueLabel.Text = $"{Math.Round(value)}{_valueSuffix}";
                     _minusButton.Enabled = value > _minValue;
                     _plusButton.Enabled = value < _maxValue;
                 }

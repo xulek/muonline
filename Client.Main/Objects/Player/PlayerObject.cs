@@ -1416,7 +1416,7 @@ namespace Client.Main.Objects.Player
 
             if (!IsMainWalker)
             {
-                desiredStride = IsOneShotPlaying ? 1 : (LowQuality ? 4 : 2);
+                desiredStride = IsOneShotPlaying ? 1 : (LowQuality ? 2 : 1);
             }
 
             if (_lastEquipmentAnimationStride == desiredStride)

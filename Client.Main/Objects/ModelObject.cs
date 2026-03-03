@@ -190,7 +190,10 @@ namespace Client.Main.Objects
 
         #region Instance Fields - Cached State
 
-        private double _lastAnimationUpdateTime = 0;
+        private float _animationStepAccumulatorSeconds = 0f;
+        private uint _animationPoseVersion = 0;
+        private uint _lastLinkedParentPoseVersion = uint.MaxValue;
+        private ModelObject _lastLinkedParentModel = null;
         private double _lastFrameTimeMs = 0; // To track timing in methods without GameTime
         private double _lastStrideAnimationBufferUpdateTimeMs = double.NegativeInfinity;
         private float _drawShaderTimeSeconds = 0f;
@@ -321,6 +324,7 @@ namespace Client.Main.Objects
         protected virtual bool AllowDynamicLightingShader => true;
         protected virtual bool AllowMapObjectInstancing => true;
         protected virtual bool FreezeDynamicBuffersAfterFirstBuild => false;
+        internal uint AnimationPoseVersion => _animationPoseVersion;
 
         #endregion
 
@@ -474,8 +478,18 @@ namespace Client.Main.Objects
                 _isBlending = parent._isBlending;
                 _blendElapsed = parent._blendElapsed;
 
-                if (parent._isBlending || parent.BoneTransform != null)
+                if (!ReferenceEquals(_lastLinkedParentModel, parent))
+                {
+                    _lastLinkedParentModel = parent;
+                    _lastLinkedParentPoseVersion = uint.MaxValue;
+                }
+
+                uint parentPoseVersion = parent.AnimationPoseVersion;
+                if (_lastLinkedParentPoseVersion != parentPoseVersion)
+                {
                     InvalidateBuffers(BUFFER_FLAG_ANIMATION);
+                    _lastLinkedParentPoseVersion = parentPoseVersion;
+                }
             }
 
             if (ParentBoneLink >= 0 || LinkParentAnimation)
@@ -607,6 +621,10 @@ namespace Client.Main.Objects
             _boneMatrixCacheValid = false;
             _meshBufferCache = null;
             _animationStateValid = false;
+            _animationStepAccumulatorSeconds = 0f;
+            _animationPoseVersion = 0;
+            _lastLinkedParentPoseVersion = uint.MaxValue;
+            _lastLinkedParentModel = null;
 
             ReleaseMeshGroups();
             _meshGroupPool.Clear();
