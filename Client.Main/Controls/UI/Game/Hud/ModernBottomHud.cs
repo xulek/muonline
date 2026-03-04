@@ -988,7 +988,7 @@ namespace Client.Main.Controls.UI.Game.Hud
                 if (kvp.Key < 12) continue; // skip equipment slots
 
                 var def = ItemDatabase.GetItemDefinition(kvp.Value);
-                if (def == null || !def.IsConsumable() || def.IsJewel() || def.IsUpgradeJewel())
+                if (def == null || !def.IsQuickSlotConsumable() || def.IsJewel() || def.IsUpgradeJewel())
                     continue;
 
                 byte durability = ItemDatabase.GetItemDurability(kvp.Value);
