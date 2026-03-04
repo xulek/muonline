@@ -2,6 +2,7 @@ using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
+using Client.Main.Objects.Effects;
 using Client.Main.Objects.Player;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
@@ -14,6 +15,7 @@ namespace Client.Main.Objects.Monsters
     {
         private WeaponObject _rightHandWeapon;
         private WeaponObject _leftHandWeapon;
+        private readonly DeathGorgonFireAuraEffect _fireAura;
 
         public DeathGorgon()
         {
@@ -33,6 +35,8 @@ namespace Client.Main.Objects.Monsters
             };
             Children.Add(_rightHandWeapon);
             Children.Add(_leftHandWeapon);
+            _fireAura = new DeathGorgonFireAuraEffect();
+            Children.Add(_fireAura);
         }
 
         public override async Task Load()
@@ -46,6 +50,29 @@ namespace Client.Main.Objects.Monsters
                 _leftHandWeapon.Model = await BMDLoader.Instance.Prepare(weapon.TexturePath);
             }
             await base.Load();
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+
+            if (Status != GameControlStatus.Ready)
+                return;
+
+            if (IsDead)
+            {
+                _fireAura.SetActive(false);
+                BlendMeshLight = 0f;
+                return;
+            }
+
+            _fireAura.SetActive(true);
+
+            float time = (float)gameTime.TotalGameTime.TotalSeconds;
+            float pulse = 0.5f + 0.5f * MathF.Sin(time * 13.7f + NetworkId * 0.07f);
+
+            BlendMesh = 1;
+            BlendMeshLight = 0.35f + 0.65f * pulse;
         }
 
         // Sound mapping based on C++ SetMonsterSound(MODEL_MONSTER01 + Type, 45, 46, 47, 48, 49);
