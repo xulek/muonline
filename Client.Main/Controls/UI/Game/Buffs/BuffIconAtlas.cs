@@ -36,6 +36,19 @@ namespace Client.Main.Controls.UI.Game.Buffs
         private const int AtlasSize = 256;
         private const int IconsPerRow = 10;
 
+        public static bool IsDebuff(byte effectId)
+        {
+            return effectId switch
+            {
+                >= 55 and <= 65 => true,
+                >= 72 and <= 77 => true,
+                >= 83 and <= 86 => true,
+                120 => true,
+                186 => true,
+                _ => false
+            };
+        }
+
         public static bool ShouldRender(byte effectId)
         {
             // Main 5.2 CNewUIBuffWindow::SetDisableRenderBuff

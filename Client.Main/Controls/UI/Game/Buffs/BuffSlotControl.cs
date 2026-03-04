@@ -1,8 +1,10 @@
 #nullable enable
+using System;
 using System.Threading.Tasks;
 using Client.Main.Content;
-using Client.Main.Controllers;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Core.Client;
+using Client.Main.Controllers;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -10,16 +12,16 @@ using Microsoft.Xna.Framework.Graphics;
 namespace Client.Main.Controls.UI.Game.Buffs
 {
     /// <summary>
-    /// Single buff slot display - shows buff icon and basic info.
+    /// Single visual buff slot with framed background and centered icon.
     /// </summary>
-    public class BuffSlotControl : UIControl
+    public sealed class BuffSlotControl : UIControl
     {
         private ActiveBuffState? _buff;
-        private readonly LabelControl _fallbackLabel;
         private Texture2D? _iconTexture;
         private Rectangle _iconSource;
 
-        public const int SLOT_SIZE = 36;
+        public static readonly int DefaultSlotWidth = BuffIconAtlas.IconWidth + 4;
+        public static readonly int DefaultSlotHeight = BuffIconAtlas.IconHeight + 4;
 
         public ActiveBuffState? Buff
         {
@@ -27,31 +29,34 @@ namespace Client.Main.Controls.UI.Game.Buffs
             set
             {
                 _buff = value;
-                UpdateDisplay();
+                RefreshIconTexture();
             }
         }
 
         public BuffSlotControl()
         {
             AutoViewSize = false;
-            ControlSize = new Point(SLOT_SIZE, SLOT_SIZE);
-            ViewSize = ControlSize;
             Interactive = false;
+            BackgroundColor = Color.Transparent;
+            BorderColor = Color.Transparent;
+            BorderThickness = 0;
 
-            _fallbackLabel = new LabelControl
+            ControlSize = new Point(DefaultSlotWidth, DefaultSlotHeight);
+            ViewSize = ControlSize;
+        }
+
+        public void SetSlotSize(int width, int height)
+        {
+            width = Math.Max(BuffIconAtlas.IconWidth + 2, width);
+            height = Math.Max(BuffIconAtlas.IconHeight + 2, height);
+
+            if (ControlSize.X == width && ControlSize.Y == height)
             {
-                Text = string.Empty,
-                TextColor = Color.Cyan,
-                X = 2,
-                Y = 8,
-                ViewSize = new Point(SLOT_SIZE - 4, SLOT_SIZE - 4),
-                TextAlign = HorizontalAlign.Center,
-                Scale = 0.65f,
-                Visible = false
-            };
-            Controls.Add(_fallbackLabel);
+                return;
+            }
 
-            UpdateDisplay();
+            ControlSize = new Point(width, height);
+            ViewSize = ControlSize;
         }
 
         public override async Task Load()
@@ -72,47 +77,69 @@ namespace Client.Main.Controls.UI.Game.Buffs
                 return;
             }
 
-            if (_buff != null)
+            var spriteBatch = GraphicsManager.Instance.Sprite;
+            if (spriteBatch == null)
             {
-                if (_iconTexture == null || _iconTexture.IsDisposed)
-                {
-                    RefreshIconTexture();
-                }
-
-                if (_iconTexture != null && !_iconTexture.IsDisposed)
-                {
-                    int iconX = DisplayRectangle.X + (DisplayRectangle.Width - BuffIconAtlas.IconWidth) / 2;
-                    int iconY = DisplayRectangle.Y + (DisplayRectangle.Height - BuffIconAtlas.IconHeight) / 2;
-                    var iconRect = new Rectangle(iconX, iconY, BuffIconAtlas.IconWidth, BuffIconAtlas.IconHeight);
-
-                    GraphicsManager.Instance.Sprite.Draw(_iconTexture, iconRect, _iconSource, Color.White * Alpha);
-                }
-            }
-
-            for (int i = 0; i < Controls.Count; i++)
-            {
-                Controls[i].Draw(gameTime);
-            }
-        }
-
-        private void UpdateDisplay()
-        {
-            BackgroundColor = Color.Transparent;
-            BorderColor = Color.Transparent;
-            BorderThickness = 0;
-
-            if (_buff == null)
-            {
-                _fallbackLabel.Visible = false;
-                _iconTexture = null;
                 return;
             }
 
-            RefreshIconTexture();
+            DrawSlotFrame(spriteBatch);
 
-            bool showFallback = _iconTexture == null;
-            _fallbackLabel.Visible = showFallback;
-            _fallbackLabel.Text = showFallback ? $"E{_buff.EffectId}" : string.Empty;
+            if (_buff == null)
+            {
+                return;
+            }
+
+            if (_iconTexture == null || _iconTexture.IsDisposed)
+            {
+                RefreshIconTexture();
+            }
+
+            if (_iconTexture == null || _iconTexture.IsDisposed)
+            {
+                return;
+            }
+
+            DrawIcon(spriteBatch);
+        }
+
+        private void DrawSlotFrame(SpriteBatch spriteBatch)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            if (pixel == null)
+            {
+                return;
+            }
+
+            Rectangle rect = DisplayRectangle;
+
+            spriteBatch.Draw(pixel, rect, ModernHudTheme.BorderOuter * Alpha);
+
+            Rectangle inner = new(rect.X + 1, rect.Y + 1, Math.Max(1, rect.Width - 2), Math.Max(1, rect.Height - 2));
+            spriteBatch.Draw(pixel, inner, ModernHudTheme.SlotBg * Alpha);
+        }
+
+        private void DrawIcon(SpriteBatch spriteBatch)
+        {
+            Rectangle rect = DisplayRectangle;
+
+            int innerWidth = Math.Max(1, rect.Width - 2);
+            int innerHeight = Math.Max(1, rect.Height - 2);
+
+            float fitScale = MathF.Min(
+                innerWidth / (float)BuffIconAtlas.IconWidth,
+                innerHeight / (float)BuffIconAtlas.IconHeight);
+
+            int drawWidth = Math.Max(1, (int)MathF.Round(BuffIconAtlas.IconWidth * fitScale));
+            int drawHeight = Math.Max(1, (int)MathF.Round(BuffIconAtlas.IconHeight * fitScale));
+
+            var iconRect = new Rectangle(
+                rect.X + (rect.Width - drawWidth) / 2,
+                rect.Y + (rect.Height - drawHeight) / 2,
+                drawWidth,
+                drawHeight);
+
+            spriteBatch.Draw(_iconTexture!, iconRect, _iconSource, Color.White * Alpha);
         }
 
         private void RefreshIconTexture()

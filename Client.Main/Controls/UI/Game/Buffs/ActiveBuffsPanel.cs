@@ -1,110 +1,236 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Client.Main.Controls.UI.Game.Map;
 using Client.Main.Core.Client;
+using Client.Main.Controllers;
+using Client.Main.Helpers;
+using Client.Main.Models;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Controls.UI.Game.Buffs
 {
     /// <summary>
-    /// Panel displaying all active buffs in the top-left corner of the game screen.
-    /// Shows buffs in a horizontal row without borders.
+    /// Transparent container that lays out buff icon slots in a grid.
     /// </summary>
-    public class ActiveBuffsPanel : UIControl
+    public sealed class ActiveBuffsPanel : UIControl
     {
         private readonly CharacterState _characterState;
+        private readonly CurrentLocationControl _locationControl;
         private readonly List<BuffSlotControl> _buffSlots = new();
-        private const int MAX_VISIBLE_BUFFS = 10;
-        private const int BUFF_SPACING = 4;
 
-        public ActiveBuffsPanel(CharacterState characterState)
+        private const int MaxVisibleBuffs = 32;
+        private const int BuffsPerRow = 8;
+
+        private int _slotWidth = BuffSlotControl.DefaultSlotWidth;
+        private int _slotHeight = BuffSlotControl.DefaultSlotHeight;
+        private int _spacing = 3;
+        private int _visibleBuffCount;
+
+        private Point _lastVirtualSize = Point.Zero;
+
+        public ActiveBuffsPanel(CharacterState characterState, CurrentLocationControl locationControl)
         {
             _characterState = characterState;
+            _locationControl = locationControl;
 
             AutoViewSize = false;
             Interactive = false;
-
-            // Position in top-left corner (with small margin)
-            X = 10;
-            Y = 10;
-
-            // Initial size (will be adjusted based on active buffs)
-            ControlSize = new Point(0, BuffSlotControl.SLOT_SIZE);
-            ViewSize = ControlSize;
-
-            // No background or border
             BackgroundColor = Color.Transparent;
             BorderColor = Color.Transparent;
             BorderThickness = 0;
 
-            // Create buff slot controls
-            for (int i = 0; i < MAX_VISIBLE_BUFFS; i++)
+            for (int i = 0; i < MaxVisibleBuffs; i++)
             {
                 var slot = new BuffSlotControl
                 {
-                    X = i * (BuffSlotControl.SLOT_SIZE + BUFF_SPACING),
-                    Y = 0,
-                    Visible = false
+                    Visible = false,
+                    X = 0,
+                    Y = 0
                 };
+
                 _buffSlots.Add(slot);
                 Controls.Add(slot);
             }
 
-            // Subscribe to buff changes
             _characterState.ActiveBuffsChanged += OnActiveBuffsChanged;
 
-            // Initial update
+            RefreshViewportScale(force: true);
             UpdateBuffDisplay();
         }
 
-        private void OnActiveBuffsChanged()
+        public override void Update(GameTime gameTime)
         {
-            // Schedule on main thread since this event comes from network thread
-            MuGame.ScheduleOnMainThread(UpdateBuffDisplay);
+            base.Update(gameTime);
+            RefreshViewportScale();
+            UpdateAnchorPosition();
         }
 
-        private void UpdateBuffDisplay()
+        public override void Draw(GameTime gameTime)
         {
-            var activeBuffs = _characterState.GetActiveBuffs()
-                .Where(b => BuffIconAtlas.ShouldRender(b.EffectId))
-                .Take(MAX_VISIBLE_BUFFS)
-                .ToList();
-
-            // Update each slot
-            for (int i = 0; i < _buffSlots.Count; i++)
+            if (Status != GameControlStatus.Ready || !Visible || _visibleBuffCount <= 0)
             {
-                if (i < activeBuffs.Count)
-                {
-                    _buffSlots[i].Buff = activeBuffs[i];
-                    _buffSlots[i].Visible = true;
-                }
-                else
-                {
-                    _buffSlots[i].Buff = null;
-                    _buffSlots[i].Visible = false;
-                }
+                return;
             }
 
-            // Adjust panel width based on number of active buffs
-            int visibleCount = activeBuffs.Count;
-            if (visibleCount > 0)
+            var spriteBatch = GraphicsManager.Instance.Sprite;
+            if (spriteBatch == null)
             {
-                int newWidth = visibleCount * BuffSlotControl.SLOT_SIZE + (visibleCount - 1) * BUFF_SPACING;
-                ControlSize = new Point(newWidth, BuffSlotControl.SLOT_SIZE);
-                ViewSize = ControlSize;
+                return;
             }
-            else
+
+            SpriteBatchScope? scope = null;
+            if (!SpriteBatchScope.BatchIsBegun)
             {
-                ControlSize = new Point(0, BuffSlotControl.SLOT_SIZE);
-                ViewSize = ControlSize;
+                scope = new SpriteBatchScope(
+                    spriteBatch,
+                    SpriteSortMode.Deferred,
+                    BlendState.AlphaBlend,
+                    SamplerState.LinearClamp,
+                    transform: UiScaler.SpriteTransform);
+            }
+
+            try
+            {
+                for (int i = 0; i < Controls.Count; i++)
+                {
+                    Controls[i].Draw(gameTime);
+                }
+            }
+            finally
+            {
+                scope?.Dispose();
             }
         }
 
         public override void Dispose()
         {
-            // Unsubscribe from events
             _characterState.ActiveBuffsChanged -= OnActiveBuffsChanged;
             base.Dispose();
+        }
+
+        private void OnActiveBuffsChanged()
+        {
+            MuGame.ScheduleOnMainThread(UpdateBuffDisplay);
+        }
+
+        private void RefreshViewportScale(bool force = false)
+        {
+            Point virtualSize = UiScaler.VirtualSize;
+            if (!force && virtualSize == _lastVirtualSize)
+            {
+                return;
+            }
+
+            _lastVirtualSize = virtualSize;
+
+            float scaleX = virtualSize.X / 1024f;
+            float scaleY = virtualSize.Y / 768f;
+            float scale = Math.Clamp(MathF.Min(scaleX, scaleY), 0.82f, 1.25f);
+
+            _slotWidth = ScaleValue(BuffIconAtlas.IconWidth + 4, scale);
+            _slotHeight = ScaleValue(BuffIconAtlas.IconHeight + 4, scale);
+            _spacing = ScaleValue(3, scale);
+
+            for (int i = 0; i < _buffSlots.Count; i++)
+            {
+                _buffSlots[i].SetSlotSize(_slotWidth, _slotHeight);
+            }
+
+            UpdateBuffDisplay();
+            UpdateAnchorPosition();
+        }
+
+        private void UpdateBuffDisplay()
+        {
+            var sortedBuffs = _characterState.GetActiveBuffs()
+                .Where(b => BuffIconAtlas.ShouldRender(b.EffectId))
+                .ToList();
+
+            var activeBuffs = OrderLikeReferenceClient(sortedBuffs)
+                .Take(MaxVisibleBuffs)
+                .ToList();
+
+            _visibleBuffCount = activeBuffs.Count;
+
+            for (int i = 0; i < _buffSlots.Count; i++)
+            {
+                if (i >= _visibleBuffCount)
+                {
+                    _buffSlots[i].Buff = null;
+                    _buffSlots[i].Visible = false;
+                    continue;
+                }
+
+                int row = i / BuffsPerRow;
+                int col = i % BuffsPerRow;
+
+                _buffSlots[i].X = col * (_slotWidth + _spacing);
+                _buffSlots[i].Y = row * (_slotHeight + _spacing);
+                _buffSlots[i].Buff = activeBuffs[i];
+                _buffSlots[i].Visible = true;
+            }
+
+            if (_visibleBuffCount <= 0)
+            {
+                ControlSize = new Point(1, 1);
+                ViewSize = ControlSize;
+                return;
+            }
+
+            int rows = (_visibleBuffCount + BuffsPerRow - 1) / BuffsPerRow;
+            int cols = Math.Min(_visibleBuffCount, BuffsPerRow);
+
+            int width = cols * _slotWidth + (cols - 1) * _spacing;
+            int height = rows * _slotHeight + (rows - 1) * _spacing;
+
+            ControlSize = new Point(Math.Max(1, width), Math.Max(1, height));
+            ViewSize = ControlSize;
+
+            UpdateAnchorPosition();
+        }
+
+        private void UpdateAnchorPosition()
+        {
+            if (_locationControl == null)
+            {
+                return;
+            }
+
+            Point virtualSize = UiScaler.VirtualSize;
+            Point anchor = _locationControl.GetBuffAnchor(_spacing + 2);
+
+            int rightLimit = Math.Max(0, virtualSize.X - ViewSize.X - 8);
+            int bottomLimit = Math.Max(0, virtualSize.Y - ViewSize.Y - 8);
+
+            X = Math.Clamp(anchor.X, 0, rightLimit);
+            Y = Math.Clamp(anchor.Y, 0, bottomLimit);
+        }
+
+        private static int ScaleValue(int value, float scale)
+        {
+            return Math.Max(1, (int)MathF.Round(value * scale));
+        }
+
+        private static IEnumerable<ActiveBuffState> OrderLikeReferenceClient(IReadOnlyList<ActiveBuffState> buffs)
+        {
+            var ordered = new LinkedList<ActiveBuffState>();
+
+            foreach (var buff in buffs)
+            {
+                if (BuffIconAtlas.IsDebuff(buff.EffectId))
+                {
+                    ordered.AddLast(buff);
+                }
+                else
+                {
+                    ordered.AddFirst(buff);
+                }
+            }
+
+            return ordered;
         }
     }
 }

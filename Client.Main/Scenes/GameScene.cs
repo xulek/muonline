@@ -54,6 +54,7 @@ namespace Client.Main.Scenes
         private PauseMenuControl _pauseMenu; // ESC menu
         private Controls.UI.Game.Skills.SkillQuickSlot _skillQuickSlot; // Skill quick slot
         private Controls.UI.Game.Skills.SkillSelectionPanel _skillSelectionPanel; // Skill selection panel (independent)
+        private CurrentLocationControl _currentLocationControl; // Current map + coordinates (top-left)
         private ActiveBuffsPanel _activeBuffsPanel; // Active buffs display (top-left corner)
         private Texture2D _backgroundTexture;
         private ProgressBarControl _progressBar;
@@ -104,11 +105,12 @@ namespace Client.Main.Scenes
         {
             _characterInfo = characterInfo;
             _logger?.LogDebug($"GameScene constructor called for Character: {_characterInfo.Name} ({_characterInfo.Class})");
+            var characterState = MuGame.Network.GetCharacterState();
 
             // Create the hero with the appearance data from the character list
             _hero = new HeroObject(new AppearanceData(characterInfo.Appearance));
 
-            _main = new MainControl(MuGame.Network.GetCharacterState());
+            _main = new MainControl(characterState);
             Controls.Add(_main);
             Controls.Add(NpcShopControl.Instance);
             Controls.Add(VaultControl.Instance);
@@ -184,18 +186,23 @@ namespace Client.Main.Scenes
             Controls.Add(_skillSelectionPanel);
 
             // Skill quick slot
-            _skillQuickSlot = new Controls.UI.Game.Skills.SkillQuickSlot(MuGame.Network.GetCharacterState());
+            _skillQuickSlot = new Controls.UI.Game.Skills.SkillQuickSlot(characterState);
             _skillQuickSlot.SetSelectionPanel(_skillSelectionPanel); // Connect panel
             Controls.Add(_skillQuickSlot);
             _skillQuickSlot.BringToFront();
             _skillController = new GameSceneSkillController(this, _skillQuickSlot, _logger, _duelController.IsDuelAttackTarget);
 
             // Experience bar
-            var experienceBar = new ExperienceBarControl(MuGame.Network.GetCharacterState());
+            var experienceBar = new ExperienceBarControl(characterState);
             Controls.Add(experienceBar);
 
-            // Active buffs panel (top-left corner, no border)
-            _activeBuffsPanel = new ActiveBuffsPanel(MuGame.Network.GetCharacterState());
+            // Current location panel (top-left)
+            _currentLocationControl = new CurrentLocationControl(characterState);
+            Controls.Add(_currentLocationControl);
+            _currentLocationControl.BringToFront();
+
+            // Active buffs panel (anchored to the right of location panel)
+            _activeBuffsPanel = new ActiveBuffsPanel(characterState, _currentLocationControl);
             Controls.Add(_activeBuffsPanel);
             _activeBuffsPanel.BringToFront();
 
