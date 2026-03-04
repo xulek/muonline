@@ -428,7 +428,16 @@ namespace Client.Main.Controls.UI.Game.Hud
                 case 1: ToggleWindow<Character.CharacterInfoWindowControl>(gs); break;
                 case 2:
                     if (gs.InventoryControl != null)
-                        gs.InventoryControl.Visible = !gs.InventoryControl.Visible;
+                    {
+                        if (gs.InventoryControl.Visible)
+                        {
+                            gs.InventoryControl.Hide();
+                        }
+                        else
+                        {
+                            gs.InventoryControl.Show();
+                        }
+                    }
                     break;
                 case 3: ToggleWindow<Party.PartyPanelControl>(gs); break;
             }
