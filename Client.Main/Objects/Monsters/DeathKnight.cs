@@ -2,6 +2,7 @@
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
+using Client.Main.Objects.Effects;
 using Client.Main.Objects.Player;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
@@ -13,6 +14,7 @@ namespace Client.Main.Objects.Monsters
     public class DeathKnightMonster : MonsterObject
     {
         private WeaponObject _rightHandWeapon;
+        private readonly FieryAuraEffect _torsoFireAura;
 
         public DeathKnightMonster()
         {
@@ -24,6 +26,14 @@ namespace Client.Main.Objects.Monsters
                 ParentBoneLink = 30
             };
             Children.Add(_rightHandWeapon);
+
+            _torsoFireAura = new FieryAuraEffect(qualityScale: 0.6f, enableDynamicLight: false)
+            {
+                // Same style as Death Gorgon, but intentionally smaller and centered on torso.
+                Scale = 0.45f,
+                Position = new Vector3(0f, 0f, 55f)
+            };
+            Children.Add(_torsoFireAura);
         }
 
         public override async Task Load()
@@ -36,6 +46,16 @@ namespace Client.Main.Objects.Monsters
                 _rightHandWeapon.Model = await BMDLoader.Instance.Prepare(weapon.TexturePath);
             await base.Load();
             // C++: Models[MODEL_MONSTER01+Type].BoneHead = 19;
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+
+            if (Status != GameControlStatus.Ready)
+                return;
+
+            _torsoFireAura.SetActive(!IsDead);
         }
 
         // Sound mapping based on C++ SetMonsterSound(MODEL_MONSTER01 + Type, 118, 119, 120, 121, 122);

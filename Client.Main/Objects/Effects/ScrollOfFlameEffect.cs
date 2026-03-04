@@ -323,6 +323,13 @@ namespace Client.Main.Objects.Effects
             BuildSparks(camera, effectAlpha, ref quadIndex);
             int sparkQuadCount = quadIndex - sparkStartQuad;
 
+            // Build and draw central glow
+            int glowStartQuad = quadIndex;
+            BuildCentralGlow(camera, effectAlpha, ref quadIndex);
+            int glowQuadCount = quadIndex - glowStartQuad;
+
+            int totalQuads = quadIndex;
+
             if (sparkQuadCount > 0)
             {
                 effect.Texture = _sparkTexture;
@@ -331,15 +338,10 @@ namespace Client.Main.Objects.Effects
                     pass.Apply();
                     gd.DrawUserIndexedPrimitives(
                         PrimitiveType.TriangleList,
-                        _vertices, sparkStartQuad * 4, sparkQuadCount * 4,
+                        _vertices, 0, totalQuads * 4,
                         _indices, sparkStartQuad * 6, sparkQuadCount * 2);
                 }
             }
-
-            // Build and draw central glow
-            int glowStartQuad = quadIndex;
-            BuildCentralGlow(camera, effectAlpha, ref quadIndex);
-            int glowQuadCount = quadIndex - glowStartQuad;
 
             if (glowQuadCount > 0)
             {
@@ -349,7 +351,7 @@ namespace Client.Main.Objects.Effects
                     pass.Apply();
                     gd.DrawUserIndexedPrimitives(
                         PrimitiveType.TriangleList,
-                        _vertices, glowStartQuad * 4, glowQuadCount * 4,
+                        _vertices, 0, totalQuads * 4,
                         _indices, glowStartQuad * 6, glowQuadCount * 2);
                 }
             }

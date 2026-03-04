@@ -15,7 +15,7 @@ namespace Client.Main.Objects.Monsters
     {
         private WeaponObject _rightHandWeapon;
         private WeaponObject _leftHandWeapon;
-        private readonly DeathGorgonFireAuraEffect _fireAura;
+        private readonly FieryAuraEffect _fireAura;
 
         public DeathGorgon()
         {
@@ -35,7 +35,7 @@ namespace Client.Main.Objects.Monsters
             };
             Children.Add(_rightHandWeapon);
             Children.Add(_leftHandWeapon);
-            _fireAura = new DeathGorgonFireAuraEffect();
+            _fireAura = new FieryAuraEffect();
             Children.Add(_fireAura);
         }
 
