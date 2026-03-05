@@ -323,12 +323,16 @@ namespace Client.Main
                 builder.ClearProviders();
                 // Configure logging based on appsettings.json
                 builder.AddConfiguration(AppConfiguration.GetSection("Logging"));
-                // Add Console logger (can add others like Debug, File)
-                builder.AddSimpleConsole(options =>
+
+                bool enableSimpleConsole = AppConfiguration.GetValue("Logging:SimpleConsole:Enabled", false);
+                if (enableSimpleConsole)
                 {
-                    AppConfiguration.GetSection("Logging:SimpleConsole").Bind(options);
-                    options.IncludeScopes = true; // Optional: Include scopes if you use them
-                });
+                    // Console logging is intentionally opt-in to avoid runtime I/O overhead in gameplay hot paths.
+                    builder.AddSimpleConsole(options =>
+                    {
+                        AppConfiguration.GetSection("Logging:SimpleConsole").Bind(options);
+                    });
+                }
             });
 
             _logger = AppLoggerFactory.CreateLogger<MuGame>();

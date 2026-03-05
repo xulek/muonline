@@ -22,8 +22,10 @@ namespace Client.Main.Controls.UI
         private LabelControl _instancingStatusLabel;
         private LabelControl _lightingStatusLabel; // NEW: Lighting mode status
         private LabelControl _gpuSkinningStatusLabel;
-        private double _updateTimer = 0;
-        private const double UPDATE_INTERVAL_MS = 100; // 100ms
+        private double _fastUpdateTimer = 0;
+        private double _slowUpdateTimer = 0;
+        private const double FAST_UPDATE_INTERVAL_MS = 100;
+        private const double SLOW_UPDATE_INTERVAL_MS = 500;
         private StringBuilder _sb = new StringBuilder(350); // Increased capacity for new metrics
 
         public DebugPanel()
@@ -61,44 +63,65 @@ namespace Client.Main.Controls.UI
 
             if (!Visible) return;
 
-            _updateTimer += gameTime.ElapsedGameTime.TotalMilliseconds;
+            _fastUpdateTimer += gameTime.ElapsedGameTime.TotalMilliseconds;
+            _slowUpdateTimer += gameTime.ElapsedGameTime.TotalMilliseconds;
 
-            if (_updateTimer >= UPDATE_INTERVAL_MS)
+            bool shouldRunFastUpdate = _fastUpdateTimer >= FAST_UPDATE_INTERVAL_MS;
+            bool shouldRunSlowUpdate = _slowUpdateTimer >= SLOW_UPDATE_INTERVAL_MS;
+            if (!shouldRunFastUpdate && !shouldRunSlowUpdate)
             {
-                _updateTimer = 0;
+                return;
+            }
 
-                _fpsLabel.Text = $"FPS: {(int)FPSCounter.Instance.FPS_AVG}, UPS: {(int)UPSCounter.Instance.UPS_AVG}";
+            if (shouldRunFastUpdate)
+            {
+                _fastUpdateTimer = 0;
+            }
+
+            if (shouldRunSlowUpdate)
+            {
+                _slowUpdateTimer = 0;
+            }
+
+            if (shouldRunFastUpdate)
+            {
+                SetLabelTextIfChanged(_fpsLabel, $"FPS: {(int)FPSCounter.Instance.FPS_AVG}, UPS: {(int)UPSCounter.Instance.UPS_AVG}");
 
                 Point screenMouse = MuGame.Instance.Mouse.Position;
                 Point uiMouse = MuGame.Instance.UiMouseState.Position;
-
-                _mousePosLabel.Text = $"Mouse Screen (X:{screenMouse.X}, Y:{screenMouse.Y}) UI (X:{uiMouse.X}, Y:{uiMouse.Y})";
+                SetLabelTextIfChanged(_mousePosLabel, $"Mouse Screen (X:{screenMouse.X}, Y:{screenMouse.Y}) UI (X:{uiMouse.X}, Y:{uiMouse.Y})");
 
                 var fxaa = GraphicsManager.Instance.IsFXAAEnabled ? "ON" : "OFF";
                 var alphargb = GraphicsManager.Instance.IsAlphaRGBEnabled ? "ON" : "OFF";
-                _effectsStatusLabel.Text = $"FXAA: {fxaa} - AlphaRGB: {alphargb}";
+                SetLabelTextIfChanged(_effectsStatusLabel, $"FXAA: {fxaa} - AlphaRGB: {alphargb}");
 
                 var cursorObj = World?.Scene?.MouseHoverObject != null ? World.Scene.MouseHoverObject.GetType().Name : "N/A";
-                _objectCursorLabel.Text = $"Cursor Object: {cursorObj}";
+                SetLabelTextIfChanged(_objectCursorLabel, $"Cursor Object: {cursorObj}");
+            }
 
-                if (World is WalkableWorldControl walkableWorld && walkableWorld.Walker != null)
+            if (World is WalkableWorldControl walkableWorld && walkableWorld.Walker != null)
+            {
+                _playerCordsLabel.Visible = true;
+                _mapTileLabel.Visible = true;
+                _tileFlagsLabel.Visible = true;
+                _performanceMetricsLabel.Visible = true;
+                _bmdMetricsLabel.Visible = true;
+                _batchSortingLabel.Visible = true;
+                _lightingStatusLabel.Visible = true;
+                _gpuSkinningStatusLabel.Visible = true;
+                _instancingStatusLabel.Visible = true;
+
+                if (shouldRunFastUpdate)
                 {
-                    _playerCordsLabel.Visible = true;
-                    _mapTileLabel.Visible = true;
-                    _tileFlagsLabel.Visible = true;
-                    _performanceMetricsLabel.Visible = true;
-                    _bmdMetricsLabel.Visible = true;
-                    _lightingStatusLabel.Visible = true;
-                    _gpuSkinningStatusLabel.Visible = true;
-                    _instancingStatusLabel.Visible = true;
+                    SetLabelTextIfChanged(_playerCordsLabel, $"Player Cords - X: {walkableWorld.Walker.Location.X}, Y: {walkableWorld.Walker.Location.Y}");
+                    SetLabelTextIfChanged(_mapTileLabel, $"MAP Tile - X: {walkableWorld.MouseTileX}, Y: {walkableWorld.MouseTileY}");
+                }
 
-                    _playerCordsLabel.Text = $"Player Cords - X: {walkableWorld.Walker.Location.X}, Y: {walkableWorld.Walker.Location.Y}";
-
-                    _mapTileLabel.Text = $"MAP Tile - X: {walkableWorld.MouseTileX}, Y: {walkableWorld.MouseTileY}";
-
+                if (shouldRunSlowUpdate)
+                {
                     var flags = walkableWorld.Terrain.RequestTerrainFlag((int)walkableWorld.Walker.Location.X,
                                                                          (int)walkableWorld.Walker.Location.Y);
-                    _tileFlagsLabel.Text = $"Tile Flags: {flags}";
+                    SetLabelTextIfChanged(_tileFlagsLabel, $"Tile Flags: {flags}");
 
                     bool terrainGpu = walkableWorld.Terrain?.IsGpuTerrainLighting == true;
                     bool shaderAvailable = walkableWorld.Terrain?.IsDynamicLightingShaderAvailable == true;
@@ -127,7 +150,7 @@ namespace Client.Main.Controls.UI
                       .Append(prunedDynamicLights)
                       .Append(" Dup:")
                       .Append(rejectedDynamicAdds);
-                    _lightingStatusLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_lightingStatusLabel, _sb.ToString());
 
                     _sb.Clear()
                       .Append("GPU Skin: Flag=")
@@ -136,7 +159,7 @@ namespace Client.Main.Controls.UI
                       .Append(ModelObject.IsGpuSkinningBackendSupported ? "OK" : "N/A")
                       .Append(" | Drawn=")
                       .Append(ModelObject.LastFrameGpuSkinnedMeshesDrawn);
-                    _gpuSkinningStatusLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_gpuSkinningStatusLabel, _sb.ToString());
 
                     // Update terrain performance metrics display
                     var terrainMetrics = walkableWorld.Terrain.FrameMetrics;
@@ -158,7 +181,7 @@ namespace Client.Main.Controls.UI
                        .Append($"| Sim:{simulationSteps} ")
                        .Append($"MT:{processedMainThreadActions}/{queuedMainThreadActions} ")
                        .Append($"TS:{processedSchedulerTasks}/{queuedSchedulerTasks}");
-                    _performanceMetricsLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_performanceMetricsLabel, _sb.ToString());
 
                     // Update BMD buffer metrics
                     var bmd = BMDLoader.Instance;
@@ -166,13 +189,13 @@ namespace Client.Main.Controls.UI
                       .Append($"BMD: VB:{bmd.LastFrameVBUpdates} IB:{bmd.LastFrameIBUploads} ")
                       .Append($"Vtx:{bmd.LastFrameVerticesTransformed} Mesh:{bmd.LastFrameMeshesProcessed} ")
                       .Append($"Cache:{bmd.LastFrameCacheHits}/{bmd.LastFrameCacheMisses}");
-                    _bmdMetricsLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_bmdMetricsLabel, _sb.ToString());
 
                     // Update batch sorting status
                     _sb.Clear()
                       .Append($"Batch Sort: {(Constants.ENABLE_BATCH_OPTIMIZED_SORTING ? "ON" : "OFF")} ")
                       .Append($"(Model grouping for state reduction)");
-                    _batchSortingLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_batchSortingLabel, _sb.ToString());
                     _batchSortingLabel.Visible = true;
 
                     _sb.Clear()
@@ -192,20 +215,28 @@ namespace Client.Main.Controls.UI
                       .Append(ModelObject.LastFrameStaticMapInstancedDrawCalls)
                       .Append(" FB:")
                       .Append(ModelObject.LastFrameStaticMapInstancingFallbacks);
-                    _instancingStatusLabel.Text = _sb.ToString();
+                    SetLabelTextIfChanged(_instancingStatusLabel, _sb.ToString());
                 }
-                else
-                {
-                    _playerCordsLabel.Visible = false;
-                    _mapTileLabel.Visible = false;
-                    _tileFlagsLabel.Visible = false;
-                    _performanceMetricsLabel.Visible = false;
-                    _bmdMetricsLabel.Visible = false;
-                    _batchSortingLabel.Visible = false;
-                    _lightingStatusLabel.Visible = false;
-                    _gpuSkinningStatusLabel.Visible = false;
-                    _instancingStatusLabel.Visible = false;
-                }
+            }
+            else
+            {
+                _playerCordsLabel.Visible = false;
+                _mapTileLabel.Visible = false;
+                _tileFlagsLabel.Visible = false;
+                _performanceMetricsLabel.Visible = false;
+                _bmdMetricsLabel.Visible = false;
+                _batchSortingLabel.Visible = false;
+                _lightingStatusLabel.Visible = false;
+                _gpuSkinningStatusLabel.Visible = false;
+                _instancingStatusLabel.Visible = false;
+            }
+        }
+
+        private static void SetLabelTextIfChanged(LabelControl label, string value)
+        {
+            if (label.Text != value)
+            {
+                label.Text = value;
             }
         }
     }

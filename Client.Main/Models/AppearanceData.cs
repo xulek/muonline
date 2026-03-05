@@ -795,7 +795,16 @@ namespace Client.Main.Models
                     var helper = ParseExtendedHelper(RawData, 23);
                     return helper.Group == HelperItemGroup && helper.ItemNumber == HelperDinorantNumber;
                 }
-                return RawData.Length > 10 && (RawData[10] & 0x1) == 1;
+
+                // OpenMU legacy serializer: Dinorant is encoded at byte 10 bit 0.
+                bool openMuDinorant = RawData.Length > 10 && (RawData[10] & 0x01) == 0x01;
+
+                // SourceMain legacy decoding fallback.
+                bool sourceMainDinorant = RawData.Length > 9
+                    && (RawData[4] & 0x03) == 0x03
+                    && (RawData[9] & 0x01) == 0x01;
+
+                return openMuDinorant || sourceMainDinorant;
             }
         }
 
@@ -808,7 +817,8 @@ namespace Client.Main.Models
                     var helper = ParseExtendedHelper(RawData, 23);
                     return helper.Group == HelperItemGroup && helper.ItemNumber == HelperFenrirNumber;
                 }
-                return RawData.Length > 12 && ((RawData[12] >> 2) & 0x1) == 1;
+
+                return TryGetLegacyFenrirType(out _);
             }
         }
 
@@ -821,7 +831,14 @@ namespace Client.Main.Models
                     var helper = ParseExtendedHelper(RawData, 23);
                     return helper.Group == HelperItemGroup && helper.ItemNumber == HelperDarkHorseNumber;
                 }
-                return RawData.Length > 12 && (RawData[12] & 0x1) == 1;
+
+                // OpenMU legacy serializer: dark horse at byte 12 bit 0.
+                bool openMuDarkHorse = RawData.Length > 12 && (RawData[12] & 0x01) == 0x01;
+
+                // SourceMain legacy decoding fallback.
+                bool sourceMainDarkHorse = RawData.Length > 11 && (RawData[11] & 0x01) == 0x01;
+
+                return openMuDarkHorse || sourceMainDarkHorse;
             }
         }
 
@@ -837,7 +854,7 @@ namespace Client.Main.Models
                         && helper.Variant == 2;
                 }
 
-                return RawData.Length > 16 && ((RawData[16] >> 1) & 0x1) == 1;
+                return TryGetLegacyFenrirType(out byte type) && type == 0x02;
             }
         }
 
@@ -853,7 +870,7 @@ namespace Client.Main.Models
                         && helper.Variant == 1;
                 }
 
-                return RawData.Length > 16 && (RawData[16] & 0x1) == 1;
+                return TryGetLegacyFenrirType(out byte type) && type == 0x01;
             }
         }
 
@@ -869,8 +886,92 @@ namespace Client.Main.Models
                         && helper.Variant == 3;
                 }
 
-                return RawData.Length > 17 && (RawData[17] & 0x1) == 1;
+                return TryGetLegacyFenrirType(out byte type) && type == 0x04;
             }
+        }
+
+        private bool TryGetLegacyFenrirType(out byte fenrirType)
+        {
+            fenrirType = 0;
+            if (IsExtendedFormat)
+            {
+                return false;
+            }
+
+            // Prefer SourceMain legacy decoding first.
+            // Reason: SourceMain 18-byte packets can accidentally satisfy OpenMU marker checks
+            // (byte 12 bit patterns), which may force a wrong Fenrir color.
+            if (TryGetLegacyFenrirTypeSourceMain(out fenrirType))
+            {
+                return true;
+            }
+
+            // OpenMU legacy serializer (18-byte):
+            // - Fenrir marker at byte 12 bit 2
+            // - Black at byte 16 bit 0
+            // - Blue  at byte 16 bit 1
+            // - Gold  at byte 17 bit 0
+            if (!TryGetLegacyFenrirTypeOpenMu(out fenrirType))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryGetLegacyFenrirTypeOpenMu(out byte fenrirType)
+        {
+            fenrirType = 0;
+            if (RawData.Length <= 17)
+            {
+                return false;
+            }
+
+            if (((RawData[12] >> 2) & 0x01) == 0)
+            {
+                return false;
+            }
+
+            if ((RawData[17] & 0x01) == 0x01)
+            {
+                fenrirType = 0x04;
+            }
+            else if ((RawData[16] & 0x02) == 0x02)
+            {
+                fenrirType = 0x02;
+            }
+            else if ((RawData[16] & 0x01) == 0x01)
+            {
+                fenrirType = 0x01;
+            }
+            else
+            {
+                fenrirType = 0x00;
+            }
+
+            return true;
+        }
+
+        private bool TryGetLegacyFenrirTypeSourceMain(out byte fenrirType)
+        {
+            fenrirType = 0;
+            if (RawData.Length <= 16)
+            {
+                return false;
+            }
+
+            if ((RawData[11] & 0x04) == 0)
+            {
+                return false;
+            }
+
+            fenrirType = (byte)(RawData[15] & 0x03);
+            if ((RawData[16] & 0x01) == 0x01)
+            {
+                fenrirType = 0x04;
+            }
+
+            return true;
         }
     }
 }

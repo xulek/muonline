@@ -577,7 +577,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 CharacterClassNumber cls,
                 ReadOnlyMemory<byte> appearanceData)
         {
-            _logger.LogDebug($"[Spawn] Received request for {name} ({maskedId:X4}).");
+            _logger.LogDebug("[Spawn] Received request for {Name} ({MaskedId:X4}).", name, maskedId);
             _playerSpawnQueue.Enqueue(new PlayerSpawnRequest(world, maskedId, rawId, x, y, name, cls, appearanceData));
             TryStartPlayerSpawnWorker();
         }
@@ -610,7 +610,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"[Spawn] Error processing player spawn for {request.Name} ({request.MaskedId:X4}).");
+                        _logger.LogError(ex, "[Spawn] Error processing player spawn for {Name} ({MaskedId:X4}).", request.Name, request.MaskedId);
                     }
                 }
             }
@@ -632,11 +632,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 CharacterClassNumber cls,
                 ReadOnlyMemory<byte> appearanceData)
         {
-            _logger.LogDebug($"[Spawn] Starting creation for {name} ({maskedId:X4}).");
+            _logger.LogDebug("[Spawn] Starting creation for {Name} ({MaskedId:X4}).", name, maskedId);
 
             if (MuGame.Instance.ActiveScene?.World != world || world.Status != GameControlStatus.Ready)
             {
-                _logger.LogWarning($"[Spawn] World changed or not ready. Aborting spawn for {name}.");
+                _logger.LogWarning("[Spawn] World changed or not ready. Aborting spawn for {Name}.", name);
                 return;
             }
 
@@ -648,7 +648,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 Location = new Vector2(x, y),
                 World = world
             };
-            _logger.LogDebug($"[Spawn] PlayerObject created for {name}.");
+            _logger.LogDebug("[Spawn] PlayerObject created for {Name}.", name);
 
             var preloadTask = p.PreloadAppearanceModelsAsync();
 
@@ -657,11 +657,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             {
                 var loadTask = p.Load();
                 await Task.WhenAll(preloadTask, loadTask);
-                _logger.LogDebug($"[Spawn] Assets preloaded and Load() completed for {name}.");
+                _logger.LogDebug("[Spawn] Assets preloaded and Load() completed for {Name}.", name);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"[Spawn] Error loading assets for {name} ({maskedId:X4}).");
+                _logger.LogError(ex, "[Spawn] Error loading assets for {Name} ({MaskedId:X4}).", name, maskedId);
                 MuGame.ScheduleOnMainThread(() => p.Dispose());
                 return;
             }
@@ -672,27 +672,27 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 // Double-check world is still valid
                 if (MuGame.Instance.ActiveScene?.World != world || world.Status != GameControlStatus.Ready)
                 {
-                    _logger.LogWarning($"[Spawn] World changed or not ready during spawn. Aborting spawn for {name}.");
+                    _logger.LogWarning("[Spawn] World changed or not ready during spawn. Aborting spawn for {Name}.", name);
                     p.Dispose();
                     return;
                 }
 
                 if (world.WalkerObjectsById.TryGetValue(maskedId, out WalkerObject existingWalker))
                 {
-                    _logger.LogWarning($"[Spawn] Stale object for {name} found. Removing before adding new.");
+                    _logger.LogWarning("[Spawn] Stale object for {Name} found. Removing before adding new.", name);
                     world.Objects.Remove(existingWalker);
                     existingWalker.Dispose();
                 }
 
                 if (world.FindPlayerById(maskedId) != null)
                 {
-                    _logger.LogWarning($"[Spawn] PlayerObject for {name} already exists. Aborting.");
+                    _logger.LogWarning("[Spawn] PlayerObject for {Name} already exists. Aborting.", name);
                     p.Dispose();
                     return;
                 }
 
                 world.Objects.Add(p);
-                _logger.LogDebug($"[Spawn] Added {name} to world.Objects.");
+                _logger.LogDebug("[Spawn] Added {Name} to world.Objects.", name);
 
                 ElfBuffEffectManager.Instance?.EnsureBuffsForPlayer(maskedId);
 
@@ -709,7 +709,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     p.MoveTargetPosition = new Vector3(worldX, worldY, 0);
                     p.Position = p.MoveTargetPosition;
                 }
-                _logger.LogInformation($"[Spawn] Successfully spawned {name} ({maskedId:X4}) into world.");
+                _logger.LogDebug("[Spawn] Successfully spawned {Name} ({MaskedId:X4}) into world.", name, maskedId);
             });
         }
 
@@ -760,7 +760,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
             }
 
-            _logger.LogInformation("ScopeHandler: AddNpcToScope received {Count} objects.", npcCount);
+            _logger.LogDebug("ScopeHandler: AddNpcToScope received {Count} objects.", npcCount);
 
             int currentPacketOffset = firstOffset;
             ushort currentMapId = _characterState.MapId;
@@ -881,13 +881,13 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
             if (!NpcDatabase.TryGetNpcType(type, out var npcClassType))
             {
-                _logger.LogWarning($"ScopeHandler: NPC type not found in NpcDatabase for TypeID {type}.");
+                _logger.LogWarning("ScopeHandler: NPC type not found in NpcDatabase for TypeID {TypeId}.", type);
                 return;
             }
 
             if (!(Activator.CreateInstance(npcClassType) is WalkerObject obj))
             {
-                _logger.LogWarning($"ScopeHandler: Could not create instance of NPC type {npcClassType} for TypeID {type}.");
+                _logger.LogWarning("ScopeHandler: Could not create instance of NPC type {NpcClassType} for TypeID {TypeId}.", npcClassType, type);
                 return;
             }
 
@@ -908,12 +908,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 if (obj.Status != GameControlStatus.Ready)
                 {
-                    _logger.LogWarning($"ScopeHandler: NPC/Monster {maskedId} ({obj.GetType().Name}) loaded but status is {obj.Status}.");
+                    _logger.LogWarning(
+                        "ScopeHandler: NPC/Monster {MaskedId:X4} ({WalkerType}) loaded but status is {Status}.",
+                        maskedId,
+                        obj.GetType().Name,
+                        obj.Status);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"ScopeHandler: Error loading NPC/Monster {maskedId} ({obj.GetType().Name}).");
+                _logger.LogError(ex, "ScopeHandler: Error loading NPC/Monster {MaskedId:X4} ({WalkerType}).", maskedId, obj.GetType().Name);
                 MuGame.ScheduleOnMainThread(() => obj.Dispose());
                 return;
             }
@@ -943,7 +947,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 // Check and remove stale objects quickly
                 if (worldRef.WalkerObjectsById.TryGetValue(maskedId, out WalkerObject existingWalker))
                 {
-                    _logger.LogWarning($"ScopeHandler: Stale/Duplicate NPC/Monster ID {maskedId:X4} ({existingWalker.GetType().Name}) found in WalkerObjectsById. Removing it before adding new {name} (Type: {type}).");
+                    _logger.LogWarning(
+                        "ScopeHandler: Stale/Duplicate NPC/Monster ID {MaskedId:X4} ({ExistingWalkerType}) found in WalkerObjectsById. Removing it before adding new {Name} (Type: {TypeId}).",
+                        maskedId,
+                        existingWalker.GetType().Name,
+                        name,
+                        type);
 
                     existingWalker.Dispose();
                     worldRef.Objects.Remove(existingWalker);
@@ -966,7 +975,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 }
                 else
                 {
-                    _logger.LogError($"ScopeHandler: obj.World or obj.World.Terrain is null for NPC/Monster {maskedId} ({obj.GetType().Name}) AFTER loading and adding. This indicates a problem.");
+                    _logger.LogError(
+                        "ScopeHandler: obj.World or obj.World.Terrain is null for NPC/Monster {MaskedId:X4} ({WalkerType}) AFTER loading and adding. This indicates a problem.",
+                        maskedId,
+                        obj.GetType().Name);
                     float worldX = obj.Location.X * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
                     float worldY = obj.Location.Y * Constants.TERRAIN_SCALE + 0.5f * Constants.TERRAIN_SCALE;
                     obj.MoveTargetPosition = new Vector3(worldX, worldY, 0);
@@ -1108,7 +1120,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     _logger.LogDebug("Parsed AppearanceChangedExtended for ID {Id:X4}: Slot={Slot}, Group={Group}, Number={Number}, Type={Type}, Level={Level}",
                         extMaskedId, extItemSlot, extItemGroup, extItemNumber, extFinalItemType, extItemLevel);
 
-                    _logger.LogInformation("[ScopeHandler] AppearanceChangedExtended ID {Id:X4}: ExcFlags=0x{ExcFlags:X2}, AncDisc=0x{AncDisc:X2}, SetComplete={SetComplete}",
+                    _logger.LogDebug("[ScopeHandler] AppearanceChangedExtended ID {Id:X4}: ExcFlags=0x{ExcFlags:X2}, AncDisc=0x{AncDisc:X2}, SetComplete={SetComplete}",
                         extMaskedId, extExcellentFlags, extAncientDiscriminator, extIsAncientSetComplete);
 
                     await HandleEquipAsync(extMaskedId, extItemSlot, extItemGroup, extItemNumber, extFinalItemType, extItemLevel,
@@ -1185,7 +1197,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 _logger.LogDebug("Parsed AppearanceChanged for ID {Id:X4}: Slot={Slot}, Group={Group}, Number={Number}, Type={Type}, Level={Level}",
                     stdMaskedId, itemSlot, itemGroup, itemNumber, finalItemType, itemLevel);
 
-                _logger.LogInformation("[ScopeHandler] AppearanceChanged ID {Id:X4}: ExcFlags=0x{ExcFlags:X2}, AncDisc=0x{AncDisc:X2}, SetComplete={SetComplete}",
+                _logger.LogDebug("[ScopeHandler] AppearanceChanged ID {Id:X4}: ExcFlags=0x{ExcFlags:X2}, AncDisc=0x{AncDisc:X2}, SetComplete={SetComplete}",
                     stdMaskedId, excellentFlags, ancientDiscriminator, isAncientSetComplete);
 
                 await HandleEquipAsync(stdMaskedId, itemSlot, itemGroup, itemNumber, finalItemType, itemLevel,
@@ -1331,7 +1343,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 // Log damage event with type information
                 string objectName = _scopeManager.TryGetScopeObjectName(maskedId, out var nm) ? (nm ?? "Object") : "Object";
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "💥 {ObjectName} (ID: {Id:X4}) received hit: HP {HpDmg}, SD {SdDmg}, Type: {DamageKind}, 2x: {IsDouble}, 3x: {IsTriple}",
                     objectName, maskedId, healthDmg, shieldDmg, damageKind, isDoubleDamage, isTripleDamage
                 );
@@ -1510,7 +1522,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
                 byte itemCount = packet.Span[4];
-                _logger.LogInformation("Received ItemsDropped (S6+): {Count} items.", itemCount);
+                _logger.LogDebug("Received ItemsDropped (S6+): {Count} items.", itemCount);
 
                 int offset = PrefixSize;
                 for (int i = 0; i < itemCount; i++)
@@ -1580,7 +1592,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
                 var legacy = new MoneyDropped075(packet);
-                _logger.LogInformation("Received Dropped Object (0.75): Count={Count}.", legacy.ItemCount);
+                _logger.LogDebug("Received Dropped Object (0.75): Count={Count}.", legacy.ItemCount);
 
                 if (legacy.ItemCount == 1)
                 {
@@ -1659,7 +1671,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
             var removed = new ItemDropRemoved(packet);
             byte count = removed.ItemCount;
-            _logger.LogInformation("Received ItemDropRemoved: {Count} objects.", count);
+            _logger.LogDebug("Received ItemDropRemoved: {Count} objects.", count);
 
             const int idSize = 2;
             int expectedLen = prefix + count * idSize;
@@ -1724,7 +1736,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 byte y = drop.PositionY;
 
                 _scopeManager.AddOrUpdateMoneyInScope(masked, raw, x, y, amount);
-                _logger.LogInformation("💰 MoneyDroppedExtended: ID={Id:X4}, Amount={Amount}, Pos=({X},{Y})", masked, amount, x, y);
+                _logger.LogDebug("💰 MoneyDroppedExtended: ID={Id:X4}, Amount={Amount}, Pos=({X},{Y})", masked, amount, x, y);
             }
             catch (Exception ex)
             {
@@ -1850,7 +1862,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 if (maskedId == _characterState.Id)
                 {
-                    _logger.LogInformation("🏃‍♂️ Local character moved to ({X},{Y})", x, y);
+                    _logger.LogDebug("🏃‍♂️ Local character moved to ({X},{Y})", x, y);
                     _characterState.UpdatePosition(x, y);
                 }
             }
@@ -2172,7 +2184,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 {
                     localPlayer.Direction = clientDirection;
                     localPlayer.PlayAction((ushort)clientActionToPlay, fromServer: true); // <-- Dodaj fromServer: true
-                    _logger.LogInformation("🎞️ Animation (LocalPlayer {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",
+                    _logger.LogDebug("🎞️ Animation (LocalPlayer {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",
                         maskedId, actionNameForLog, clientActionToPlay, serverActionId, clientDirection);
                 }
                 else
@@ -2187,7 +2199,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         monster.OnPerformAttack(monsterAction == MonsterActionType.Attack1 ? 1 : 2);
                     }
 
-                    _logger.LogInformation("🎞️ Animation ({WalkerType} {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",
+                    _logger.LogDebug("🎞️ Animation ({WalkerType} {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",
                        walker.GetType().Name, maskedId, actionNameForLog, clientActionToPlay, serverActionId, clientDirection);
                 }
             });
@@ -2202,7 +2214,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             try
             {
                 var assign = new AssignCharacterToGuild(packet);
-                _logger.LogInformation("🛡️ AssignCharacterToGuild: {Count} players.", assign.PlayerCount);
+                _logger.LogDebug("🛡️ AssignCharacterToGuild: {Count} players.", assign.PlayerCount);
                 for (int i = 0; i < assign.PlayerCount; i++)
                 {
                     var rel = assign[i];
@@ -2234,7 +2246,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 var left = new GuildMemberLeftGuild(packet);
                 ushort rawId = left.PlayerId;
                 ushort maskedId = (ushort)(rawId & 0x7FFF);
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "🚶 Player {Id:X4} left guild (GM: {IsGM}).",
                     maskedId, left.IsGuildMaster
                 );
@@ -2333,7 +2345,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"Error loading dropped item assets for {maskedId:X4}");
+                        _logger.LogError(ex, "Error loading dropped item assets for {MaskedId:X4}", maskedId);
                         world.Objects.Remove(obj);
                         obj.Recycle();
                         tcs.TrySetResult(false);
@@ -2345,7 +2357,14 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                     // Don't set Hidden immediately - let WorldObject.Update handle visibility checks
                     // The immediate visibility check was causing items to be Hidden incorrectly
-                    _logger.LogDebug($"Spawned dropped item ({obj.DisplayName}) at {obj.Position.X},{obj.Position.Y},{obj.Position.Z}. RawId: {obj.RawId:X4}, MaskedId: {obj.NetworkId:X4}");
+                    _logger.LogDebug(
+                        "Spawned dropped item ({DisplayName}) at {PosX},{PosY},{PosZ}. RawId: {RawId:X4}, MaskedId: {MaskedId:X4}",
+                        obj.DisplayName,
+                        obj.Position.X,
+                        obj.Position.Y,
+                        obj.Position.Z,
+                        obj.RawId,
+                        obj.NetworkId);
                     tcs.TrySetResult(true);
                 }, Controllers.TaskScheduler.Priority.Low);
 
@@ -2359,7 +2378,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error processing dropped item on main thread for {maskedId:X4}");
+                _logger.LogError(ex, "Error processing dropped item on main thread for {MaskedId:X4}", maskedId);
                 tcs.TrySetResult(false);
             }
         }
