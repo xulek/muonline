@@ -277,28 +277,50 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
         private void ParseAndAddCharactersToScope(Memory<byte> packet)
         {
+            bool looksLegacy = IsLikelyLegacyCharactersScopePacket(packet.Span);
+            bool looksExtended = IsLikelyExtendedCharacterScopePacket(packet.Span);
             bool parsed = false;
 
-            if (_useExtendedCharacterScopeFormat)
+            if (looksLegacy)
+            {
+                parsed = TryParseLegacyCharactersScopePacket(packet);
+                if (!parsed)
+                {
+                    _logger.LogWarning("Legacy-looking AddCharacterToScope packet failed to parse. Length={Length}", packet.Length);
+                }
+            }
+
+            if (!parsed && looksExtended)
             {
                 parsed = TryParseExtendedCharacterScopePacket(packet);
                 if (!parsed)
                 {
-                    _logger.LogWarning("Failed to parse extended AddCharacterToScope packet. Falling back to legacy parser.");
+                    _logger.LogWarning("Extended-looking AddCharacterToScope packet failed to parse. Length={Length}", packet.Length);
                 }
             }
 
-            if (!parsed)
+            if (!parsed && !looksLegacy && !looksExtended)
             {
-                parsed = TryParseLegacyCharactersScopePacket(packet);
-            }
+                _logger.LogDebug(
+                    "AddCharacterToScope packet layout not recognized. UseExtendedCharacterScopeFormat={UseExtended}. Length={Length}",
+                    _useExtendedCharacterScopeFormat,
+                    packet.Length);
 
-            if (!parsed && _targetVersion >= TargetProtocolVersion.Season6 && !_useExtendedCharacterScopeFormat)
-            {
-                parsed = TryParseExtendedCharacterScopePacket(packet);
-                if (parsed)
+                if (_useExtendedCharacterScopeFormat)
                 {
-                    _logger.LogInformation("Parsed AddCharacterToScope packet using extended fallback.");
+                    parsed = TryParseExtendedCharacterScopePacket(packet);
+                    if (!parsed)
+                    {
+                        parsed = TryParseLegacyCharactersScopePacket(packet);
+                    }
+                }
+                else
+                {
+                    parsed = TryParseLegacyCharactersScopePacket(packet);
+                    if (!parsed && _targetVersion >= TargetProtocolVersion.Season6)
+                    {
+                        parsed = TryParseExtendedCharacterScopePacket(packet);
+                    }
                 }
             }
 
@@ -312,6 +334,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         {
             try
             {
+                if (!IsLikelyLegacyCharactersScopePacket(packet.Span))
+                {
+                    return false;
+                }
+
                 var scope = new AddCharactersToScopeRef(packet.Span);
 
                 for (int i = 0; i < scope.CharacterCount; i++)
@@ -351,24 +378,21 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         {
             try
             {
+                if (!TryParseExtendedPacketMetadata(packet.Span, out byte serverClassValue, out int effectCount))
+                {
+                    return false;
+                }
+
                 var character = new AddCharacterToScopeExtended(packet);
                 ushort raw = character.Id;
                 var appearanceAndEffects = character.AppearanceAndEffects;
+                var appearance = appearanceAndEffects.Slice(2, 25);
 
-                const int extendedAppearanceLength = 27;
-                int appearanceLength = Math.Min(extendedAppearanceLength, appearanceAndEffects.Length);
-                var appearance = appearanceAndEffects.Slice(0, appearanceLength);
-
-                if (appearanceAndEffects.Length > extendedAppearanceLength)
+                for (int i = 0; i < effectCount; i++)
                 {
-                    int effectCount = appearanceAndEffects[extendedAppearanceLength];
-                    int maxEffects = Math.Min(effectCount, appearanceAndEffects.Length - (extendedAppearanceLength + 1));
-                    for (int i = 0; i < maxEffects; i++)
-                    {
-                        byte effectId = appearanceAndEffects[extendedAppearanceLength + 1 + i];
-                        _characterState.ActivateBuff(effectId, raw);
-                        ElfBuffEffectManager.Instance?.HandleBuff(effectId, raw, true);
-                    }
+                    byte effectId = appearanceAndEffects[28 + i];
+                    _characterState.ActivateBuff(effectId, raw);
+                    ElfBuffEffectManager.Instance?.HandleBuff(effectId, raw, true);
                 }
 
                 UpsertAndSpawnRemotePlayer(
@@ -376,7 +400,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     character.CurrentPositionX,
                     character.CurrentPositionY,
                     character.Name,
-                    ClassFromExtendedAppearance(appearance),
+                    MapClassValueToEnum(serverClassValue),
                     appearance);
 
                 return true;
@@ -431,17 +455,103 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             return MapClassValueToEnum((app[0] >> 3) & 0b1_1111);
         }
 
-        private static CharacterClassNumber ClassFromExtendedAppearance(ReadOnlySpan<byte> app)
+        private static bool IsLikelyLegacyCharactersScopePacket(ReadOnlySpan<byte> packet)
         {
-            if (app.Length == 0) return CharacterClassNumber.DarkWizard;
-
-            int direct = app[0];
-            if (IsKnownServerClassValue(direct))
+            if (packet.Length < 5)
             {
-                return MapClassValueToEnum(direct);
+                return false;
             }
 
-            return MapClassValueToEnum((app[0] >> 3) & 0b1_1111);
+            int characterCount = packet[4];
+            int offset = 5;
+            for (int i = 0; i < characterCount; i++)
+            {
+                if (offset + 36 > packet.Length)
+                {
+                    return false;
+                }
+
+                if (!IsLikelyLegacyCharacterName(packet.Slice(offset + 22, 10)))
+                {
+                    return false;
+                }
+
+                int effectCount = packet[offset + 35];
+                offset += 36 + effectCount;
+                if (offset > packet.Length)
+                {
+                    return false;
+                }
+            }
+
+            return offset == packet.Length;
+        }
+
+        private static bool IsLikelyLegacyCharacterName(ReadOnlySpan<byte> rawNameBytes)
+        {
+            bool seenNonZeroByte = false;
+            bool foundTerminator = false;
+
+            for (int i = 0; i < rawNameBytes.Length; i++)
+            {
+                byte b = rawNameBytes[i];
+                if (b == 0)
+                {
+                    foundTerminator = true;
+                    continue;
+                }
+
+                if (foundTerminator)
+                {
+                    return false;
+                }
+
+                if (b < 0x20 || b == 0x7F)
+                {
+                    return false;
+                }
+
+                seenNonZeroByte = true;
+            }
+
+            return seenNonZeroByte;
+        }
+
+        private static bool IsLikelyExtendedCharacterScopePacket(ReadOnlySpan<byte> packet)
+        {
+            return TryParseExtendedPacketMetadata(packet, out _, out _);
+        }
+
+        private static bool TryParseExtendedPacketMetadata(ReadOnlySpan<byte> packet, out byte serverClassValue, out int effectCount)
+        {
+            serverClassValue = 0;
+            effectCount = 0;
+
+            if (packet.Length < 54)
+            {
+                return false;
+            }
+
+            var appearanceAndEffects = packet[26..];
+            if (appearanceAndEffects.Length < 28)
+            {
+                return false;
+            }
+
+            byte flags = appearanceAndEffects[1];
+            if ((flags & 0xC0) != 0)
+            {
+                return false;
+            }
+
+            serverClassValue = appearanceAndEffects[0];
+            if (!IsKnownServerClassValue(serverClassValue))
+            {
+                return false;
+            }
+
+            effectCount = appearanceAndEffects[27];
+            return appearanceAndEffects.Length == 28 + effectCount;
         }
 
         private static CharacterClassNumber MapClassValueToEnum(int value)
