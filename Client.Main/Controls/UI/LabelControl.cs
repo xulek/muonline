@@ -105,6 +105,29 @@ namespace Client.Main.Controls.UI
         public Color TextColor { get; set; } = Color.WhiteSmoke;
         public HorizontalAlign TextAlign { get; set; } = HorizontalAlign.Left;
 
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            TextColor = RemapThemeColor(TextColor, e.Previous.Palette, e.Current.Palette);
+            BackgroundColor = RemapThemeColor(BackgroundColor, e.Previous.Palette, e.Current.Palette);
+            ShadowColor = RemapThemeColor(ShadowColor, e.Previous.Palette, e.Current.Palette);
+            OnChangeText();
+        }
+
+        private static Color RemapThemeColor(Color color, UiThemePalette previous, UiThemePalette current)
+        {
+            if (color == previous.TextWhite) return current.TextWhite;
+            if (color == previous.TextGold) return current.TextGold;
+            if (color == previous.TextGray) return current.TextGray;
+            if (color == previous.TextDark) return current.TextDark;
+            if (color == previous.SecondaryBright) return current.SecondaryBright;
+            if (color == previous.BgDarkest) return current.BgDarkest;
+            if (color == previous.BgDark) return current.BgDark;
+            if (color == previous.BgMid) return current.BgMid;
+            if (color == previous.BgLight) return current.BgLight;
+            return color;
+        }
+
         // Methods
         public override void Draw(GameTime gameTime)
         {

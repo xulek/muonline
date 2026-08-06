@@ -2,6 +2,7 @@ using Client.Main.Configuration;
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
@@ -534,6 +535,11 @@ namespace Client.Main
                 return;
             }
             bootLogger.LogInformation("✅ Configuration loaded.");
+
+            AppSettings.Ui ??= new UiSettings();
+            UiThemeManager.ConfigurePersistence(PersistUiTheme);
+            UiThemeManager.Initialize(AppSettings.Ui.Theme, bootLogger);
+            AppSettings.Ui.Theme = UiThemeManager.CurrentId.ToString();
 
             // --- Initialize Network Manager ---
             // Needs CharacterState and ScopeManager - create basic instances for now
@@ -1904,6 +1910,43 @@ namespace Client.Main
             }
         }
 
+        public static void PersistUiTheme(UiThemeId theme)
+        {
+            if (!Enum.IsDefined(theme))
+                theme = UiThemeId.Modern;
+
+            if (AppSettings?.Ui != null)
+                AppSettings.Ui.Theme = theme.ToString();
+
+            var logger = AppLoggerFactory?.CreateLogger<MuGame>();
+            try
+            {
+                Directory.CreateDirectory(ConfigDirectory ?? AppContext.BaseDirectory);
+
+                JsonObject root = LoadLocalSettings(logger);
+                if (root["MuOnlineSettings"] is not JsonObject muSettings)
+                {
+                    muSettings = new JsonObject();
+                    root["MuOnlineSettings"] = muSettings;
+                }
+
+                if (muSettings["Ui"] is not JsonObject uiSettings)
+                {
+                    uiSettings = new JsonObject();
+                    muSettings["Ui"] = uiSettings;
+                }
+
+                uiSettings["Theme"] = theme.ToString();
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(LocalSettingsPath, root.ToJsonString(options));
+                logger?.LogInformation("Saved UI theme {Theme} to {Path}", theme, LocalSettingsPath);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Failed to persist UI theme {Theme}.", theme);
+            }
+        }
+
         public static bool TryLoadQuickSlotAssignments(
             string characterName,
             out int activeSkillSlot,
@@ -1912,7 +1955,8 @@ namespace Client.Main
         {
             activeSkillSlot = 3;
             skillSlots = new ushort?[13];
-            potionSlots = new (byte Group, int Id)?[3];
+            // Keep reading legacy three-slot files while allowing Season6's five item slots.
+            potionSlots = new (byte Group, int Id)?[5];
 
             string key = NormalizeQuickSlotCharacterKey(characterName);
             if (key == null)

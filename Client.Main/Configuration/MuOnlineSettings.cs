@@ -141,5 +141,11 @@ namespace Client.Main.Configuration
         public PacketLoggingSettings PacketLogging { get; set; } = new();
         public GraphicsSettings Graphics { get; set; } = new();
         public EnvironmentSettings Environment { get; set; } = new();
+        public UiSettings Ui { get; set; } = new();
+    }
+
+    public class UiSettings
+    {
+        public string Theme { get; set; } = "Modern";
     }
 }

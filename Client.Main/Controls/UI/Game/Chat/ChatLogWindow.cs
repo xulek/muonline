@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Client.Main.Content;
 using Client.Main.Controllers;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -28,6 +30,9 @@ namespace Client.Main.Controls.UI
         private const float DEFAULT_BACK_ALPHA = 0.6f;
         private const int SCROLL_WHEEL_STEP = 120; // standard mouse wheel delta
         private const float LINE_HEIGHT_FALLBACK = 15f;
+        private readonly int _classicWidth;
+
+        private bool IsSeason6 => !ChatUiTheme.UseModernLayout;
 
         // --- UI Textures ---
         private Texture2D _texScrollTop;
@@ -79,6 +84,7 @@ namespace Client.Main.Controls.UI
         // --- Constructor ---
         public ChatLogWindow(int width = CHATLOG_WIDTH)
         {
+            _classicWidth = width;
             Width = width;
             _messages = new Dictionary<MessageType, List<ChatMessage>>();
             // _filters = new List<string>(); // Omitted filters
@@ -97,9 +103,18 @@ namespace Client.Main.Controls.UI
             _currentViewType = MessageType.All;
             _showFrame = false;
             _backgroundAlpha = DEFAULT_BACK_ALPHA;
-            Interactive = true; // Enable mouse interaction
+            // Classic is click-through until its frame is explicitly opened. Modern keeps
+            // its existing message interaction behavior when the frame is hidden.
+            Interactive = !IsSeason6;
 
             UpdateLayout(); // Initial layout calculation
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            UpdateLayout();
+            Interactive = !IsSeason6 || _showFrame;
         }
 
         public IEnumerable<string> GetPreloadTexturePaths() => s_chatLogTexturePaths;
@@ -237,6 +252,8 @@ namespace Client.Main.Controls.UI
         /// </summary>
         public void ShowFrame(bool show)
         {
+            Interactive = !IsSeason6 || show;
+
             if (_showFrame != show)
             {
                 _showFrame = show;
@@ -328,7 +345,9 @@ namespace Client.Main.Controls.UI
 
             _hoveredMessageGlobalIndex = -1; // Reset hover state
 
-            bool mouseInInteractableArea = DisplayRectangle.Contains(mouse.Position) || (_showFrame && _resizeHandleArea.Contains(mouse.Position));
+            bool mouseInInteractableArea =
+                (!IsSeason6 && DisplayRectangle.Contains(mouse.Position)) ||
+                (_showFrame && (DisplayRectangle.Contains(mouse.Position) || _resizeHandleArea.Contains(mouse.Position)));
 
             // --- Mouse Input Handling ---
             if (mouseInInteractableArea || _isDraggingScrollbar || _isDraggingResize)
@@ -373,6 +392,12 @@ namespace Client.Main.Controls.UI
         {
             if (Status != GameControlStatus.Ready || !Visible || _font == null)
                 return;
+
+            if (IsSeason6)
+            {
+                DrawSeason6(gameTime);
+                return;
+            }
 
             var spriteBatch = GraphicsManager.Instance.Sprite;
             var currentMsgList = _messages[_currentViewType];
@@ -606,6 +631,17 @@ namespace Client.Main.Controls.UI
 
         private void UpdateLayout()
         {
+            if (IsSeason6)
+            {
+                Width = UiThemeManager.Current.Metrics.ChatLogSize.X;
+                _fontScale = 0.48f;
+            }
+            else
+            {
+                Width = _classicWidth;
+                _fontScale = 0.40f;
+            }
+
             CalculateLineHeight();
             if (_lineHeight <= 0) return;
 
@@ -639,6 +675,74 @@ namespace Client.Main.Controls.UI
                 _scrollThumbArea = Rectangle.Empty;
                 _resizeHandleArea = Rectangle.Empty;
             }
+        }
+
+        private void DrawSeason6(GameTime gameTime)
+        {
+            SpriteBatch spriteBatch = GraphicsManager.Instance.Sprite;
+            Texture2D pixel = GraphicsManager.Instance.Pixel;
+            if (spriteBatch == null || pixel == null || _font == null)
+                return;
+
+            Rectangle panel = DisplayRectangle;
+            if (_showFrame)
+            {
+                Color panelColor = ModernHudTheme.BgDark * 0.94f * Alpha;
+                spriteBatch.Draw(pixel, panel, ModernHudTheme.BorderOuter * Alpha);
+                Rectangle inner = new(panel.X + 1, panel.Y + 1,
+                    Math.Max(1, panel.Width - 2), Math.Max(1, panel.Height - 2));
+                UiDrawHelper.DrawVerticalGradient(spriteBatch, inner,
+                    panelColor, ModernHudTheme.BgDarkest * 0.92f * Alpha);
+                spriteBatch.Draw(pixel,
+                    new Rectangle(inner.X + 2, inner.Y, Math.Max(1, inner.Width - 4), 2),
+                    ModernHudTheme.Accent * 0.8f * Alpha);
+            }
+
+            var messages = _messages[_currentViewType];
+            int first = Math.Max(0, messages.Count - _showingLines - _scrollOffset);
+            int last = Math.Min(messages.Count - 1, first + _showingLines - 1);
+            float y = panel.Y + 9f;
+            float lineHeight = Math.Max(12f, _lineHeight);
+            for (int i = first; i <= last; i++)
+            {
+                ChatMessage message = messages[i];
+                Color textColor = GetSeason6MessageColor(message.Type);
+                string text = message.DisplayText;
+                Vector2 textPosition = new(panel.X + 10f, y);
+                spriteBatch.DrawString(_font, text, textPosition + Vector2.One,
+                    Color.Black * 0.75f * Alpha, 0f, Vector2.Zero, _fontScale,
+                    SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_font, text, textPosition, textColor * Alpha,
+                    0f, Vector2.Zero, _fontScale, SpriteEffects.None, 0f);
+                y += lineHeight;
+            }
+
+            if (_showFrame)
+            {
+                Rectangle scrollbar = new(panel.Right - 8, panel.Y + 7, 4, Math.Max(1, panel.Height - 14));
+                spriteBatch.Draw(pixel, scrollbar, ModernHudTheme.SlotBg * Alpha);
+                int maxOffset = Math.Max(0, messages.Count - _showingLines);
+                float ratio = maxOffset == 0 ? 1f : 1f - _scrollOffset / (float)maxOffset;
+                int thumbHeight = Math.Clamp(panel.Height / 4, 18, panel.Height - 14);
+                int thumbY = scrollbar.Y + (int)((scrollbar.Height - thumbHeight) * (1f - ratio));
+                spriteBatch.Draw(pixel, new Rectangle(panel.Right - 10, thumbY, 8, thumbHeight),
+                    ModernHudTheme.Accent * 0.8f * Alpha);
+            }
+        }
+
+        private static Color GetSeason6MessageColor(MessageType type)
+        {
+            return type switch
+            {
+                MessageType.Error => ModernHudTheme.Danger,
+                MessageType.System => ModernHudTheme.AccentBright,
+                MessageType.GM => ModernHudTheme.TextGold,
+                MessageType.Party => ModernHudTheme.Success,
+                MessageType.Guild or MessageType.Union or MessageType.Gens => ModernHudTheme.SecondaryBright,
+                MessageType.Whisper => ModernHudTheme.Warning,
+                MessageType.Info => ModernHudTheme.TextGold,
+                _ => ModernHudTheme.TextWhite
+            };
         }
 
         private void UpdateScrollbar()

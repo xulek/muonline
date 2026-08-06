@@ -17,17 +17,15 @@ using Microsoft.Xna.Framework.Graphics;
 namespace Client.Main.Controls.UI.Game.Hud
 {
     /// <summary>
-    /// Renders right-side equipment durability warnings inspired by SourceMain5.2 item endurance UI.
+    /// Renders equipment durability warnings in a compact, click-through overlay.
     /// </summary>
     public sealed class EquipmentDurabilityHud : UIControl
     {
         private const int EquipmentSlotCount = 12;
         private const byte HelperSlot = 8;
-        private const int IconsPerColumn = 2;
-        private const int BaseTopOffset = 126;
-        private const int BaseRightOffset = 10;
-        private const int BaseIconSize = 56;
-        private const int BaseIconGap = 4;
+        private const int BaseTopOffset = 4;
+        private const int BaseIconSize = 40;
+        private const int BaseIconGap = 3;
         private const int IconPreviewCacheSize = 96;
 
         private readonly CharacterState _characterState;
@@ -40,7 +38,6 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         private int _iconSize = BaseIconSize;
         private int _iconGap = BaseIconGap;
-        private int _startX;
         private int _startY;
         private float _uiScale = 1f;
         private double _timeSeconds;
@@ -78,7 +75,6 @@ namespace Client.Main.Controls.UI.Game.Hud
             _characterState.EquipmentChanged += OnInventoryStateChanged;
 
             RefreshLayout();
-            RebuildWarnings();
         }
 
         public override void Dispose()
@@ -98,13 +94,21 @@ namespace Client.Main.Controls.UI.Game.Hud
         {
             base.Update(gameTime);
 
+            if (Status != GameControlStatus.Ready || !Visible)
+            {
+                return;
+            }
+
             _timeSeconds = gameTime.TotalGameTime.TotalSeconds;
 
             RefreshLayout();
 
             if (_isDirty)
             {
-                RebuildWarnings();
+                if (!IsTradeVisible())
+                {
+                    RebuildWarnings();
+                }
             }
             else
             {
@@ -180,11 +184,7 @@ namespace Client.Main.Controls.UI.Game.Hud
 
             _iconSize = ScaleValue(BaseIconSize, _uiScale);
             _iconGap = Math.Max(1, ScaleValue(BaseIconGap, _uiScale));
-            _startX = virtualSize.X - _iconSize - ScaleValue(BaseRightOffset, _uiScale);
-            _startY = Math.Clamp(
-                ScaleValue(BaseTopOffset, _uiScale),
-                ScaleValue(12, _uiScale),
-                Math.Max(ScaleValue(12, _uiScale), virtualSize.Y - ScaleValue(180, _uiScale)));
+            _startY = ScaleValue(BaseTopOffset, _uiScale);
 
             X = 0;
             Y = 0;
@@ -195,13 +195,14 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         private void RebuildWarnings()
         {
-            _isDirty = false;
             _entries.Clear();
 
             if (IsTradeVisible())
             {
                 return;
             }
+
+            _isDirty = false;
 
             var items = _characterState.GetInventoryItems();
             for (byte slot = 0; slot < EquipmentSlotCount; slot++)
@@ -243,7 +244,7 @@ namespace Client.Main.Controls.UI.Game.Hud
                 return false;
             }
 
-            int durability = details.Durability;
+            int durability = ItemDatabase.GetItemDurability(itemData);
             if (durability > maxDurability * 0.5f)
             {
                 return false;
@@ -263,21 +264,14 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         private void LayoutWarningRects()
         {
-            int x = _startX;
-            int y = _startY;
-            int renderedCount = 0;
+            int totalWidth = (_entries.Count * _iconSize) + Math.Max(0, _entries.Count - 1) * _iconGap;
+            int left = Math.Max(ScaleValue(8, _uiScale), (UiScaler.VirtualSize.X - totalWidth) / 2);
 
             for (int i = 0; i < _entries.Count; i++)
             {
+                int x = left + i * (_iconSize + _iconGap);
+                int y = _startY;
                 _entries[i].Rect = new Rectangle(x, y, _iconSize, _iconSize);
-                renderedCount++;
-
-                y += _iconSize + _iconGap;
-                if (renderedCount % IconsPerColumn == 0)
-                {
-                    y = _startY;
-                    x -= _iconSize + _iconGap;
-                }
             }
         }
 
@@ -316,35 +310,36 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         private void DrawPanelBackground(SpriteBatch spriteBatch, Texture2D pixel)
         {
-            if (_entries.Count == 0)
+            int pad = Math.Max(2, ScaleValue(2, _uiScale));
+            for (int i = 0; i < _entries.Count; i++)
             {
-                return;
+                Rectangle rect = _entries[i].Rect;
+                if (rect == Rectangle.Empty)
+                {
+                    continue;
+                }
+
+                var panel = new Rectangle(
+                    rect.X - pad,
+                    rect.Y - pad,
+                    rect.Width + (pad * 2),
+                    rect.Height + (pad * 2));
+
+                spriteBatch.Draw(pixel, panel, ModernHudTheme.BorderOuter * Alpha);
+
+                var inner = new Rectangle(
+                    panel.X + 1,
+                    panel.Y + 1,
+                    Math.Max(1, panel.Width - 2),
+                    Math.Max(1, panel.Height - 2));
+                UiDrawHelper.DrawVerticalGradient(spriteBatch, inner,
+                    ModernHudTheme.BgDark * Alpha,
+                    ModernHudTheme.BgDarkest * Alpha);
+
+                spriteBatch.Draw(pixel,
+                    new Rectangle(inner.X + 1, inner.Y, Math.Max(1, inner.Width - 2), 1),
+                    ModernHudTheme.Accent * 0.45f * Alpha);
             }
-
-            Rectangle bounds = GetEntriesBounds();
-            if (bounds == Rectangle.Empty)
-            {
-                return;
-            }
-
-            int pad = Math.Max(2, ScaleValue(4, _uiScale));
-            var panel = new Rectangle(bounds.X - pad, bounds.Y - pad, bounds.Width + (pad * 2), bounds.Height + (pad * 2));
-
-            spriteBatch.Draw(pixel, panel, ModernHudTheme.BorderOuter * Alpha);
-
-            var inner = new Rectangle(panel.X + 1, panel.Y + 1, Math.Max(1, panel.Width - 2), Math.Max(1, panel.Height - 2));
-            UiDrawHelper.DrawVerticalGradient(spriteBatch, inner,
-                ModernHudTheme.BgDark * Alpha,
-                ModernHudTheme.BgDarkest * Alpha);
-
-            spriteBatch.Draw(pixel,
-                new Rectangle(inner.X + 1, inner.Y, Math.Max(1, inner.Width - 2), 1),
-                ModernHudTheme.Accent * 0.45f * Alpha);
-
-            UiDrawHelper.DrawCornerAccents(spriteBatch, panel,
-                ModernHudTheme.Accent * 0.22f * Alpha,
-                size: Math.Max(4, ScaleValue(5, _uiScale)),
-                thickness: 1);
         }
 
         private void DrawWarningIcon(SpriteBatch spriteBatch, Texture2D pixel, DurabilityWarningEntry entry)
@@ -472,40 +467,6 @@ namespace Client.Main.Controls.UI.Game.Hud
                 spriteBatch.DrawString(_font, lines[i], textPos + Vector2.One, Color.Black * 0.75f * Alpha, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
                 spriteBatch.DrawString(_font, lines[i], textPos, lineColors[i] * Alpha, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
-        }
-
-        private Rectangle GetEntriesBounds()
-        {
-            if (_entries.Count == 0)
-            {
-                return Rectangle.Empty;
-            }
-
-            int minX = int.MaxValue;
-            int minY = int.MaxValue;
-            int maxX = int.MinValue;
-            int maxY = int.MinValue;
-
-            for (int i = 0; i < _entries.Count; i++)
-            {
-                Rectangle rect = _entries[i].Rect;
-                if (rect == Rectangle.Empty)
-                {
-                    continue;
-                }
-
-                minX = Math.Min(minX, rect.Left);
-                minY = Math.Min(minY, rect.Top);
-                maxX = Math.Max(maxX, rect.Right);
-                maxY = Math.Max(maxY, rect.Bottom);
-            }
-
-            if (minX == int.MaxValue || minY == int.MaxValue || maxX <= minX || maxY <= minY)
-            {
-                return Rectangle.Empty;
-            }
-
-            return new Rectangle(minX, minY, maxX - minX, maxY - minY);
         }
 
         private Texture2D? ResolveItemIcon(ItemDefinition definition)

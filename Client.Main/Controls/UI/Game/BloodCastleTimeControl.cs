@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Client.Main.Controllers;
 using Client.Main.Core.Client;
 using Client.Main.Controls.UI;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -23,13 +24,15 @@ namespace Client.Main.Controls.UI.Game
 
         private static class Theme
         {
-            public static readonly Color BgDark = new(16, 20, 26, 220);
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color TextNormal = new(255, 150, 0);   // Orange
-            public static readonly Color TextUrgent = new(255, 32, 32);   // Red
-            public static readonly Color TextWhite = new(240, 240, 245);
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color TextNormal => UiThemeManager.CurrentId == UiThemeId.Classic
+                ? ModernHudTheme.Warning : new Color(255, 150, 0);
+            public static Color TextUrgent => UiThemeManager.CurrentId == UiThemeId.Classic
+                ? ModernHudTheme.Danger : new Color(255, 32, 32);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
         }
 
         private static BloodCastleTimeControl _instance;

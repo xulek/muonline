@@ -1,4 +1,6 @@
 using Client.Main.Controllers;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Core.Client;
 using Client.Main.Models;
 using Microsoft.Extensions.Logging;
@@ -88,6 +90,8 @@ namespace Client.Main.Controls.UI
 
         private readonly ILogger<ChatInputBoxControl> _logger;
 
+        private bool IsSeason6 => !ChatUiTheme.UseModernLayout;
+
         // Properties
         public InputMessageType CurrentInputType => _currentInputType;
         public bool IsWhisperLocked => _isWhisperLocked;
@@ -107,6 +111,12 @@ namespace Client.Main.Controls.UI
             ControlSize = ViewSize;
             Visible = false; // Start hidden.
             Interactive = true; // Needs mouse interaction.
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
         }
 
         // Methods
@@ -130,6 +140,7 @@ namespace Client.Main.Controls.UI
 
         public override async Task Load()
         {
+            ApplyThemeLayout();
             // 1. Background
             _background = new TextureControl
             {
@@ -266,6 +277,85 @@ namespace Client.Main.Controls.UI
 
             // Initial visual state update.
             UpdateVisualStates();
+            ApplyThemeLayout();
+        }
+
+        private void ApplyThemeLayout()
+        {
+            Point size = IsSeason6
+                ? UiThemeManager.Current.Metrics.ChatInputSize
+                : new Point(CHATBOX_WIDTH, CHATBOX_HEIGHT);
+            ViewSize = size;
+            ControlSize = size;
+
+            if (_background == null || _chatInput == null)
+                return;
+
+            _background.ViewSize = size;
+            _background.Visible = !IsSeason6;
+
+            if (!IsSeason6)
+            {
+                _chatInput.X = 72;
+                _chatInput.Y = 30;
+                _chatInput.ViewSize = new Point(176, 14);
+                _chatInput.FontSize = 10f;
+                _whisperIdInput.X = 5;
+                _whisperIdInput.Y = 30;
+                _whisperIdInput.ViewSize = new Point(60, 14);
+                for (int i = 0; i < _typeButtons.Length; i++)
+                {
+                    _typeButtons[i].X = INPUT_TYPE_START_X + i * BUTTON_WIDTH;
+                    _typeButtons[i].Y = 0;
+                    _typeButtons[i].ViewSize = new Point(BUTTON_WIDTH, BUTTON_HEIGHT);
+                }
+                _whisperToggleButton.X = BLOCK_WHISPER_START_X;
+                _systemToggleButton.X = SYSTEM_ON_START_X;
+                _chatLogToggleButton.X = CHATLOG_ON_START_X;
+                _frameToggleButton.X = FRAME_ON_START_X;
+                _sizeButton.X = FRAME_RESIZE_START_X;
+                _transparencyButton.X = TRANSPARENCY_START_X;
+                return;
+            }
+
+            _chatInput.X = 10;
+            _chatInput.Y = 34;
+            _chatInput.ViewSize = new Point(size.X - 20, 18);
+            _chatInput.FontSize = 11f;
+            _chatInput.BackgroundColor = Color.Transparent;
+            _chatInput.TextColor = ModernHudTheme.TextWhite;
+            _whisperIdInput.X = 10;
+            _whisperIdInput.Y = 34;
+            _whisperIdInput.ViewSize = new Point(105, 18);
+            _whisperIdInput.FontSize = 11f;
+            _whisperIdInput.BackgroundColor = Color.Transparent;
+            _whisperIdInput.TextColor = ModernHudTheme.TextGray;
+
+            int buttonWidth = 39;
+            int buttonHeight = 24;
+            int buttonGap = 2;
+            for (int i = 0; i < _typeButtons.Length; i++)
+            {
+                _typeButtons[i].X = 6 + i * (buttonWidth + buttonGap);
+                _typeButtons[i].Y = 5;
+                _typeButtons[i].ViewSize = new Point(buttonWidth, buttonHeight);
+                _typeButtons[i].TileWidth = buttonWidth;
+                _typeButtons[i].TileHeight = buttonHeight;
+            }
+
+            SpriteControl[] buttons =
+            {
+                _whisperToggleButton, _systemToggleButton, _chatLogToggleButton,
+                _frameToggleButton, _sizeButton, _transparencyButton
+            };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                buttons[i].X = 6 + (_typeButtons.Length + i) * (buttonWidth + buttonGap);
+                buttons[i].Y = 5;
+                buttons[i].ViewSize = new Point(buttonWidth, buttonHeight);
+                buttons[i].TileWidth = buttonWidth;
+                buttons[i].TileHeight = buttonHeight;
+            }
         }
 
         private SpriteControl CreateButton(int x, int y, string texturePath, string name)
@@ -684,6 +774,12 @@ namespace Client.Main.Controls.UI
             if (!Visible)
                 return;
 
+            if (IsSeason6)
+            {
+                DrawSeason6();
+                return;
+            }
+
             base.Draw(gameTime);
 
             var sb = GraphicsManager.Instance.Sprite;
@@ -706,6 +802,69 @@ namespace Client.Main.Controls.UI
                     _whisperIdInput.DisplayRectangle,
                     Color.Black * 0.5f);
             }
+        }
+
+        private void DrawSeason6()
+        {
+            SpriteBatch spriteBatch = GraphicsManager.Instance.Sprite;
+            Texture2D pixel = GraphicsManager.Instance.Pixel;
+            SpriteFont font = GraphicsManager.Instance.Font;
+            if (spriteBatch == null || pixel == null || font == null)
+                return;
+
+            Rectangle panel = DisplayRectangle;
+            spriteBatch.Draw(pixel, panel, ModernHudTheme.BorderOuter * Alpha);
+            Rectangle inner = new(panel.X + 1, panel.Y + 1,
+                Math.Max(1, panel.Width - 2), Math.Max(1, panel.Height - 2));
+            UiDrawHelper.DrawVerticalGradient(spriteBatch, inner,
+                ModernHudTheme.BgDark * Alpha, ModernHudTheme.BgDarkest * Alpha);
+            spriteBatch.Draw(pixel, new Rectangle(inner.X + 2, inner.Y + 2,
+                Math.Max(1, inner.Width - 4), 1), ModernHudTheme.Accent * 0.8f * Alpha);
+
+            SpriteControl[] buttons =
+            {
+                _typeButtons[0], _typeButtons[1], _typeButtons[2], _typeButtons[3],
+                _whisperToggleButton, _systemToggleButton, _chatLogToggleButton,
+                _frameToggleButton, _sizeButton, _transparencyButton
+            };
+            string[] labels = { "ALL", "PT", "G", "GEN", "W", "SYS", "LOG", "FR", "SZ", "A" };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                if (!buttons[i].Visible)
+                    continue;
+                Rectangle rect = buttons[i].DisplayRectangle;
+                bool selected = i < 4 && i == (int)_currentInputType;
+                Color fill = selected ? ModernHudTheme.AccentDim : ModernHudTheme.SlotBg;
+                UiDrawHelper.DrawPanel(spriteBatch, rect, fill,
+                    selected ? ModernHudTheme.Accent : ModernHudTheme.BorderInner,
+                    ModernHudTheme.BorderOuter);
+                Vector2 labelSize = font.MeasureString(labels[i]) * 0.34f;
+                spriteBatch.DrawString(font, labels[i],
+                    new Vector2(rect.Center.X - labelSize.X / 2f, rect.Center.Y - labelSize.Y / 2f),
+                    ModernHudTheme.TextWhite * Alpha, 0f, Vector2.Zero, 0.34f,
+                    SpriteEffects.None, 0f);
+            }
+
+            DrawSeason6Field(spriteBatch, font, _whisperIdInput, _whisperIdInput.Value,
+                !_isWhisperSendMode, ModernHudTheme.TextGray);
+            DrawSeason6Field(spriteBatch, font, _chatInput, _chatInput.Value,
+                false, ModernHudTheme.TextWhite);
+        }
+
+        private static void DrawSeason6Field(SpriteBatch spriteBatch, SpriteFont font,
+            TextFieldControl field, string text, bool hidden, Color color)
+        {
+            if (hidden || field == null || !field.Visible)
+                return;
+            Rectangle rect = field.DisplayRectangle;
+            spriteBatch.Draw(GraphicsManager.Instance.Pixel, rect, ModernHudTheme.SlotBg * 0.9f);
+            spriteBatch.Draw(GraphicsManager.Instance.Pixel,
+                new Rectangle(rect.X, rect.Y, rect.Width, 1), ModernHudTheme.BorderInner);
+            string value = string.IsNullOrEmpty(text) ? "" : text;
+            if (field.MaskValue)
+                value = new string('•', value.Length);
+            spriteBatch.DrawString(font, value, new Vector2(rect.X + 5, rect.Y + 2),
+                color, 0f, Vector2.Zero, 0.42f, SpriteEffects.None, 0f);
         }
 
         public override bool OnClick()

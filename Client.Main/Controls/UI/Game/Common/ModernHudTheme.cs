@@ -5,37 +5,31 @@ namespace Client.Main.Controls.UI.Game.Common
 {
     internal static class ModernHudTheme
     {
-        public static readonly Color BgDarkest = new(8, 10, 14, 252);
-        public static readonly Color BgDark = new(16, 20, 26, 250);
-        public static readonly Color BgMid = new(24, 30, 38, 248);
-        public static readonly Color BgLight = new(35, 42, 52, 245);
-        public static readonly Color BgLighter = new(48, 56, 68, 240);
-
-        public static readonly Color Accent = new(212, 175, 85);
-        public static readonly Color AccentBright = new(255, 215, 120);
-        public static readonly Color AccentDim = new(140, 115, 55);
-        public static readonly Color AccentGlow = new(255, 200, 80, 40);
-
-        public static readonly Color Secondary = new(90, 140, 200);
-        public static readonly Color SecondaryBright = new(130, 180, 240);
-        public static readonly Color SecondaryDim = new(50, 80, 120);
-
-        public static readonly Color BorderOuter = new(5, 6, 8, 255);
-        public static readonly Color BorderInner = new(60, 70, 85, 200);
-        public static readonly Color BorderHighlight = new(100, 110, 130, 120);
-
-        public static readonly Color SlotBg = new(12, 15, 20, 240);
-        public static readonly Color SlotBorder = new(45, 52, 65, 180);
-        public static readonly Color SlotHover = new(70, 85, 110, 150);
-        public static readonly Color SlotSelected = new(212, 175, 85, 100);
-
-        public static readonly Color TextWhite = new(240, 240, 245);
-        public static readonly Color TextGold = new(255, 220, 130);
-        public static readonly Color TextGray = new(160, 165, 175);
-        public static readonly Color TextDark = new(100, 105, 115);
-
-        public static readonly Color Success = new(80, 200, 120);
-        public static readonly Color Warning = new(240, 180, 60);
-        public static readonly Color Danger = new(220, 80, 80);
+        public static Color BgDarkest => UiThemeManager.Current.Palette.BgDarkest;
+        public static Color BgDark => UiThemeManager.Current.Palette.BgDark;
+        public static Color BgMid => UiThemeManager.Current.Palette.BgMid;
+        public static Color BgLight => UiThemeManager.Current.Palette.BgLight;
+        public static Color BgLighter => UiThemeManager.Current.Palette.BgLighter;
+        public static Color Accent => UiThemeManager.Current.Palette.Accent;
+        public static Color AccentBright => UiThemeManager.Current.Palette.AccentBright;
+        public static Color AccentDim => UiThemeManager.Current.Palette.AccentDim;
+        public static Color AccentGlow => UiThemeManager.Current.Palette.AccentGlow;
+        public static Color Secondary => UiThemeManager.Current.Palette.Secondary;
+        public static Color SecondaryBright => UiThemeManager.Current.Palette.SecondaryBright;
+        public static Color SecondaryDim => UiThemeManager.Current.Palette.SecondaryDim;
+        public static Color BorderOuter => UiThemeManager.Current.Palette.BorderOuter;
+        public static Color BorderInner => UiThemeManager.Current.Palette.BorderInner;
+        public static Color BorderHighlight => UiThemeManager.Current.Palette.BorderHighlight;
+        public static Color SlotBg => UiThemeManager.Current.Palette.SlotBg;
+        public static Color SlotBorder => UiThemeManager.Current.Palette.SlotBorder;
+        public static Color SlotHover => UiThemeManager.Current.Palette.SlotHover;
+        public static Color SlotSelected => UiThemeManager.Current.Palette.SlotSelected;
+        public static Color TextWhite => UiThemeManager.Current.Palette.TextWhite;
+        public static Color TextGold => UiThemeManager.Current.Palette.TextGold;
+        public static Color TextGray => UiThemeManager.Current.Palette.TextGray;
+        public static Color TextDark => UiThemeManager.Current.Palette.TextDark;
+        public static Color Success => UiThemeManager.Current.Palette.Success;
+        public static Color Warning => UiThemeManager.Current.Palette.Warning;
+        public static Color Danger => UiThemeManager.Current.Palette.Danger;
     }
 }

@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 using Client.Data.ATT;
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Controls.UI;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Core.Utilities;
 using Client.Main.Helpers;
 using Client.Main.Models;
@@ -29,12 +32,18 @@ namespace Client.Main.Controls.UI.Game
             Portal
         }
 
-        private const int WindowWidth = 560;
-        private const int WindowHeight = 475;
+        // The gameplay minimap keeps the proven Modern presentation in both themes.
+        private const bool UseModernLayout = true;
+        private static readonly UiThemeDefinition ModernDisplayTheme =
+            UiThemeManager.AvailableThemes.First(theme => theme.Id == UiThemeId.Modern);
+        private static bool IsSeason6 => !UseModernLayout && UiThemeManager.CurrentId == UiThemeId.Season6;
+        private static UiThemeDefinition DisplayTheme => UseModernLayout ? ModernDisplayTheme : UiThemeManager.Current;
+        private int WindowWidth => DisplayTheme.Metrics.MinimapSize.X;
+        private int WindowHeight => DisplayTheme.Metrics.MinimapSize.Y;
         private const int MapSize = 520;
-        private const int MapDisplayHeight = 455;
-        private const int MapLeft = 20;
-        private const int MapTop = 10;
+        private int MapDisplayHeight => IsSeason6 ? 480 : 455;
+        private int MapLeft => IsSeason6 ? 20 : 20;
+        private int MapTop => IsSeason6 ? 18 : 10;
         private const int EdgeMaskSize = 128;
         private const int TerrainSize = 256;
         private const int TerrainTexturePadding = 128;
@@ -61,14 +70,23 @@ namespace Client.Main.Controls.UI.Game
 
         private static class OverlayTheme
         {
-            public static readonly Color MapTint = new(184, 218, 230);
-            public static readonly Color Npc = new(102, 210, 235);
-            public static readonly Color Monster = new(236, 78, 78);
-            public static readonly Color Player = new(92, 224, 142);
-            public static readonly Color Hero = new(255, 211, 112);
-            public static readonly Color Caption = new(220, 226, 230);
-            public static readonly Color Text = new(240, 244, 246);
-            public static readonly Color Dark = new(12, 18, 24);
+            public static Color MapTint => IsSeason6
+                ? Color.Lerp(DisplayTheme.Palette.AccentBright, Color.White, 0.18f)
+                : new Color(184, 218, 230);
+            public static Color Npc => IsSeason6
+                ? DisplayTheme.Palette.AccentBright : new Color(102, 210, 235);
+            public static Color Monster => IsSeason6
+                ? DisplayTheme.Palette.Danger : new Color(236, 78, 78);
+            public static Color Player => IsSeason6
+                ? DisplayTheme.Palette.Success : new Color(92, 224, 142);
+            public static Color Hero => IsSeason6
+                ? DisplayTheme.Palette.TextGold : new Color(255, 211, 112);
+            public static Color Caption => IsSeason6
+                ? DisplayTheme.Palette.TextWhite : new Color(220, 226, 230);
+            public static Color Text => IsSeason6
+                ? DisplayTheme.Palette.TextWhite : new Color(240, 244, 246);
+            public static Color Dark => IsSeason6
+                ? DisplayTheme.Palette.BgDarkest : new Color(12, 18, 24);
         }
 
         private readonly GameScene _gameScene;
@@ -109,6 +127,13 @@ namespace Client.Main.Controls.UI.Game
             ViewSize = ControlSize;
             Interactive = false;
             Visible = false;
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ControlSize = new Point(WindowWidth, WindowHeight);
+            ViewSize = ControlSize;
         }
 
         public override async Task Load()
@@ -546,6 +571,7 @@ namespace Client.Main.Controls.UI.Game
             }
 
             Visible = true;
+            BringToFront();
 
             if (_terrainMapPixels == null && _gameScene.World != null)
             {

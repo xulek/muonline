@@ -1,7 +1,11 @@
 ﻿using Client.Main.Graphics;
 using Client.Main.Models;
+using Client.Main.Controllers;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Controls.UI.Login
 {
@@ -29,6 +33,12 @@ namespace Client.Main.Controls.UI.Login
             TexturePath = "Interface/cha_bt.tga";
         }
 
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            _label.TextColor = ModernHudTheme.TextWhite;
+        }
+
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
@@ -47,6 +57,28 @@ namespace Client.Main.Controls.UI.Login
                 TileY = 1;
             else
                 TileY = 0;
+        }
+
+        public override void Draw(GameTime gameTime)
+        {
+            if (Status != GameControlStatus.Ready || !Visible)
+                return;
+
+            if (LoginUiTheme.UseModernLayout)
+            {
+                base.Draw(gameTime);
+                return;
+            }
+
+            SpriteBatch sprite = GraphicsManager.Instance.Sprite;
+            Rectangle rect = DisplayRectangle;
+            Color background = Selected
+                ? ModernHudTheme.SlotSelected
+                : IsMouseOver ? ModernHudTheme.SlotHover : ModernHudTheme.SlotBg;
+            UiDrawHelper.DrawPanel(sprite, rect, background,
+                ModernHudTheme.BorderInner, ModernHudTheme.BorderOuter,
+                IsMouseOver || Selected ? ModernHudTheme.Accent : ModernHudTheme.BorderHighlight);
+            _label.Draw(gameTime);
         }
     }
 }

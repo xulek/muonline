@@ -100,14 +100,28 @@ namespace Client.Main.Controls.UI.Game.Hud
         private bool _lastDarkRavenEquipped;
 
         // Potion slot assignments (Q=0, W=1, E=2) — stores item type
-        private readonly (byte Group, int Id)?[] _potionAssignments = new (byte, int)?[PotionSlotCount];
+        public const int ItemHotbarSlotCount = 5;
+        private readonly (byte Group, int Id)?[] _potionAssignments = new (byte, int)?[ItemHotbarSlotCount];
         private readonly Dictionary<string, Texture2D> _potionTextureCache = new();
         private const int PotionIconCacheSize = 48; // fixed size for BMD preview caching
+
+        // Classic uses its own five-slot item bar and two skill sets. These fields hold
+        // interaction state only; Modern still renders and handles its original 13-slot HUD.
+        public static readonly int[] SetSlotCounts = { 4, 7 };
+        private readonly ushort?[][] _imprintSets =
+        {
+            new ushort?[4],
+            new ushort?[7]
+        };
+        private readonly SkillEntryState?[] _hotbarSkills = new SkillEntryState?[SlotCount - PotionSlotCount];
+        private int _activeSet = 1;
+        private bool _consumableCandidatesDirty = true;
 
         // Potion picker popup
         private bool _potionPickerOpen;
         private int _potionPickerSlot = -1;
         private readonly List<PotionCandidate> _potionCandidates = new();
+        private readonly List<(byte Group, int Id, string Name, string? TexturePath, int Count)> _consumableCandidateView = new();
         private int _hoveredPotionCandidate = -1;
         private Rectangle _potionPickerRect;
         private Rectangle[] _potionPickerItemRects = Array.Empty<Rectangle>();
@@ -134,6 +148,11 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         public SkillEntryState? SelectedSkill => _slotSkills[_activeSkillSlot];
 
+        public int ActiveSet => _activeSet;
+        public int VisibleSkillCount => SetSlotCounts[Math.Clamp(_activeSet, 0, SetSlotCounts.Length - 1)];
+        public IReadOnlyList<SkillEntryState?> HotbarSkills => _hotbarSkills;
+        public bool IsModernRenderer => UiThemeManager.CurrentId == UiThemeId.Modern;
+
         public ModernBottomHud(CharacterState state, SkillSelectionPanel skillPanel)
         {
             _state = state;
@@ -146,8 +165,20 @@ namespace Client.Main.Controls.UI.Game.Hud
             BorderThickness = 0;
 
             _skillPanel.SkillSelected += OnSkillSelectedFromPanel;
+            _state.InventoryChanged += OnInventoryChanged;
 
             RefreshLayout();
+        }
+
+        private void OnInventoryChanged()
+        {
+            _consumableCandidatesDirty = true;
+        }
+
+        public override void Dispose()
+        {
+            _state.InventoryChanged -= OnInventoryChanged;
+            base.Dispose();
         }
 
         protected override void OnScreenSizeChanged()
@@ -184,15 +215,18 @@ namespace Client.Main.Controls.UI.Game.Hud
             _displayAgPct = MathHelper.Lerp(_displayAgPct, _targetAgPct, LerpSpeed * dt);
 
             RefreshCompanionLifeInfos();
-            HandleKeyboard();
-            HandleMouseHover();
-            HandlePotionPickerClick();
-            EnsurePotionIconsCached();
+            if (IsModernRenderer)
+            {
+                HandleKeyboard();
+                HandleMouseHover();
+                HandlePotionPickerClick();
+                EnsurePotionIconsCached();
+            }
         }
 
         public override void Draw(GameTime gameTime)
         {
-            if (Status != GameControlStatus.Ready || !Visible)
+            if (Status != GameControlStatus.Ready || !Visible || !IsModernRenderer)
                 return;
 
             var spriteBatch = GraphicsManager.Instance.Sprite;
@@ -274,8 +308,7 @@ namespace Client.Main.Controls.UI.Game.Hud
                     else
                     {
                         // Skill slot → open skill selection panel
-                        _pendingAssignSlot = i;
-                        _skillPanel.Open(_state);
+                        BeginSkillAssignment(i - PotionSlotCount);
                     }
                     return true;
                 }
@@ -473,7 +506,184 @@ namespace Client.Main.Controls.UI.Game.Hud
             _slotSkills[targetSlot] = skill;
             _activeSkillSlot = targetSlot;
             _pendingAssignSlot = -1;
+            SyncHotbarSkills();
             PersistQuickSlots();
+        }
+
+        /// <summary>
+        /// Opens the shared skill picker for a zero-based combat hotbar slot.
+        /// Classic uses this path as well, so assignment does not depend on the HUD renderer.
+        /// </summary>
+        public void BeginSkillAssignment(int hotbarIndex)
+        {
+            if (hotbarIndex < 0 || hotbarIndex >= _hotbarSkills.Length || _skillPanel == null)
+                return;
+
+            _pendingAssignSlot = PotionSlotCount + hotbarIndex;
+            _skillPanel.Interactive = true;
+            _skillPanel.Open(_state);
+            _skillPanel.BringToFront();
+            if (Scene != null)
+                Scene.FocusControl = _skillPanel;
+        }
+
+        /// <summary>
+        /// Clears the active Classic skill set and immediately applies the empty hotbar.
+        /// </summary>
+        public void ResetActiveSkillSet()
+        {
+            ClearSet(_activeSet);
+            ActivateSet(_activeSet);
+            _pendingAssignSlot = -1;
+        }
+
+        private void SyncHotbarSkills()
+        {
+            for (int i = 0; i < _hotbarSkills.Length; i++)
+                _hotbarSkills[i] = _slotSkills[PotionSlotCount + i];
+        }
+
+        public SkillEntryState? GetHotbarSkillAt(int hotbarIndex)
+            => hotbarIndex >= 0 && hotbarIndex < _hotbarSkills.Length ? _hotbarSkills[hotbarIndex] : null;
+
+        public void SetHotbarSkillAt(int hotbarIndex, SkillEntryState? skill)
+        {
+            if (hotbarIndex < 0 || hotbarIndex >= _hotbarSkills.Length)
+                return;
+
+            _slotSkills[PotionSlotCount + hotbarIndex] = skill;
+            _hotbarSkills[hotbarIndex] = skill;
+            if (_activeSet >= 0 && _activeSet < _imprintSets.Length && hotbarIndex < _imprintSets[_activeSet].Length)
+                _imprintSets[_activeSet][hotbarIndex] = skill?.SkillId;
+            PersistQuickSlots();
+        }
+
+        public void ClearHotbarSkillAt(int hotbarIndex) => SetHotbarSkillAt(hotbarIndex, null);
+
+        public void AssignSkillToHotbar(SkillEntryState skill)
+        {
+            if (skill == null)
+                return;
+
+            for (int i = 0; i < _hotbarSkills.Length; i++)
+            {
+                if (_hotbarSkills[i] == null)
+                {
+                    SetHotbarSkillAt(i, skill);
+                    _activeSkillSlot = PotionSlotCount + i;
+                    return;
+                }
+            }
+
+            SetHotbarSkillAt(0, skill);
+            _activeSkillSlot = PotionSlotCount;
+        }
+
+        public bool IsSkillOnHotbar(ushort skillId)
+        {
+            for (int i = 0; i < _hotbarSkills.Length; i++)
+                if (_hotbarSkills[i]?.SkillId == skillId)
+                    return true;
+            return false;
+        }
+
+        public int GetSetSlotCount(int set)
+            => set >= 0 && set < SetSlotCounts.Length ? SetSlotCounts[set] : 0;
+
+        public SkillEntryState? GetSetSkillAt(int set, int index)
+        {
+            if (set < 0 || set >= _imprintSets.Length || index < 0 || index >= _imprintSets[set].Length)
+                return null;
+
+            ushort? id = _imprintSets[set][index];
+            if (!id.HasValue)
+                return null;
+
+            foreach (SkillEntryState skill in _state.GetSkills())
+                if (skill.SkillId == id.Value)
+                    return skill;
+            return null;
+        }
+
+        public void SetSetSkillAt(int set, int index, SkillEntryState? skill)
+        {
+            if (set < 0 || set >= _imprintSets.Length || index < 0 || index >= _imprintSets[set].Length)
+                return;
+            _imprintSets[set][index] = skill?.SkillId;
+        }
+
+        public void ClearSetSkillAt(int set, int index) => SetSetSkillAt(set, index, null);
+
+        public void ClearSet(int set)
+        {
+            if (set < 0 || set >= _imprintSets.Length)
+                return;
+            Array.Clear(_imprintSets[set]);
+        }
+
+        public void ActivateSet(int set)
+        {
+            if (set < 0 || set >= _imprintSets.Length)
+                return;
+
+            _activeSet = set;
+            for (int i = 0; i < _hotbarSkills.Length; i++)
+            {
+                SkillEntryState? skill = i < _imprintSets[set].Length ? GetSetSkillAt(set, i) : null;
+                _slotSkills[PotionSlotCount + i] = skill;
+            }
+            SyncHotbarSkills();
+            EnsureActiveSkillSelection(_hotbarSkills.FirstOrDefault(skill => skill != null));
+            PersistQuickSlots();
+        }
+
+        public (byte Group, int Id)? GetItemAssignmentAt(int index)
+            => index >= 0 && index < _potionAssignments.Length ? _potionAssignments[index] : null;
+
+        public void SetItemAssignmentAt(int index, (byte Group, int Id)? assignment)
+        {
+            if (index < 0 || index >= _potionAssignments.Length)
+                return;
+            _potionAssignments[index] = assignment;
+            PersistQuickSlots();
+        }
+
+        public IReadOnlyList<(byte Group, int Id, string Name, string? TexturePath, int Count)> GetConsumableCandidates()
+        {
+            EnsureConsumableCandidates();
+            return _consumableCandidateView;
+        }
+
+        public void EnsureConsumableIconsCached()
+        {
+            EnsureConsumableCandidates();
+            for (int i = 0; i < _potionAssignments.Length; i++)
+            {
+                var assignment = _potionAssignments[i];
+                if (!assignment.HasValue)
+                    continue;
+
+                ItemDefinition? definition = ItemDatabase.GetItemDefinition(assignment.Value.Group, (short)assignment.Value.Id);
+                if (definition?.TexturePath?.EndsWith(".bmd", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    if (BmdPreviewRenderer.TryGetCachedPreview(definition, PotionIconCacheSize, PotionIconCacheSize) == null)
+                        BmdPreviewRenderer.GetPreview(definition, PotionIconCacheSize, PotionIconCacheSize);
+                }
+            }
+        }
+
+        public Texture2D? GetItemIconByKey(byte group, int id)
+            => ResolveItemIcon(ItemDatabase.GetItemDefinition(group, (short)id));
+
+        public int CountItemInInventory(byte group, int id)
+            => CountPotionInInventory(group, id);
+
+        private void EnsureConsumableCandidates()
+        {
+            if (!_consumableCandidatesDirty)
+                return;
+            BuildPotionCandidates();
+            _consumableCandidatesDirty = false;
         }
 
         private void RestoreQuickSlotsIfNeeded()
@@ -500,7 +710,7 @@ namespace Client.Main.Controls.UI.Game.Hud
                     }
                 }
 
-                for (int i = 0; i < Math.Min(PotionSlotCount, savedPotionSlots.Length); i++)
+                for (int i = 0; i < Math.Min(ItemHotbarSlotCount, savedPotionSlots.Length); i++)
                 {
                     _potionAssignments[i] = savedPotionSlots[i];
                 }
@@ -510,6 +720,10 @@ namespace Client.Main.Controls.UI.Game.Hud
                     _activeSkillSlot = activeSkillSlot;
                 }
             }
+
+            for (int i = 0; i < _imprintSets[1].Length && i < _hotbarSkills.Length; i++)
+                _imprintSets[1][i] = _slotSkills[PotionSlotCount + i]?.SkillId;
+            SyncHotbarSkills();
 
             EnsureActiveSkillSelection(learnedSkills.Values.FirstOrDefault());
             _quickSlotsRestored = true;
@@ -1383,6 +1597,7 @@ namespace Client.Main.Controls.UI.Game.Hud
         private void BuildPotionCandidates()
         {
             _potionCandidates.Clear();
+            _consumableCandidateView.Clear();
 
             var items = _state.GetInventoryItems();
             var grouped = new Dictionary<(byte, int), (string Name, string? TexturePath, int Count, byte FirstSlot)>();
@@ -1411,10 +1626,12 @@ namespace Client.Main.Controls.UI.Game.Hud
 
             foreach (var kvp in grouped.OrderBy(g => g.Key.Item1).ThenBy(g => g.Key.Item2))
             {
-                _potionCandidates.Add(new PotionCandidate(
+                var candidate = new PotionCandidate(
                     kvp.Key.Item1, kvp.Key.Item2,
                     kvp.Value.Name, kvp.Value.TexturePath,
-                    kvp.Value.Count, kvp.Value.FirstSlot));
+                    kvp.Value.Count, kvp.Value.FirstSlot);
+                _potionCandidates.Add(candidate);
+                _consumableCandidateView.Add((candidate.Group, candidate.Id, candidate.Name, candidate.TexturePath, candidate.Count));
             }
         }
 

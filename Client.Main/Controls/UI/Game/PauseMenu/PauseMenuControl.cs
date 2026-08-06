@@ -55,19 +55,25 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 sprite.Draw(pixel, new Rectangle(rect.X + 9, rect.Y + 12, rect.Width, rect.Height), new Color(0, 0, 0, 105));
                 sprite.Draw(pixel, new Rectangle(rect.X + 4, rect.Y + 6, rect.Width, rect.Height), new Color(0, 0, 0, 70));
 
+                bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+                Color panelTop = season6 ? ModernHudTheme.BgMid : new Color(29, 35, 46, 250);
+                Color panelBottom = season6 ? ModernHudTheme.BgDarkest : new Color(8, 11, 17, 252);
+                Color headerTop = season6 ? ModernHudTheme.BgLighter : new Color(50, 59, 73, 238);
+                Color headerBottom = season6 ? ModernHudTheme.BgMid : new Color(24, 30, 40, 222);
+
                 UiDrawHelper.DrawVerticalGradient(
                     sprite,
                     rect,
-                    new Color(29, 35, 46, 250),
-                    new Color(8, 11, 17, 252),
+                    panelTop,
+                    panelBottom,
                     20);
 
                 var headerRect = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, Math.Min(HeaderHeight, rect.Height - 2));
                 UiDrawHelper.DrawVerticalGradient(
                     sprite,
                     headerRect,
-                    new Color(50, 59, 73, 238),
-                    new Color(24, 30, 40, 222),
+                    headerTop,
+                    headerBottom,
                     12);
 
                 UiDrawHelper.DrawHorizontalGradient(
@@ -90,8 +96,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                         rect.Y + ContentTop,
                         rect.Width - 36,
                         rect.Height - ContentTop - 18);
-                    sprite.Draw(pixel, contentRect, new Color(5, 8, 13, 118));
-                    UiDrawHelper.DrawBorder(sprite, contentRect, new Color(91, 104, 124, 72));
+                    sprite.Draw(pixel, contentRect, season6 ? ModernHudTheme.BgDarkest * 0.7f : new Color(5, 8, 13, 118));
+                    UiDrawHelper.DrawBorder(sprite, contentRect, season6 ? ModernHudTheme.BorderInner * 0.7f : new Color(91, 104, 124, 72));
                 }
 
                 UiDrawHelper.DrawBorder(sprite, rect, ModernHudTheme.BorderOuter, 2);
@@ -133,27 +139,32 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 Color accent = IsDanger ? ModernHudTheme.Danger : AccentColor;
                 Color top;
                 Color bottom;
+                bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
 
                 if (!Enabled)
                 {
-                    top = new Color(25, 29, 36, 205);
-                    bottom = new Color(13, 16, 21, 215);
+                    top = season6 ? ModernHudTheme.BgMid : new Color(25, 29, 36, 205);
+                    bottom = season6 ? ModernHudTheme.BgDarkest : new Color(13, 16, 21, 215);
                     accent = ModernHudTheme.TextDark;
                 }
                 else if (IsMousePressed)
                 {
-                    top = new Color(20, 25, 33, 252);
-                    bottom = new Color(8, 11, 16, 252);
+                    top = season6 ? ModernHudTheme.BgLight : new Color(20, 25, 33, 252);
+                    bottom = season6 ? ModernHudTheme.BgDark : new Color(8, 11, 16, 252);
                 }
                 else if (IsMouseOver)
                 {
-                    top = IsDanger ? new Color(83, 38, 41, 248) : new Color(52, 61, 76, 248);
-                    bottom = IsDanger ? new Color(42, 20, 24, 250) : new Color(20, 27, 37, 250);
+                    top = season6
+                        ? (IsDanger ? ModernHudTheme.Danger * 0.65f : ModernHudTheme.BgLighter)
+                        : (IsDanger ? new Color(83, 38, 41, 248) : new Color(52, 61, 76, 248));
+                    bottom = season6
+                        ? (IsDanger ? ModernHudTheme.Danger * 0.35f : ModernHudTheme.BgMid)
+                        : (IsDanger ? new Color(42, 20, 24, 250) : new Color(20, 27, 37, 250));
                 }
                 else
                 {
-                    top = new Color(37, 44, 56, 238);
-                    bottom = new Color(16, 21, 29, 244);
+                    top = season6 ? ModernHudTheme.BgLight : new Color(37, 44, 56, 238);
+                    bottom = season6 ? ModernHudTheme.BgDark : new Color(16, 21, 29, 244);
                 }
 
                 sprite.Draw(pixel, new Rectangle(rect.X + 3, rect.Y + 4, rect.Width, rect.Height), new Color(0, 0, 0, 76));
@@ -169,7 +180,10 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                     sprite.Draw(pixel, new Rectangle(rect.X, rect.Y, 3, rect.Height), new Color(accent.R, accent.G, accent.B, (byte)(Enabled ? 185 : 80)));
                 }
 
-                UiDrawHelper.DrawBorder(sprite, rect, IsMouseOver && Enabled ? new Color(accent.R, accent.G, accent.B, (byte)180) : new Color(91, 104, 124, 115));
+                UiDrawHelper.DrawBorder(sprite, rect,
+                    IsMouseOver && Enabled
+                        ? new Color(accent.R, accent.G, accent.B, (byte)180)
+                        : season6 ? ModernHudTheme.BorderInner : new Color(91, 104, 124, 115));
                 sprite.Draw(pixel, new Rectangle(rect.X + 10, rect.Bottom - 1, rect.Width - 20, 1), new Color(255, 255, 255, 18));
 
                 float titleScale = (Compact ? 11.5f : 14f) / Constants.BASE_FONT_SIZE;
@@ -229,12 +243,14 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
 
                 var rect = DisplayRectangle;
                 Color fill = Active
-                    ? new Color(64, 55, 34, 225)
+                    ? UiThemeManager.CurrentId == UiThemeId.Season6 ? ModernHudTheme.SlotSelected : new Color(64, 55, 34, 225)
                     : IsMouseOver
-                        ? new Color(46, 55, 69, 225)
-                        : new Color(20, 26, 35, 210);
+                        ? UiThemeManager.CurrentId == UiThemeId.Season6 ? ModernHudTheme.SlotHover : new Color(46, 55, 69, 225)
+                        : UiThemeManager.CurrentId == UiThemeId.Season6 ? ModernHudTheme.BgDark : new Color(20, 26, 35, 210);
                 sprite.Draw(pixel, rect, fill);
-                UiDrawHelper.DrawBorder(sprite, rect, Active ? new Color(ModernHudTheme.Accent.R, ModernHudTheme.Accent.G, ModernHudTheme.Accent.B, (byte)190) : new Color(91, 104, 124, 95));
+                UiDrawHelper.DrawBorder(sprite, rect,
+                    Active ? new Color(ModernHudTheme.Accent.R, ModernHudTheme.Accent.G, ModernHudTheme.Accent.B, (byte)190)
+                        : UiThemeManager.CurrentId == UiThemeId.Season6 ? ModernHudTheme.BorderInner : new Color(91, 104, 124, 95));
 
                 if (Active)
                     sprite.Draw(pixel, new Rectangle(rect.X + 8, rect.Bottom - 2, rect.Width - 16, 2), ModernHudTheme.AccentBright);
@@ -393,6 +409,56 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 Align = Models.ControlAlign.HorizontalCenter
             };
             _panel.Controls.Add(_footerLabel);
+            ApplyThemeLayout();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
+        }
+
+        private void ApplyThemeLayout()
+        {
+            bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+            Point panelSize = UiThemeManager.Current.Metrics.ModalWindowSize;
+            _panel.ControlSize = panelSize;
+            _panel.ViewSize = panelSize;
+            _panel.HeaderHeight = season6 ? 88 : 98;
+
+            int buttonWidth = season6 ? 332 : 342;
+            int buttonHeight = season6 ? 58 : 56;
+            int x = (panelSize.X - buttonWidth) / 2;
+            int y = season6 ? 102 : 111;
+            int spacing = season6 ? 9 : 10;
+
+            _titleLabel.Y = season6 ? 18 : 22;
+            _subtitleLabel.Y = season6 ? 52 : 58;
+            _footerLabel.Y = panelSize.Y - (season6 ? 31 : 32);
+
+            PositionPauseButton(_btnResume, x, y, buttonWidth, buttonHeight);
+            y += buttonHeight + spacing;
+            PositionPauseButton(_btnCharacterSelect, x, y, buttonWidth, buttonHeight);
+            y += buttonHeight + spacing;
+            PositionPauseButton(_btnServerSelect, x, y, buttonWidth, buttonHeight);
+            y += buttonHeight + spacing;
+            PositionPauseButton(_btnOptions, x, y, buttonWidth, buttonHeight);
+            y += buttonHeight + spacing;
+            PositionPauseButton(_btnExit, x, y, buttonWidth, buttonHeight);
+
+            if (_btnOptions is PauseMenuButtonControl optionsButton)
+                optionsButton.AccentColor = ModernHudTheme.Secondary;
+
+            _optionsPanel?.ApplyThemeLayout();
+            MarkLayoutDirty();
+        }
+
+        private static void PositionPauseButton(ButtonControl button, int x, int y, int width, int height)
+        {
+            button.X = x;
+            button.Y = y;
+            button.ControlSize = new Point(width, height);
+            button.ViewSize = new Point(width, height);
         }
 
         public override void Draw(GameTime gameTime)
@@ -402,7 +468,10 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
 
             var sprite = GraphicsManager.Instance.Sprite;
             var rect = DisplayRectangle;
-            UiDrawHelper.DrawVerticalGradient(sprite, rect, new Color(6, 8, 13, 205), new Color(0, 0, 0, 238), 20);
+            bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+            UiDrawHelper.DrawVerticalGradient(sprite, rect,
+                season6 ? ModernHudTheme.BgDark * 0.82f : new Color(6, 8, 13, 205),
+                season6 ? ModernHudTheme.BgDarkest * 0.94f : new Color(0, 0, 0, 238), 20);
 
             base.Draw(gameTime);
         }
@@ -858,7 +927,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
             private readonly PauseMenuControl _owner;
             private readonly List<IOptionRow> _options = new();
             private readonly List<GameControl> _dynamicControls = new();
-            private const int ContentStartY = 202;
+            private const int ContentStartY = 228;
             private const int ContentPaddingX = 30;
             private const int OptionRowHeight = 30;
             private readonly ButtonControl _closeButton;
@@ -873,8 +942,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 ViewSize = ControlSize;
                 Align = Models.ControlAlign.HorizontalCenter | Models.ControlAlign.VerticalCenter;
                 Interactive = true;
-                HeaderHeight = 184;
-                ContentTop = 190;
+                HeaderHeight = 220;
+                ContentTop = 220;
                 DrawContentSurface = true;
                 _panelWidth = ControlSize.X;
 
@@ -928,6 +997,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                     ref categoryX, categoryWidth, categoryHeight, categorySpacing, categoriesPerRow, ref categoryIndex);
                 AddCategoryButton("Performance", () => BuildPerformanceCategory(), categoryStartY,
                     ref categoryX, categoryWidth, categoryHeight, categorySpacing, categoriesPerRow, ref categoryIndex);
+                AddCategoryButton("Interface", () => BuildInterfaceCategory(), categoryStartY,
+                    ref categoryX, categoryWidth, categoryHeight, categorySpacing, categoriesPerRow, ref categoryIndex);
 
                 _closeButton = new PauseMenuButtonControl
                 {
@@ -947,6 +1018,37 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 Controls.Add(_closeButton);
 
                 BuildAudioCategory(); // default category
+            }
+
+            protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+            {
+                base.OnThemeChanged(e);
+                ApplyThemeLayout();
+            }
+
+            public void ApplyThemeLayout()
+            {
+                HeaderHeight = 220;
+                ContentTop = 220;
+                _closeButton.X = (ControlSize.X - _closeButton.ViewSize.X) / 2;
+                _closeButton.Y = ContentTop;
+                _closeButton.BringToFront();
+                MarkLayoutDirty();
+            }
+
+            private void BuildInterfaceCategory()
+            {
+                BuildCategory("Interface", (ref int currentY) =>
+                {
+                    AddOption(
+                        "Classic interface",
+                        () => UiThemeManager.CurrentId == UiThemeId.Classic,
+                        value => UiThemeManager.SetTheme(value ? UiThemeId.Classic : UiThemeId.Modern),
+                        ref currentY,
+                        OptionRowHeight);
+
+                    AddHeading("Modern is the original interface. Classic uses the alternate HUD, windows and assets.", ref currentY);
+                });
             }
 
             private delegate void CategoryBuilder(ref int currentY);

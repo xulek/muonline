@@ -31,6 +31,8 @@ namespace Client.Main.Controls.UI.Game.Buffs
 
         private Point _lastVirtualSize = Point.Zero;
 
+        private bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+
         public ActiveBuffsPanel(CharacterState characterState, CurrentLocationControl locationControl)
         {
             _characterState = characterState;
@@ -66,6 +68,13 @@ namespace Client.Main.Controls.UI.Game.Buffs
             base.Update(gameTime);
             RefreshViewportScale();
             UpdateAnchorPosition();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            _lastVirtualSize = Point.Zero;
+            RefreshViewportScale(force: true);
         }
 
         public override void Draw(GameTime gameTime)
@@ -127,13 +136,15 @@ namespace Client.Main.Controls.UI.Game.Buffs
 
             _lastVirtualSize = virtualSize;
 
-            float scaleX = virtualSize.X / 1024f;
-            float scaleY = virtualSize.Y / 768f;
-            float scale = Math.Clamp(MathF.Min(scaleX, scaleY), 0.82f, 1.25f);
+            float scaleX = virtualSize.X / (IsSeason6 ? 1280f : 1024f);
+            float scaleY = virtualSize.Y / (IsSeason6 ? 720f : 768f);
+            float scale = IsSeason6
+                ? Math.Clamp(MathF.Min(scaleX, scaleY), 0.90f, 1.20f)
+                : Math.Clamp(MathF.Min(scaleX, scaleY), 0.82f, 1.25f);
 
-            _slotWidth = ScaleValue(BuffIconAtlas.IconWidth + 4, scale);
-            _slotHeight = ScaleValue(BuffIconAtlas.IconHeight + 4, scale);
-            _spacing = ScaleValue(3, scale);
+            _slotWidth = ScaleValue(BuffIconAtlas.IconWidth + (IsSeason6 ? 8 : 4), scale);
+            _slotHeight = ScaleValue(BuffIconAtlas.IconHeight + (IsSeason6 ? 8 : 4), scale);
+            _spacing = ScaleValue(IsSeason6 ? 4 : 3, scale);
 
             for (int i = 0; i < _buffSlots.Count; i++)
             {

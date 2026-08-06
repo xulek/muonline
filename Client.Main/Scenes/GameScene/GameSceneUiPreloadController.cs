@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Client.Main.Content;
 using Client.Main.Controls;
 using Client.Main.Controls.UI;
 using Client.Main.Helpers;
@@ -71,8 +70,7 @@ namespace Client.Main.Scenes
                     {
                         try
                         {
-                            await TextureLoader.Instance.Prepare(path);
-                            _ = TextureLoader.Instance.GetTexture2D(path);
+                            await UiThemeManager.LoadThemeTextureAsync(path);
                         }
                         catch (Exception ex)
                         {

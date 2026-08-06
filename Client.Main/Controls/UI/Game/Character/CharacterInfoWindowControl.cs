@@ -2,6 +2,7 @@ using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Game.Hud;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
@@ -20,12 +21,16 @@ namespace Client.Main.Controls.UI.Game.Character
 {
     public class CharacterInfoWindowControl : UIControl, IUiTexturePreloadable
     {
-        private const int WINDOW_WIDTH = 280;
-        private const int WINDOW_HEIGHT = 520;
+        private static int WINDOW_WIDTH => UiThemeManager.CurrentId == UiThemeId.Season6
+            ? UiThemeManager.Current.Metrics.CharacterWindowSize.X : 280;
+        private static int WINDOW_HEIGHT => UiThemeManager.CurrentId == UiThemeId.Season6
+            ? UiThemeManager.Current.Metrics.CharacterWindowSize.Y : 520;
         private const int STAT_BOX_WIDTH = 170;
         private const int BTN_STAT_COUNT = 5;
 
-        private static readonly float[] s_statRowY =
+        private static bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+
+        private static readonly float[] s_classicStatRowY =
         {
             140f,
             200f,
@@ -33,6 +38,17 @@ namespace Client.Main.Controls.UI.Game.Character
             340f,
             410f
         };
+
+        private static readonly float[] s_season6StatRowY =
+        {
+            330f,
+            388f,
+            446f,
+            504f,
+            562f
+        };
+
+        private static float[] s_statRowY => IsSeason6 ? s_season6StatRowY : s_classicStatRowY;
 
         private static readonly string[] s_statShortNames = { "STR", "AGI", "STA", "ENE", "CMD" };
 
@@ -43,6 +59,13 @@ namespace Client.Main.Controls.UI.Game.Character
             "Interface/newui_chainfo_btn_quest.tga",
             "Interface/newui_chainfo_btn_pet.tga",
             "Interface/newui_chainfo_btn_master.tga"
+        };
+
+        private static readonly string[] s_season6PreloadTextures =
+        {
+            "Interface/Imprint/imprint_panel.OZP",
+            "Interface/Inventory/inv_rect.OZP",
+            "Interface/Imprint/imprint_close.OZP"
         };
 
         private enum TextAlignment
@@ -99,6 +122,14 @@ namespace Client.Main.Controls.UI.Game.Character
         private Texture2D _buttonPetTexture;
         private Texture2D _buttonMasterTexture;
         private Texture2D _statIncreaseButtonTexture;
+        private Texture2D _s6Panel;
+        private Texture2D _s6Rect;
+        private Texture2D _s6DarkCard;
+        private Texture2D _s6Close;
+        private UiThemeId _loadedTheme = (UiThemeId)(-1);
+        private Task _season6AssetsTask;
+        private Task _modernAssetsTask;
+        private SpriteFont _font;
         private RenderTarget2D _staticSurface;
         private bool _staticSurfaceDirty = true;
 
@@ -170,11 +201,22 @@ namespace Client.Main.Controls.UI.Game.Character
         }
 
         public IEnumerable<string> GetPreloadTexturePaths()
-            => s_additionalPreloadTextures;
+            => IsSeason6 ? s_season6PreloadTextures : s_additionalPreloadTextures;
 
         public override async Task Load()
         {
             await base.Load();
+
+            if (IsSeason6)
+            {
+                await EnsureSeason6AssetsAsync();
+                _font = GraphicsManager.Instance.Font;
+                InitializeLayout();
+                InvalidateStaticSurface();
+                UpdateDisplayData();
+                _loadedTheme = UiThemeManager.CurrentId;
+                return;
+            }
 
             var tl = TextureLoader.Instance;
 
@@ -187,6 +229,57 @@ namespace Client.Main.Controls.UI.Game.Character
             InitializeLayout();
             InvalidateStaticSurface();
             UpdateDisplayData();
+            _loadedTheme = UiThemeManager.CurrentId;
+        }
+
+        public Task EnsureSeason6AssetsAsync()
+        {
+            if (!IsSeason6)
+                return Task.CompletedTask;
+            return _season6AssetsTask ??= LoadSeason6AssetsAsync();
+        }
+
+        private async Task LoadSeason6AssetsAsync()
+        {
+            async Task<Texture2D> Load(string path, string fallback = null)
+            {
+                try { return await UiThemeManager.LoadThemeTextureAsync(path, fallback); }
+                catch { return null; }
+            }
+
+            _s6Panel = await Load("Interface/Imprint/imprint_panel.OZP", "Interface/GFx/NpcShop_I3.ozd");
+            _s6Rect = await Load("Interface/Inventory/inv_rect.OZP");
+            _s6DarkCard = await Load("Interface/Imprint/imprint_dark_card.OZP");
+            _s6Close = await Load("Interface/Imprint/imprint_close.OZP", "Interface/newui_exit_00.tga");
+            InvalidateStaticSurface();
+        }
+
+        private Task EnsureModernAssetsAsync()
+        {
+            if (_buttonExitTexture != null || _modernAssetsTask != null)
+                return _modernAssetsTask ?? Task.CompletedTask;
+
+            return _modernAssetsTask = LoadModernAssetsAsync();
+        }
+
+        private async Task LoadModernAssetsAsync()
+        {
+            var tl = TextureLoader.Instance;
+            try
+            {
+                _buttonExitTexture = await tl.PrepareAndGetTexture("Interface/newui_exit_00.tga");
+                _buttonQuestTexture = await tl.PrepareAndGetTexture("Interface/newui_chainfo_btn_quest.tga");
+                _buttonPetTexture = await tl.PrepareAndGetTexture("Interface/newui_chainfo_btn_pet.tga");
+                _buttonMasterTexture = await tl.PrepareAndGetTexture("Interface/newui_chainfo_btn_master.tga");
+                _statIncreaseButtonTexture = await tl.PrepareAndGetTexture("Interface/newui_chainfo_btn_level.tga");
+            }
+            catch
+            {
+                // The procedural Modern fallback remains usable when an original asset is absent.
+            }
+
+            InitializeLayout();
+            InvalidateStaticSurface();
         }
 
         private void InitializeLayout()
@@ -199,13 +292,13 @@ namespace Client.Main.Controls.UI.Game.Character
             float statValueYoffset = -2f;
             float statDetailYOffset = 15f;
 
-            _nameText = CreateText(new Vector2(WINDOW_WIDTH / 2f, 7f), 13f, ModernHudTheme.TextWhite, TextAlignment.Center);
-            _classText = CreateText(new Vector2(WINDOW_WIDTH / 2f, 25f), 11f, ModernHudTheme.TextGold, TextAlignment.Center);
-            _levelText = CreateText(new Vector2(26f, 61f), 11f, ModernHudTheme.TextWhite);
-            _expText = CreateText(new Vector2(26f, 79f), 10f, ModernHudTheme.TextGray);
-            _fruitProbText = CreateText(new Vector2(26f, 97f), 10f, ModernHudTheme.SecondaryBright);
-            _fruitStatsText = CreateText(new Vector2(26f, 115f), 10f, ModernHudTheme.SecondaryBright);
-            _statPointsText = CreateText(new Vector2(158f, 61f), 11f, ModernHudTheme.Warning);
+            _nameText = CreateText(new Vector2(WINDOW_WIDTH / 2f, IsSeason6 ? 58f : 7f), 13f, ModernHudTheme.TextWhite, TextAlignment.Center);
+            _classText = CreateText(new Vector2(WINDOW_WIDTH / 2f, IsSeason6 ? 73f : 25f), 11f, ModernHudTheme.TextGold, TextAlignment.Center);
+            _levelText = CreateText(new Vector2(IsSeason6 ? 32f : 26f, IsSeason6 ? 141f : 61f), 11f, ModernHudTheme.TextWhite);
+            _expText = CreateText(new Vector2(IsSeason6 ? 32f : 26f, IsSeason6 ? 160f : 79f), 10f, ModernHudTheme.TextGray);
+            _fruitProbText = CreateText(new Vector2(IsSeason6 ? 32f : 26f, IsSeason6 ? 179f : 97f), 10f, ModernHudTheme.SecondaryBright);
+            _fruitStatsText = CreateText(new Vector2(IsSeason6 ? 32f : 26f, IsSeason6 ? 256f : 115f), 10f, ModernHudTheme.SecondaryBright);
+            _statPointsText = CreateText(new Vector2(IsSeason6 ? 32f : 158f, IsSeason6 ? 246f : 61f), 11f, ModernHudTheme.Warning);
 
             for (int i = 0; i < BTN_STAT_COUNT; i++)
             {
@@ -436,6 +529,12 @@ namespace Client.Main.Controls.UI.Game.Character
                 return;
             }
 
+            if (IsSeason6)
+            {
+                DrawSeason6StaticElements(spriteBatch);
+                return;
+            }
+
             Rectangle window = new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
             spriteBatch.Draw(pixel, window, ModernHudTheme.BorderOuter);
             UiDrawHelper.DrawVerticalGradient(
@@ -483,6 +582,73 @@ namespace Client.Main.Controls.UI.Game.Character
                 spriteBatch.DrawString(font, label, position, ModernHudTheme.TextGold,
                     0f, Vector2.Zero, labelScale, SpriteEffects.None, 0f);
             }
+        }
+
+        private void DrawSeason6StaticElements(SpriteBatch spriteBatch)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            var window = new Rectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            if (IsUsableTexture(_s6Panel))
+                spriteBatch.Draw(_s6Panel, window, Color.White);
+            else
+            {
+                spriteBatch.Draw(pixel, window, ModernHudTheme.BorderOuter);
+                UiDrawHelper.DrawVerticalGradient(spriteBatch, new Rectangle(2, 2, WINDOW_WIDTH - 4, WINDOW_HEIGHT - 4),
+                    ModernHudTheme.BgDark, ModernHudTheme.BgDarkest);
+            }
+
+            if (IsUsableTexture(_s6Rect))
+            {
+                DrawNineSlice(spriteBatch, _s6Rect,
+                    new Rectangle(CharacterLayout.CardX, CharacterLayout.HeaderY, CharacterLayout.CardW, CharacterLayout.HeaderH));
+                DrawNineSlice(spriteBatch, _s6Rect,
+                    new Rectangle(CharacterLayout.CardX, CharacterLayout.PointsY, CharacterLayout.CardW, CharacterLayout.PointsH));
+                DrawNineSlice(spriteBatch, _s6Rect,
+                    new Rectangle(CharacterLayout.CardX, CharacterLayout.StatsY, CharacterLayout.CardW, CharacterLayout.StatsH));
+            }
+            else
+            {
+                DrawCharacterCard(spriteBatch, new Rectangle(CharacterLayout.CardX, CharacterLayout.HeaderY, CharacterLayout.CardW, CharacterLayout.HeaderH));
+                DrawCharacterCard(spriteBatch, new Rectangle(CharacterLayout.CardX, CharacterLayout.PointsY, CharacterLayout.CardW, CharacterLayout.PointsH));
+                DrawCharacterCard(spriteBatch, new Rectangle(CharacterLayout.CardX, CharacterLayout.StatsY, CharacterLayout.CardW, CharacterLayout.StatsH));
+            }
+
+            if (IsUsableTexture(_s6DarkCard))
+                spriteBatch.Draw(_s6DarkCard, new Rectangle(CharacterLayout.CardX + 4, CharacterLayout.StatsY + 4,
+                    CharacterLayout.CardW - 8, CharacterLayout.StatsH - 8), Color.White);
+        }
+
+        private void DrawCharacterCard(SpriteBatch spriteBatch, Rectangle rect)
+        {
+            UiDrawHelper.DrawPanel(spriteBatch, rect, ModernHudTheme.BgMid,
+                ModernHudTheme.BorderInner, ModernHudTheme.BorderOuter,
+                ModernHudTheme.BorderHighlight * 0.25f);
+        }
+
+        private static bool IsUsableTexture(Texture2D texture)
+            => texture != null && !texture.IsDisposed;
+
+        private static void DrawNineSlice(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, int margin = 8)
+        {
+            if (!IsUsableTexture(texture) || destination.Width <= margin * 2 || destination.Height <= margin * 2)
+            {
+                if (IsUsableTexture(texture)) spriteBatch.Draw(texture, destination, Color.White);
+                return;
+            }
+
+            int sw = texture.Width - margin * 2;
+            int sh = texture.Height - margin * 2;
+            int dw = destination.Width - margin * 2;
+            int dh = destination.Height - margin * 2;
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y, margin, margin), new Rectangle(0, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y, margin, margin), new Rectangle(texture.Width - margin, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Bottom - margin, margin, margin), new Rectangle(0, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Bottom - margin, margin, margin), new Rectangle(texture.Width - margin, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y, dw, margin), new Rectangle(margin, 0, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Bottom - margin, dw, margin), new Rectangle(margin, texture.Height - margin, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y + margin, margin, dh), new Rectangle(0, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y + margin, margin, dh), new Rectangle(texture.Width - margin, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y + margin, dw, dh), new Rectangle(margin, margin, sw, sh), Color.White);
         }
 
         private static void DrawModernPanel(SpriteBatch spriteBatch, Rectangle rectangle, Color background, bool glow = false)
@@ -647,6 +813,34 @@ namespace Client.Main.Controls.UI.Game.Character
         private void DrawButtons(SpriteBatch spriteBatch)
         {
             float controlScale = Scale;
+            if (IsSeason6)
+            {
+                for (int i = 0; i < BTN_STAT_COUNT; i++)
+                {
+                    var button = _buttons[i];
+                    if (!button.Visible)
+                        continue;
+
+                    Rectangle rect = GetButtonRectangle(button, controlScale);
+                    bool highlighted = (_hoveredButtonIndex == i || _pressedButtonIndex == i) && button.Enabled;
+                    UiDrawHelper.DrawPanel(spriteBatch, rect,
+                        highlighted ? ModernHudTheme.AccentDim : ModernHudTheme.BgLight,
+                        highlighted ? ModernHudTheme.Accent : ModernHudTheme.BorderInner,
+                        ModernHudTheme.BorderOuter);
+                    if (GraphicsManager.Instance.Font != null)
+                    {
+                        const string plus = "+";
+                        float scale = 0.42f * controlScale;
+                        Vector2 size = GraphicsManager.Instance.Font.MeasureString(plus) * scale;
+                        Vector2 pos = new(rect.Center.X - size.X / 2f, rect.Center.Y - size.Y / 2f);
+                        spriteBatch.DrawString(GraphicsManager.Instance.Font, plus, pos, ModernHudTheme.TextWhite,
+                            0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                    }
+                }
+
+                return;
+            }
+
             for (int i = 0; i < _buttons.Count; i++)
             {
                 var button = _buttons[i];
@@ -705,6 +899,15 @@ namespace Client.Main.Controls.UI.Game.Character
 
         private void DrawHeaderCloseButton(SpriteBatch spriteBatch)
         {
+            if (IsSeason6 && IsUsableTexture(_s6Close))
+            {
+                Rectangle closeRect = new(DisplayRectangle.X + CharacterLayout.CloseX,
+                    DisplayRectangle.Y + CharacterLayout.CloseY,
+                    CharacterLayout.CloseW, CharacterLayout.CloseH);
+                spriteBatch.Draw(_s6Close, closeRect, Color.White * Alpha);
+                return;
+            }
+
             Rectangle rectangle = GetHeaderCloseRectangle(Scale);
             Texture2D pixel = GraphicsManager.Instance.Pixel;
             SpriteFont font = GraphicsManager.Instance.Font;
@@ -743,6 +946,15 @@ namespace Client.Main.Controls.UI.Game.Character
 
         private Rectangle GetHeaderCloseRectangle(float controlScale)
         {
+            if (IsSeason6)
+            {
+                return new Rectangle(
+                    DisplayRectangle.X + (int)MathF.Round(CharacterLayout.CloseX * controlScale),
+                    DisplayRectangle.Y + (int)MathF.Round(CharacterLayout.CloseY * controlScale),
+                    Math.Max(16, (int)MathF.Round(CharacterLayout.CloseW * controlScale)),
+                    Math.Max(16, (int)MathF.Round(CharacterLayout.CloseH * controlScale)));
+            }
+
             return new Rectangle(
                 DisplayRectangle.X + (int)MathF.Round((WINDOW_WIDTH - 34) * controlScale),
                 DisplayRectangle.Y + (int)MathF.Round(12f * controlScale),
@@ -1017,6 +1229,43 @@ namespace Client.Main.Controls.UI.Game.Character
         protected override void OnScreenSizeChanged()
         {
             base.OnScreenSizeChanged();
+            InvalidateStaticSurface();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ControlSize = new Point(WINDOW_WIDTH, WINDOW_HEIGHT);
+            ViewSize = ControlSize;
+            InitializeLayout();
+            for (int i = 0; i < _texts.Count; i++)
+            {
+                CharacterInfoTextEntry entry = _texts[i];
+                if (entry.Color == e.Previous.Palette.TextWhite)
+                    entry.Color = e.Current.Palette.TextWhite;
+                else if (entry.Color == e.Previous.Palette.TextGold)
+                    entry.Color = e.Current.Palette.TextGold;
+                else if (entry.Color == e.Previous.Palette.TextGray)
+                    entry.Color = e.Current.Palette.TextGray;
+                else if (entry.Color == e.Previous.Palette.SecondaryBright)
+                    entry.Color = e.Current.Palette.SecondaryBright;
+                else if (entry.Color == e.Previous.Palette.Warning)
+                    entry.Color = e.Current.Palette.Warning;
+            }
+            if (IsSeason6)
+            {
+                _season6AssetsTask = null;
+                _ = EnsureSeason6AssetsAsync();
+            }
+            else
+            {
+                _s6Panel = null;
+                _s6Rect = null;
+                _s6DarkCard = null;
+                _s6Close = null;
+                _season6AssetsTask = null;
+                _ = EnsureModernAssetsAsync();
+            }
             InvalidateStaticSurface();
         }
 

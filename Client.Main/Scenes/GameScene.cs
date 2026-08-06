@@ -39,6 +39,14 @@ namespace Client.Main.Scenes
         // ──────────────────────────── Fields ────────────────────────────
         private readonly HeroObject _hero;
         private ModernBottomHud _modernHud;
+        private BottomBarControl _classicBottomBar;
+        private TouchActionButtonsControl _classicTouchActions;
+        private TouchMenuControl _classicTouchMenu;
+        private VirtualJoystickControl _classicJoystick;
+        private SkillImprintControl _classicSkillImprint;
+        private PotionImprintControl _classicPotionImprint;
+        private Controls.UI.Game.Skills.MasterSkillTreeControl _masteryTree;
+        private MasteryTreeControl _classicMasteryTree;
         private EquipmentDurabilityHud _equipmentDurabilityHud;
         private GameSceneMapController _mapController;
         private MapListControl _mapListControl;
@@ -61,6 +69,12 @@ namespace Client.Main.Scenes
         private PauseMenuControl _pauseMenu; // ESC menu
         // (SkillQuickSlot removed — replaced by ModernBottomHud)
         private Controls.UI.Game.Skills.SkillSelectionPanel _skillSelectionPanel; // Skill selection panel (independent)
+        private bool _modernSkillSelectionWasVisible;
+        private bool _modernSkillSelectionWasInteractive;
+        private bool _modernMasteryWasVisible;
+        private bool _modernMasteryWasInteractive;
+        private bool _uiThemeVisibilityInitialized;
+        private UiThemeId _lastAppliedUiTheme;
         private CurrentLocationControl _currentLocationControl; // Current map + coordinates (top-left)
         private ActiveBuffsPanel _activeBuffsPanel; // Active buffs display (top-left corner)
         private Texture2D _backgroundTexture;
@@ -94,6 +108,10 @@ namespace Client.Main.Scenes
         public InventoryControl InventoryControl => _inventoryControl;
         public TradeControl TradeControl => TradeControl.Instance;
         public PauseMenuControl PauseMenu => _pauseMenu;
+        internal ModernBottomHud ModernHud => _modernHud;
+        internal GameSceneSkillController SkillController => _skillController;
+        internal Controls.UI.Game.Skills.MasterSkillTreeControl MasteryTree => _masteryTree;
+        internal MasteryTreeControl ClassicMasteryTree => _classicMasteryTree;
 
         public override bool CanRenderWhileInitializing => true;
 
@@ -237,17 +255,16 @@ namespace Client.Main.Scenes
             _mapListControl = new MapListControl { Visible = false };
             _chatLog = new ChatLogWindow
             {
-                X = 5,
-                Y = UiScaler.VirtualSize.Y - 160 - ChatInputBoxControl.CHATBOX_HEIGHT
+                X = 5
             };
             Controls.Add(_chatLog);
 
             _chatInput = new ChatInputBoxControl(_chatLog, MuGame.AppLoggerFactory)
             {
-                X = 5,
-                Y = UiScaler.VirtualSize.Y - 65 - ChatInputBoxControl.CHATBOX_HEIGHT
+                X = 5
             };
             Controls.Add(_chatInput);
+            ApplyChatThemeLayout();
             _duelController = new GameSceneDuelController(this, _chatLog, _logger);
 
             _notificationManager = new Controls.UI.NotificationManager();
@@ -312,6 +329,31 @@ namespace Client.Main.Scenes
 
             _modernHud = new ModernBottomHud(characterState, _skillSelectionPanel);
             Controls.Add(_modernHud);
+
+            // Classic owns a separate HUD tree. The controls are created once and only their
+            // visibility changes, so switching themes cannot leave either HUD underneath.
+            _classicBottomBar = new BottomBarControl(characterState, _modernHud);
+            _classicTouchActions = new TouchActionButtonsControl();
+            _classicJoystick = new VirtualJoystickControl();
+            _classicSkillImprint = new SkillImprintControl(characterState, _modernHud);
+            _classicPotionImprint = new PotionImprintControl(characterState, _modernHud);
+            _classicTouchMenu = new TouchMenuControl
+            {
+                HotbarToHide = _classicTouchActions,
+                ImprintPanel = _classicSkillImprint,
+                PotionPanel = _classicPotionImprint
+            };
+            Controls.Add(_classicBottomBar);
+            Controls.Add(_classicTouchActions);
+            Controls.Add(_classicJoystick);
+            Controls.Add(_classicSkillImprint);
+            Controls.Add(_classicPotionImprint);
+            Controls.Add(_classicTouchMenu);
+
+            _masteryTree = new Controls.UI.Game.Skills.MasterSkillTreeControl();
+            _classicMasteryTree = new MasteryTreeControl(characterState);
+            Controls.Add(_masteryTree);
+            Controls.Add(_classicMasteryTree);
             _equipmentDurabilityHud = new EquipmentDurabilityHud(characterState);
             Controls.Add(_equipmentDurabilityHud);
             _skillController = new GameSceneSkillController(
@@ -319,6 +361,7 @@ namespace Client.Main.Scenes
                 _modernHud,
                 _logger,
                 _duelController.IsDuelAttackTarget);
+            ApplyUiThemeVisibility();
 
             _currentLocationControl = new CurrentLocationControl(characterState);
             Controls.Add(_currentLocationControl);
@@ -390,6 +433,14 @@ namespace Client.Main.Scenes
             _chatInput.BringToFront();
             _pauseMenu.BringToFront();
             _modernHud.BringToFront();
+            _classicBottomBar.BringToFront();
+            _classicTouchActions.BringToFront();
+            _classicJoystick.BringToFront();
+            _classicSkillImprint.BringToFront();
+            _classicPotionImprint.BringToFront();
+            _classicMasteryTree.BringToFront();
+            _classicTouchMenu.BringToFront();
+            _equipmentDurabilityHud.BringToFront();
             _currentLocationControl.BringToFront();
             _activeBuffsPanel.BringToFront();
             duelHud.BringToFront();
@@ -397,6 +448,10 @@ namespace Client.Main.Scenes
             DebugPanel.BringToFront();
             Cursor.BringToFront();
 
+            // Subscribe after the complete UI tree exists. ThemeChanged is synchronous, so
+            // this makes control layout updates finish before the scene repositions dependent
+            // controls such as the chat log and input box.
+            UiThemeManager.ThemeChanged += HandleUiThemeChanged;
             _sceneShellInitialized = true;
             Report("Game interface prepared.", 0.04f);
 
@@ -406,6 +461,12 @@ namespace Client.Main.Scenes
 
         public GameScene() : this(GetCharacterInfoFromState())
         {
+        }
+
+        public override void AfterLoad()
+        {
+            base.AfterLoad();
+            ApplyChatThemeLayout();
         }
 
         public GameScene((string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance) characterInfo, NetworkManager networkManager)
@@ -1065,8 +1126,202 @@ namespace Client.Main.Scenes
             _skillController?.NotifyLocalSkillAnimation(skillId);
         }
 
+        private void HandleUiThemeChanged(object sender, UiThemeChangedEventArgs e)
+        {
+            ApplyChatThemeLayout();
+            ApplyUiThemeVisibility();
+        }
+
+        private void ApplyChatThemeLayout()
+        {
+            if (_chatLog == null || _chatInput == null)
+                return;
+
+            bool classic = !ChatUiTheme.UseModernLayout;
+            if (classic)
+            {
+                _chatLog.X = 12;
+                _chatLog.Y = UiScaler.VirtualSize.Y - UiThemeManager.Current.Metrics.ChatInputSize.Y
+                    - Math.Max(1, _chatLog.ViewSize.Y) - 10;
+                _chatInput.X = 12;
+                _chatInput.Y = UiScaler.VirtualSize.Y - UiThemeManager.Current.Metrics.ChatInputSize.Y - 8;
+            }
+            else
+            {
+                _chatLog.X = 5;
+                _chatLog.Y = UiScaler.VirtualSize.Y - 160 - ChatInputBoxControl.CHATBOX_HEIGHT;
+                _chatInput.X = 5;
+                _chatInput.Y = UiScaler.VirtualSize.Y - 65 - ChatInputBoxControl.CHATBOX_HEIGHT;
+            }
+        }
+
+        private void ApplyUiThemeVisibility()
+        {
+            UiThemeId currentTheme = UiThemeManager.CurrentId;
+            bool classic = currentTheme == UiThemeId.Classic;
+            bool enteringTheme = !_uiThemeVisibilityInitialized || _lastAppliedUiTheme != currentTheme;
+            bool pauseMenuWasVisible = _pauseMenu?.Visible == true;
+
+            if (enteringTheme && classic)
+            {
+                _modernSkillSelectionWasVisible = _skillSelectionPanel?.Visible == true;
+                _modernSkillSelectionWasInteractive = _skillSelectionPanel?.Interactive == true;
+                _modernMasteryWasVisible = _masteryTree?.Visible == true;
+                _modernMasteryWasInteractive = _masteryTree?.Interactive == true;
+            }
+
+            // Keep the Modern control alive as the shared quick-slot state owner, but never
+            // let it draw or consume pointer input while Classic is active.
+            if (_modernHud != null)
+            {
+                _modernHud.Visible = true;
+                _modernHud.Interactive = !classic;
+            }
+
+            // Durability warnings belong to both themes and remain a click-through overlay.
+            if (_equipmentDurabilityHud != null)
+            {
+                _equipmentDurabilityHud.Visible = true;
+                _equipmentDurabilityHud.Interactive = false;
+            }
+
+            if (_skillSelectionPanel != null)
+            {
+                if (classic)
+                {
+                    _skillSelectionPanel.Visible = false;
+                    _skillSelectionPanel.Interactive = false;
+                }
+                else
+                {
+                    bool restoreModernState = enteringTheme && _uiThemeVisibilityInitialized;
+                    _skillSelectionPanel.Visible = restoreModernState
+                        ? _modernSkillSelectionWasVisible
+                        : _skillSelectionPanel.Visible;
+                    _skillSelectionPanel.Interactive = restoreModernState
+                        ? _modernSkillSelectionWasInteractive
+                        : _skillSelectionPanel.Visible;
+                }
+            }
+            if (_masteryTree != null)
+            {
+                if (classic)
+                {
+                    _masteryTree.Visible = false;
+                    _masteryTree.Interactive = false;
+                }
+                else
+                {
+                    bool restoreModernState = enteringTheme && _uiThemeVisibilityInitialized;
+                    _masteryTree.Visible = restoreModernState
+                        ? _modernMasteryWasVisible
+                        : _masteryTree.Visible;
+                    _masteryTree.Interactive = restoreModernState
+                        ? _modernMasteryWasInteractive
+                        : _masteryTree.Visible;
+                }
+            }
+            if (_classicMasteryTree != null && !classic)
+            {
+                _classicMasteryTree.Visible = false;
+                _classicMasteryTree.Interactive = false;
+            }
+
+            if (_classicBottomBar != null)
+            {
+                _classicBottomBar.Visible = classic;
+                _classicBottomBar.Interactive = classic;
+            }
+            if (_classicTouchActions != null)
+            {
+                _classicTouchActions.Visible = classic;
+                _classicTouchActions.Interactive = classic;
+                _classicTouchActions.MasterAlpha = classic ? 1f : 0f;
+            }
+            if (_classicJoystick != null)
+            {
+                _classicJoystick.Visible = classic;
+                _classicJoystick.Interactive = classic;
+            }
+            if (_classicTouchMenu != null)
+            {
+                _classicTouchMenu.Visible = classic;
+                _classicTouchMenu.Interactive = classic;
+                if (!classic)
+                    _classicTouchMenu.Close();
+            }
+            if (_classicSkillImprint != null)
+            {
+                if (!classic)
+                {
+                    _classicSkillImprint.Visible = false;
+                    _classicSkillImprint.Interactive = false;
+                }
+                else
+                {
+                    _classicSkillImprint.Interactive = _classicSkillImprint.Visible;
+                }
+            }
+            if (_classicPotionImprint != null)
+            {
+                if (!classic)
+                {
+                    _classicPotionImprint.Visible = false;
+                    _classicPotionImprint.Interactive = false;
+                }
+                else
+                {
+                    _classicPotionImprint.Interactive = _classicPotionImprint.Visible;
+                }
+            }
+
+            if (classic)
+            {
+                if (Status == GameControlStatus.Ready)
+                    _ = EnsureClassicAssetsAsync();
+                _classicBottomBar?.BringToFront();
+                _classicTouchActions?.BringToFront();
+                _classicJoystick?.BringToFront();
+                _classicSkillImprint?.BringToFront();
+                _classicPotionImprint?.BringToFront();
+                _classicMasteryTree?.BringToFront();
+                _classicTouchMenu?.BringToFront();
+                _equipmentDurabilityHud?.BringToFront();
+                _chatLog?.BringToFront();
+                _chatInput?.BringToFront();
+            }
+
+            // The theme option lives inside the pause menu. Reordering the replacement HUD
+            // must not put it above an already open settings/modal surface.
+            if (pauseMenuWasVisible)
+                _pauseMenu?.BringToFront();
+
+            _lastAppliedUiTheme = currentTheme;
+            _uiThemeVisibilityInitialized = true;
+        }
+
+        private async Task EnsureClassicAssetsAsync()
+        {
+            try
+            {
+                await Task.WhenAll(
+                    _classicBottomBar?.Load() ?? Task.CompletedTask,
+                    _classicTouchActions?.Load() ?? Task.CompletedTask,
+                    _classicJoystick?.Load() ?? Task.CompletedTask,
+                    _classicSkillImprint?.Load() ?? Task.CompletedTask,
+                    _classicPotionImprint?.Load() ?? Task.CompletedTask,
+                    _classicMasteryTree?.Load() ?? Task.CompletedTask,
+                    _classicTouchMenu?.Load() ?? Task.CompletedTask);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Classic UI asset warm-up failed; controls will use procedural fallbacks.");
+            }
+        }
+
         public override void Dispose()
         {
+            UiThemeManager.ThemeChanged -= HandleUiThemeChanged;
             _pendingWorldActivation = null;
             _pendingWorldActivationScheduled = false;
             _initialWorldActivationCooldown = false;

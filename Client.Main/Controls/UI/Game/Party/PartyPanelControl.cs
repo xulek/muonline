@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Client.Main.Core.Client;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -18,12 +19,28 @@ namespace Client.Main.Controls.UI.Game.Party
 
         private double _timeSinceLastUpdate = 0; // Timer
 
+        private bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+
         public PartyPanelControl()
         {
             _logger = MuGame.AppLoggerFactory.CreateLogger<PartyPanelControl>();
             Align = ControlAlign.Top | ControlAlign.Left;
             Margin = new Margin { Top = 10, Left = 10 };
             Visible = false;
+            ApplyThemeLayout();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
+        }
+
+        private void ApplyThemeLayout()
+        {
+            Margin = IsSeason6
+                ? new Margin { Top = 62, Left = 16 }
+                : new Margin { Top = 10, Left = 10 };
         }
 
         public override async Task Load()

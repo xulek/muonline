@@ -1,6 +1,8 @@
 ﻿using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Models;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Extensions.Logging;
@@ -21,6 +23,7 @@ namespace Client.Main.Controls.UI
         private Texture2D _bottomLineTexture;
         private Texture2D _cornerBottomRightTexture;
         private bool _useFallbackFrame;
+        private Task _classicFrameLoadTask;
         private readonly ILogger _logger = MuGame.AppLoggerFactory?.CreateLogger<PopupFieldDialog>();
         private static readonly string[] s_popupTextureSuffixes =
         {
@@ -31,17 +34,51 @@ namespace Client.Main.Controls.UI
         {
             await base.Load();
 
-            var windowName = "popupfield";
-            
-            _cornerTopLeftTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}01.ozd");
-            _topLineTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}02.ozd");
-            _cornerTopRightTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}03.ozd");
-            _leftLineTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}04.ozd");
-            _backgroundTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}05.ozd");
-            _rightLineTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}06.ozd");
-            _cornerBottomLeftTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}07.ozd");
-            _bottomLineTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}08.ozd");
-            _cornerBottomRightTexture = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/{windowName}09.ozd");
+            if (UiThemeManager.CurrentId == UiThemeId.Modern)
+                await EnsureClassicFrameLoadedAsync();
+            else
+                _useFallbackFrame = true;
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            if (UiThemeManager.CurrentId == UiThemeId.Modern)
+            {
+                _useFallbackFrame = true;
+                if (Status == GameControlStatus.Ready)
+                    _ = EnsureClassicFrameLoadedAsync();
+            }
+        }
+
+        private Task EnsureClassicFrameLoadedAsync()
+        {
+            return _classicFrameLoadTask ??= LoadClassicFrameAsync();
+        }
+
+        private async Task LoadClassicFrameAsync()
+        {
+            async Task<Texture2D> Load(string path)
+            {
+                try
+                {
+                    return await UiThemeManager.LoadThemeTextureAsync(path);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            _cornerTopLeftTexture = await Load("Interface/GFx/popupfield01.ozd");
+            _topLineTexture = await Load("Interface/GFx/popupfield02.ozd");
+            _cornerTopRightTexture = await Load("Interface/GFx/popupfield03.ozd");
+            _leftLineTexture = await Load("Interface/GFx/popupfield04.ozd");
+            _backgroundTexture = await Load("Interface/GFx/popupfield05.ozd");
+            _rightLineTexture = await Load("Interface/GFx/popupfield06.ozd");
+            _cornerBottomLeftTexture = await Load("Interface/GFx/popupfield07.ozd");
+            _bottomLineTexture = await Load("Interface/GFx/popupfield08.ozd");
+            _cornerBottomRightTexture = await Load("Interface/GFx/popupfield09.ozd");
 
             _useFallbackFrame = _cornerTopLeftTexture == null || _topLineTexture == null ||
                                 _cornerTopRightTexture == null || _leftLineTexture == null ||
@@ -49,13 +86,14 @@ namespace Client.Main.Controls.UI
                                 _cornerBottomLeftTexture == null || _bottomLineTexture == null ||
                                 _cornerBottomRightTexture == null;
             if (_useFallbackFrame)
-            {
                 _logger?.LogWarning("PopupFieldDialog frame textures missing. Using fallback flat background.");
-            }
         }
 
         public IEnumerable<string> GetPreloadTexturePaths()
         {
+            if (UiThemeManager.CurrentId != UiThemeId.Modern)
+                yield break;
+
             const string basePath = "Interface/GFx/popupfield";
             for (int i = 0; i < s_popupTextureSuffixes.Length; i++)
             {
@@ -76,7 +114,19 @@ namespace Client.Main.Controls.UI
             var sprite = GraphicsManager.Instance.Sprite;
             var rect = DisplayRectangle;
 
-            if (_useFallbackFrame)
+            if (UiThemeManager.CurrentId == UiThemeId.Classic)
+            {
+                UiDrawHelper.DrawPanel(
+                    sprite,
+                    rect,
+                    ModernHudTheme.BgDark * 0.98f,
+                    ModernHudTheme.BorderInner,
+                    ModernHudTheme.BorderOuter,
+                    ModernHudTheme.BorderHighlight,
+                    withGlow: true,
+                    glowColor: ModernHudTheme.AccentGlow * 0.4f);
+            }
+            else if (_useFallbackFrame)
             {
                 var bgColor = new Color(0, 0, 0, 200);
                 sprite.Draw(GraphicsManager.Instance.Pixel, rect, bgColor);

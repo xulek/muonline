@@ -295,7 +295,7 @@ namespace Client.Main
             DRAW_BOUNDING_BOXES = false;
             BACKGROUND_MUSIC = false;
             SOUND_EFFECTS = false;
-            SHOW_DEBUG_PANEL = true;
+            SHOW_DEBUG_PANEL = false;
         }
 #endif
     }
