@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.SantaVillage;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -12,9 +13,27 @@ namespace Client.Main.Worlds
     [WorldInfo(62, "Santa Village")]
     public class SantaVillageWorld : WalkableWorldControl
     {
+        private SantaSnowSystem _snowSystem;
+
         public SantaVillageWorld() : base(worldIndex: 63) // SANTATOWN (SANTA VILLAGE)
         {
         }
+
+        public override async Task Load()
+        {
+            _snowSystem = new SantaSnowSystem(this, flakeCount: 60);
+            Objects.Add(_snowSystem);
+
+            await base.Load();
+        }
+
+        protected override void CreateMapTileObjects()
+        {
+            var santaVillageDefault = typeof(SantaVillageObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = santaVillageDefault;
+        }
+
 
         public override void AfterLoad()
         {
@@ -37,8 +56,20 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
-            
+
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_snowSystem != null)
+            {
+                Objects.Remove(_snowSystem);
+                _snowSystem.Dispose();
+                _snowSystem = null;
+            }
+
+            base.Dispose();
         }
     }
 }

@@ -168,7 +168,9 @@ namespace Client.Main.Controls.Terrain
             _terrainData.TexturePaths = textureMapFiles;
             _terrainData.Textures = new Texture2D[textureMapFiles.Length];
 
-            if (_worldIndex == 8)
+            // SourceMain IsDoppelGanger3(): the animated-water flipbook is shared by
+            // WD_7ATLANSE and WD_67DOPPEL_GANGER3 (client world indexes 8 and 68).
+            if (_worldIndex == 8 || _worldIndex == 68)
             {
                 _terrainData.WaterCausticsTexturePaths = new string[WaterCausticsFrameCount];
                 _terrainData.WaterCausticsTextures = new Texture2D[WaterCausticsFrameCount];

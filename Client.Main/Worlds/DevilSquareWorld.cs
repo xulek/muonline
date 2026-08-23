@@ -1,40 +1,52 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
-using Microsoft.Xna.Framework;
+using Client.Main.Objects.Worlds.DevilSquare;
+using Client.Main.Objects.Worlds.Events;
+using System.Threading.Tasks;
 
 namespace Client.Main.Worlds
 {
-    [WorldInfo(32, "Devil Square")]
-    public class DevilSquareWorld : WalkableWorldControl
+    [WorldInfo(9, "Devil Square")]
+    public class DevilSquareWorld : S6EventWorldBase
     {
-        public DevilSquareWorld() : base(worldIndex: 10) // DEVIL SQUARE - World10 folder, OpenMU uses mapId 32
+        private EventRainSystem _rainSystem;
+
+        public DevilSquareWorld() : base(worldIndex: 10, name: "Devil Square") // WD_9DEVILSQUARE
         {
-            Name = "Devil Square";
-            BackgroundMusicPath = "Music/devil_square_intro.mp3";
+            AmbientSoundPath = "Sound/aRain.wav";
         }
 
-        public override void AfterLoad()
+        public override async Task Load()
         {
-            Vector2 defaultSpawn = new Vector2(200, 58);
-            Walker.Reset();
-            bool shouldUseDefaultSpawn = false;
-            if (MuGame.Network == null ||
-                MuGame.Network.CurrentState == Core.Client.ClientConnectionState.Initial ||
-                MuGame.Network.CurrentState == Core.Client.ClientConnectionState.Disconnected)
+            _rainSystem = new EventRainSystem(
+                this,
+                maxDrops: 200,
+                speedBonus: 0f,
+                streakLength: 20f,
+                spawnSplashes: true,
+                lightningFlicker: true);
+            Objects.Add(_rainSystem);
+
+            await base.Load();
+        }
+
+        protected override void CreateMapTileObjects()
+        {
+            var devilSquareDefault = typeof(DevilSquareObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = devilSquareDefault;
+        }
+
+        public override void Dispose()
+        {
+            if (_rainSystem != null)
             {
-                shouldUseDefaultSpawn = true;
+                Objects.Remove(_rainSystem);
+                _rainSystem.Dispose();
+                _rainSystem = null;
             }
-            else if (Walker.Location == Vector2.Zero)
-            {
-                shouldUseDefaultSpawn = true;
-            }
-            if (shouldUseDefaultSpawn)
-            {
-                Walker.Location = defaultSpawn;
-            }
-            Walker.MoveTargetPosition = Walker.TargetPosition;
-            Walker.Position = Walker.TargetPosition;
-            base.AfterLoad();
+
+            base.Dispose();
         }
     }
 }

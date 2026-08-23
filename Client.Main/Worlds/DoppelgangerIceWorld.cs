@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Raklion;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -12,9 +13,20 @@ namespace Client.Main.Worlds
     [WorldInfo(65, "Doppelganger Ice Zone")]
     public class DoppelgangerIceWorld : WalkableWorldControl
     {
+        private RaklionWeatherSystem _weatherSystem;
+
         public DoppelgangerIceWorld() : base(worldIndex: 66) // DOPPELGANGER ICEZONE (SNOW)
         {
 
+        }
+
+        // SourceMain: IsIceCity() covers WD_65DOPPLEGANGER1 — same Raklion snow + RenderBaseSmoke
+        public override Task Load()
+        {
+            _weatherSystem = new RaklionWeatherSystem(this, flakeCount: 80, flakeTextureBase: "World66");
+            Objects.Add(_weatherSystem);
+
+            return base.Load();
         }
 
         public override void AfterLoad()
@@ -38,8 +50,20 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
-            
+
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_weatherSystem != null)
+            {
+                Objects.Remove(_weatherSystem);
+                _weatherSystem.Dispose();
+                _weatherSystem = null;
+            }
+
+            base.Dispose();
         }
     }
 }

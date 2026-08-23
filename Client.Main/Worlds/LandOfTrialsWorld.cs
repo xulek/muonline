@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.LandOfTrials;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -12,9 +13,38 @@ namespace Client.Main.Worlds
     [WorldInfo(31, "Land of Trials")]
     public class LandOfTrialsWorld : WalkableWorldControl
     {
+        private LandOfTrialsMistSystem _mistSystem;
+
         public LandOfTrialsWorld() : base(worldIndex: 32) // LAND OF TRIALS
         {
 
+        }
+
+        public override async Task Load()
+        {
+            _mistSystem = new LandOfTrialsMistSystem(this);
+            Objects.Add(_mistSystem);
+
+            await base.Load();
+        }
+
+        protected override void CreateMapTileObjects()
+        {
+            var landOfTrialsDefault = typeof(LandOfTrialsObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = landOfTrialsDefault;
+        }
+
+        public override void Dispose()
+        {
+            if (_mistSystem != null)
+            {
+                Objects.Remove(_mistSystem);
+                _mistSystem.Dispose();
+                _mistSystem = null;
+            }
+
+            base.Dispose();
         }
 
         public override void AfterLoad()

@@ -45,11 +45,16 @@ namespace Client.Main.Controls.Terrain
             int endY = Math.Min(Constants.TERRAIN_SIZE - 1, cy + 32);
             float windScale = 10f;
             float step = 5f;
-            if (WorldIndex == 8 || WorldIndex == 57 || WorldIndex == 58)
+            // SourceMain5.2 InitTerrainLight: WD_8TARKAN fast sway; WD_57/58 ICECITY x6
+            // amplitude; IsKarutanMap() dual-frequency field. Client WorldIndex = source + 1.
+            if (WorldIndex == 9)
                 step = 50f;
-            if (WorldIndex == 57 || WorldIndex == 58)
+            if (WorldIndex == 58 || WorldIndex == 59)
+            {
+                step = 50f;
                 windScale = 60f;
-            if (WorldIndex == 80 || WorldIndex == 81)
+            }
+            if (WorldIndex == 81 || WorldIndex == 82)
             {
                 windSpeed = (float)(nowMs % 36_000 * 0.008);
                 windScale = 15f;

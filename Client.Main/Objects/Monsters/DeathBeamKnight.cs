@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Objects.Effects;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
@@ -50,6 +50,7 @@ namespace Client.Main.Objects.Monsters
                 ParticleScaleMax = 1.0f,
                 ParticleLifetimeFrames = 20f
             });
+            Children.Add(new SourceMonsterSandSmokeEffect());
         }
 
         public override async Task Load()

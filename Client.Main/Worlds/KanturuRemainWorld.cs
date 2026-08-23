@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Kanturu;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -19,6 +20,13 @@ namespace Client.Main.Worlds
             Terrain.TextureMappingFiles[11] = "TileRock04.OZJ"; // Fallback for missing TileRock05
             Terrain.TextureMappingFiles[12] = "TileRock03.OZJ"; // Fallback for missing TileRock06
             Terrain.TextureMappingFiles[13] = "TileRock02.OZJ"; // Fallback for missing TileRock07
+        }
+
+        protected override void CreateMapTileObjects()
+        {
+            var kanturuDefault = typeof(KanturuObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = kanturuDefault;
         }
 
         public override void AfterLoad()

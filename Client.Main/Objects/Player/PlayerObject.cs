@@ -93,6 +93,8 @@ namespace Client.Main.Objects.Player
 
         // Timer for footstep sound playback
         private float _footstepTimer;
+        private Objects.Effects.PlayerFootstepDustEffect? _footstepDust;
+        private bool _footstepDustLoading;
 
         // Movement speed/run state (mirrors SourceMain 5.2 behavior)
         private float _runFrames;
@@ -2425,10 +2427,30 @@ namespace Client.Main.Objects.Player
         private void ApplyRiderHeightOffset()
         {
             float targetOffset = 0f;
+            float vehicleZOffset = 0f;
 
             if (_isRiding && Vehicle != null && !Vehicle.Hidden)
             {
                 targetOffset = Vehicle.RiderHeightOffset;
+
+                // SourceMain5.2: Dinorant (index 8) on Tarkan and Icarus floats at +90f
+                if (_currentVehicleIndex == 8)
+                {
+                    bool isFlightMap = World != null && (World.WorldIndex == 8 || World.WorldIndex == 9 || World.WorldIndex == 10 || World.WorldIndex == 11);
+                    if (isFlightMap)
+                    {
+                        targetOffset = 90f;
+                        vehicleZOffset = -targetOffset + 10f; // Dinorant offset -10f in GOBoid.cpp
+                    }
+                    else
+                    {
+                        vehicleZOffset = -targetOffset;
+                    }
+                }
+                else
+                {
+                    vehicleZOffset = -targetOffset;
+                }
             }
 
             // Only update if the offset changed
@@ -2443,7 +2465,7 @@ namespace Client.Main.Objects.Player
                 // (since vehicle inherits parent transform, we need to counter the player's Z offset)
                 if (Vehicle != null)
                 {
-                    Vehicle.Position = new Vector3(Vehicle.Position.X, Vehicle.Position.Y, -targetOffset);
+                    Vehicle.Position = new Vector3(Vehicle.Position.X, Vehicle.Position.Y, vehicleZOffset);
                 }
             }
         }
@@ -3808,6 +3830,23 @@ namespace Client.Main.Objects.Player
             }
 
             SoundController.Instance.PlayBufferWithAttenuation(soundPath, Position, world.Walker.Position);
+
+            // Goal directive E: soft terrain-tinted dust puff under the feet
+            _footstepDust ??= new PlayerFootstepDustEffect();
+            if (_footstepDust.Status != GameControlStatus.Ready && !_footstepDustLoading)
+            {
+                _footstepDustLoading = true;
+                Children.Add(_footstepDust);
+                _ = _footstepDust.LoadContent();
+            }
+
+            var tone = Effects.PlayerFootstepDustEffect.DustTone.Soil;
+            if (soundPath.EndsWith("Grass", StringComparison.Ordinal))
+                tone = Effects.PlayerFootstepDustEffect.DustTone.Grass;
+            else if (soundPath.EndsWith("Snow", StringComparison.Ordinal))
+                tone = Effects.PlayerFootstepDustEffect.DustTone.Snow;
+
+            _footstepDust.EmitFootstep(Position, tone);
         }
 
         /// <summary>

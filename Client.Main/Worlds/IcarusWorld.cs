@@ -1,4 +1,5 @@
 using Client.Main.Controls;
+using Client.Main.Objects.Worlds.Icarus;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.Icarus;
 using Microsoft.Xna.Framework;
@@ -13,6 +14,7 @@ namespace Client.Main.Worlds
         private static readonly Color CLEAR_COLOR = new Color(3f / 256f, 25f / 256f, 44f / 256f, 1f);
         private IcarusCloudLayer _cloudLayer;
         private IcarusStormSystem _stormSystem;
+        private IcarusAmbientManager _ambientManager;
 
         public IcarusWorld() : base(worldIndex: 11)
         {
@@ -36,6 +38,7 @@ namespace Client.Main.Worlds
 
             _stormSystem = new IcarusStormSystem();
             Objects.Add(_stormSystem);
+            _ambientManager = new IcarusAmbientManager(this);
 
             await base.Load();
         }
@@ -64,6 +67,18 @@ namespace Client.Main.Worlds
             base.AfterLoad();
         }
 
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            _ambientManager?.Update(time);
+        }
+
+        public override void Dispose()
+        {
+            _ambientManager?.Clear();
+            _ambientManager = null;
+        }
+
         protected override void CreateMapTileObjects()
         {
             base.CreateMapTileObjects();
@@ -80,3 +95,4 @@ namespace Client.Main.Worlds
         }
     }
 }
+

@@ -98,6 +98,19 @@ UNIFORM_DEFAULT(float, WaterTotal, 0.0);
 UNIFORM_DEFAULT(float, DistortionAmplitude, 0.0);
 UNIFORM_DEFAULT(float, DistortionFrequency, 0.0);
 
+// World fog (e.g. Valley of Loren siege haze) — disabled unless a world opts in
+UNIFORM_DEFAULT(float, FogEnabled, 0.0);
+UNIFORM_DEFAULT(float3, FogColor, float3(0.0, 0.0, 0.0));
+UNIFORM_DEFAULT(float, FogStart, 2000.0);
+UNIFORM_DEFAULT(float, FogEnd, 2700.0);
+UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
+
+float3 ApplyWorldFog(float3 color, float3 worldPos)
+{
+    float f = saturate((length(worldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0));
+    return lerp(color, FogColor, f * FogEnabled);
+}
+
 // Input structures
 struct VertexInput
 {
@@ -576,6 +589,7 @@ float4 PS_Terrain(PixelInput input) : SV_Target
     finalLight *= lerp(1.0, shadowMix, ShadowsEnabled);
 
     float3 finalColor = lerp(texColor.rgb * finalLight, float3(0, 0, 0), isDebugPixel);
+    finalColor = ApplyWorldFog(finalColor, input.WorldPos);
 
     return float4(finalColor, finalAlpha);
 }
@@ -608,6 +622,7 @@ float4 ShadeObjectPixel(PixelInput input, float3 normal, float3 dynamicLight)
     finalLight *= lerp(1.0, shadowMix, ShadowsEnabled);
 
     float3 finalColor = lerp(texColor.rgb * finalLight, float3(0, 0, 0), isDebugPixel);
+    finalColor = ApplyWorldFog(finalColor, input.WorldPos);
     return float4(finalColor, finalAlpha);
 }
 

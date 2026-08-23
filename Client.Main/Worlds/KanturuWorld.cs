@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Kanturu;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -15,6 +16,13 @@ namespace Client.Main.Worlds
         public KanturuWorld() : base(worldIndex: 38) // KANTURU (RUINS)
         {
 
+        }
+
+        protected override void CreateMapTileObjects()
+        {
+            var kanturuDefault = typeof(KanturuObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = kanturuDefault;
         }
 
         public override void AfterLoad()

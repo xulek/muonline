@@ -11,6 +11,8 @@ using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
+using Client.Main.Objects.Worlds.Events;
+
 namespace Client.Main.Objects.Worlds.BloodCastle
 {
     /// <summary>
@@ -84,6 +86,10 @@ namespace Client.Main.Objects.Worlds.BloodCastle
             var effect = new BloodCastleAmbientEffect(world);
             world.Objects.Add(effect);
             _ = effect.Load();
+
+            // GOBoid fauna: crows patrol Blood Castle (MODEL_CROW, Object12/Crow01)
+            var crowFlock = new AmbientFlockSystem(world, "Object12/Crow01.bmd", 0.8f, BoidFlightStyle.FlyingHigh, maxBoids: 4);
+            world.Objects.Add(crowFlock);
         }
 
         private void BeginBridgeOpening()
@@ -788,3 +794,4 @@ namespace Client.Main.Objects.Worlds.BloodCastle
         }
     }
 }
+

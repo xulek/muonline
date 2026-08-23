@@ -273,11 +273,12 @@ public class VehicleObject : ModelObject
         // (GOBoid.cpp MODEL_DARK_HORSE / PLAYER_RUN_RIDE_HORSE). Toggled every frame so it
         // also stops when the mount is hidden/dismounted even if SetRiderAnimation is
         // no longer invoked.
-        bool isDarkHorseRunning = !Hidden && Model != null && ItemIndex == 0 && _isMoving;
+        bool isVehicleRunning = !Hidden && Model != null && _isMoving;
+        bool isDarkHorseRunning = isVehicleRunning && ItemIndex == 0;
         bool onIcarus = World?.WorldIndex == IcarusWorldIndex;
 
         if (_hoofDust != null)
-            _hoofDust.Emitting = isDarkHorseRunning && !onIcarus;
+            _hoofDust.Emitting = isVehicleRunning && !onIcarus;
         if (_icarGallop != null)
             _icarGallop.Emitting = isDarkHorseRunning && onIcarus;
     }
@@ -293,18 +294,21 @@ public class VehicleObject : ModelObject
             return;
 
         int targetAnim;
+        bool isFlightMap = World != null && (World.WorldIndex == 8 || World.WorldIndex == 9 || World.WorldIndex == 10 || World.WorldIndex == 11);
+        bool isDinorant = ItemIndex == 8;
+
         if (isUsingSkill)
         {
-            targetAnim = skillActionIndex;
+            targetAnim = (isDinorant && isFlightMap) ? 7 : skillActionIndex;
             // Skill animation should play once and hold on last frame
             HoldOnLastFrame = true;
         }
         else
         {
             if (isMoving)
-                targetAnim = runActionIndex;
+                targetAnim = (isDinorant && isFlightMap) ? 3 : runActionIndex;
             else
-                targetAnim = idleActionIndex;
+                targetAnim = (isDinorant && isFlightMap) ? 1 : idleActionIndex;
 
             // Normal animations should loop
             HoldOnLastFrame = false;

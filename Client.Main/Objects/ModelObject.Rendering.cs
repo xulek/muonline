@@ -1778,10 +1778,8 @@ namespace Client.Main.Objects
                     if (useGpuSkinning)
                         RegisterGpuSkinnedMeshDraw();
 
-                    // Texture scrolling is mesh-local. Setting the shared shader parameter
-                    // for the complete object made every waterspout mesh scroll and leaked
-                    // the value into unrelated objects rendered by another technique.
-                    Vector2 meshTextureOffset = mesh == TextureCoordinateOffsetMeshIndex
+                    // Texture scrolling is mesh-local when index >= 0, or applies to all meshes when index < 0.
+                    Vector2 meshTextureOffset = (TextureCoordinateOffsetMeshIndex < 0 || mesh == TextureCoordinateOffsetMeshIndex)
                         ? TextureCoordinateOffset
                         : Vector2.Zero;
                     bindings.TextureCoordinateOffset?.SetValue(meshTextureOffset);

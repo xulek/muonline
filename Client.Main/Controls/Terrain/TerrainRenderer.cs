@@ -19,6 +19,10 @@ namespace Client.Main.Controls.Terrain
         private const float SpecialHeight = 1200f;
         private const int BlockSize = 4;
         private const short AtlansWorldIndex = 8;
+        private const short DoppelgangerUnderwaterWorldIndex = 68;
+
+        // SourceMain IsDoppelGanger3(): both worlds share the animated-water flipbook path.
+        private bool IsAnimatedWaterWorld => WorldIndex == AtlansWorldIndex || WorldIndex == DoppelgangerUnderwaterWorldIndex;
         private const byte AtlansCausticsLayer = 5;
         private const int WaterCausticsFrameCount = 32;
         private const int MaxWaterCausticsVertices =
@@ -290,7 +294,7 @@ namespace Client.Main.Controls.Terrain
             double elapsedSeconds = time.ElapsedGameTime.TotalSeconds;
             _waterTotal += (float)elapsedSeconds * WaterSpeed;
 
-            if (WorldIndex != AtlansWorldIndex || _data.WaterCausticsTextures == null)
+            if (!IsAnimatedWaterWorld || _data.WaterCausticsTextures == null)
                 return;
 
             _waterCausticsAccumulator += elapsedSeconds;
@@ -581,7 +585,7 @@ namespace Client.Main.Controls.Terrain
                 FlushWaterCaustics();
 
                 // The original Atlans terrain pass does not render standard grass.
-                if (WorldIndex != AtlansWorldIndex)
+                if (!IsAnimatedWaterWorld)
                     _grassRenderer.Draw();
             }
             finally
@@ -1085,6 +1089,9 @@ namespace Client.Main.Controls.Terrain
             effect.Parameters["SunStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
             effect.Parameters["ShadowStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
 
+            // World-scoped linear fog (disabled unless a world opts in)
+            Graphics.WorldFog.Apply(effect, Camera.Instance.Position);
+
             // Apply global shadow map parameters when available so terrain receives the same shadows as objects
             GraphicsManager.Instance.ShadowMapRenderer?.ApplyShadowParameters(effect);
             UploadDynamicLights(effect);
@@ -1423,7 +1430,7 @@ namespace Client.Main.Controls.Terrain
 
         private void PrepareWaterCausticsRenderResources()
         {
-            if (WorldIndex != AtlansWorldIndex || ResolveWaterCausticsTexture() == null)
+            if (!IsAnimatedWaterWorld || ResolveWaterCausticsTexture() == null)
                 return;
 
             EnsureWaterCausticsEffect();
@@ -1432,7 +1439,7 @@ namespace Client.Main.Controls.Terrain
 
         private bool IsAtlansCausticsTile(int terrainIndex, bool hasMappingAlpha)
         {
-            return WorldIndex == AtlansWorldIndex &&
+            return IsAnimatedWaterWorld &&
                    hasMappingAlpha &&
                    _data.Mapping.Layer2 != null &&
                    (uint)terrainIndex < (uint)_data.Mapping.Layer2.Length &&
@@ -1441,7 +1448,7 @@ namespace Client.Main.Controls.Terrain
 
         private Texture2D ResolveWaterCausticsTexture()
         {
-            if (WorldIndex != AtlansWorldIndex)
+            if (!IsAnimatedWaterWorld)
                 return null;
 
             Texture2D[] frames = _data.WaterCausticsTextures;
@@ -2646,3 +2653,4 @@ namespace Client.Main.Controls.Terrain
 
     }
 }
+
