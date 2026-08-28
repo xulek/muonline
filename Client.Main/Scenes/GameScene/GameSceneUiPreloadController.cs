@@ -71,8 +71,15 @@ namespace Client.Main.Scenes
                     {
                         try
                         {
-                            await TextureLoader.Instance.Prepare(path);
-                            _ = TextureLoader.Instance.GetTexture2D(path);
+                            // This runs on a background task, so it must not call GetTexture2D
+                            // directly: that method documents that the caller is responsible for
+                            // invoking it on the graphics thread, and it takes a per-texture lock
+                            // before constructing the Texture2D. Off the graphics thread the
+                            // constructor blocks until the main thread pumps the graphics queue,
+                            // while the main thread - dispatching the upload for the same texture -
+                            // blocks on that very lock, and the two deadlock on entering the game.
+                            // PrepareAndGetTexture marshals the upload onto the main thread instead.
+                            _ = await TextureLoader.Instance.PrepareAndGetTexture(path);
                         }
                         catch (Exception ex)
                         {
