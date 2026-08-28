@@ -333,3 +333,6 @@ OpenMU/
 .dotnet_cli_home/
 .serena
 .agents
+
+# MonoGame content pipeline statistics, regenerated on every build
+.mgstats
