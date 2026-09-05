@@ -21,6 +21,9 @@ namespace Client.Main.Effects
         /// <summary>Active swell scale factors per entity (playerId → scale multiplier).</summary>
         private readonly Dictionary<ushort, float> _swellScales = new();
 
+        /// <summary>Attached buff visual effects per entity ((playerId, effectId) → visuals).</summary>
+        private readonly Dictionary<(ushort PlayerId, BuffEffectId EffectId), List<WorldObject>> _buffVisuals = new();
+
         /// <summary>The scale multiplier applied to swelled entities.</summary>
         private const float SwellScaleFactor = 1.25f;
 
@@ -54,9 +57,15 @@ namespace Client.Main.Effects
                     break;
 
                 case BuffEffectId.ManaShield:
-                    ApplyAura(scene, maskedId, isActive,
-                        new Color(40, 80, 255, 120),  // blue
-                        1.15f);                        // slightly larger
+                    // SourceMain5.2 eBuff_WizDefense: soul barrier bubble orbiting the owner.
+                    ApplyAttachedVisual(scene, maskedId, effectId, isActive,
+                        walker => new ManaShieldBubbleEffect(walker));
+                    break;
+
+                case BuffEffectId.Stun:
+                    // SourceMain5.2 eDeBuff_Stun: spinning rings above the head.
+                    ApplyAttachedVisual(scene, maskedId, effectId, isActive,
+                        walker => new StunRingsEffect(walker));
                     break;
 
                 case BuffEffectId.GreaterDamage:
@@ -116,6 +125,42 @@ namespace Client.Main.Effects
         }
 
         /// <summary>
+        /// Attaches or removes a child visual effect on the entity.
+        /// </summary>
+        private void ApplyAttachedVisual(
+            Scenes.GameScene scene, ushort playerId, BuffEffectId effectId, bool isActive, Func<Objects.WalkerObject, WorldObject> factory)
+        {
+            if (scene.World is not Controls.WalkableWorldControl walkableWorld) return;
+            if (!walkableWorld.WalkerObjectsById.TryGetValue(playerId, out var walker)) return;
+
+            var key = (playerId, effectId);
+            if (isActive)
+            {
+                if (_buffVisuals.ContainsKey(key))
+                    return; // already attached
+
+                var visual = factory(walker);
+                walker.Children.Add(visual);
+                _ = visual.Load();
+                _buffVisuals[key] = [visual];
+                _logger?.LogDebug("Buff visual {Visual} attached to player {PlayerId}",
+                    visual.GetType().Name, playerId);
+            }
+            else
+            {
+                if (!_buffVisuals.Remove(key, out var visuals))
+                    return;
+
+                foreach (var visual in visuals)
+                {
+                    walker.Children.Remove(visual);
+                    visual.Dispose();
+                }
+                _logger?.LogDebug("Buff visuals removed from player {PlayerId}", playerId);
+            }
+        }
+
+        /// <summary>
         /// Applies a colored aura glow effect to the entity.
         /// Creates/removes a child effect object on the walker.
         /// </summary>
@@ -145,6 +190,14 @@ namespace Client.Main.Effects
         public void ClearAll()
         {
             _swellScales.Clear();
+
+            foreach (var visuals in _buffVisuals.Values)
+            {
+                foreach (var visual in visuals)
+                    visual.Dispose();
+            }
+            _buffVisuals.Clear();
+
             _logger?.LogDebug("All buff visual effects cleared");
         }
 

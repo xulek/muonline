@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Objects.Player;
@@ -10,6 +10,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Client.Main.Models;
+
+using Joints = Client.Main.Objects.Effects.Joints;
 
 namespace Client.Main.Objects.Monsters
 {
@@ -60,6 +62,28 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mPhantomAttack1.wav", Position, listenerPosition); // Sound 169
+
+            // SourceMain5.2 AttackEffect MONSTER_PHANTOM_KNIGHT boss branch
+            // (Skill == AT_SKILL_BOSS, CheckAttackTime(14)): 36x CreateJoint
+            // (JOINT_SPIRIT, sub1, scale 60, random angles) from +100 Z —
+            // radial spirit streaks. No effect on normal attacks.
+            if (attackType != 2)
+                return;
+
+            if (World != null && TryConsumeAttackEffectWindow())
+            {
+                Vector3 origin = Position + Vector3.UnitZ * 100f;
+                for (int i = 0; i < 36; i++)
+                {
+                    var spirit = Joints.SourceJointEffect.SpiritBurst(
+                        origin,
+                        MuGame.Random.Next(360),
+                        MuGame.Random.Next(360),
+                        scale: 60f);
+                    World.Objects.Add(spirit);
+                    _ = spirit.Load();
+                }
+            }
         }
 
         public override void OnReceiveDamage()

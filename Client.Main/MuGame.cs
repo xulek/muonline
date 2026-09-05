@@ -131,6 +131,11 @@ namespace Client.Main
         private ulong _lastMouseRayCameraVersion = ulong.MaxValue;
         private int _lastSlowFrameEventFrame = -1000;
         private int _lastHighAllocationEventFrame = -1000;
+        // Black-frame diagnostics: throttled frame indexes of the last logged
+        // empty-world frame, black fallback (no recovery) and recovery present.
+        private int _lastEmptyWorldFrameLog = -100000;
+        private int _lastBlackFallbackLog = -100000;
+        private int _lastRecoveryFallbackLog = -100000;
         private const double SlowCpuFrameEventThresholdMs = 25d;
         private const double HighAllocationFrameThresholdKb = 256d;
         private const int PassiveDetailedProfileIntervalFrames = 15;
@@ -838,6 +843,7 @@ namespace Client.Main
                         requireRecoveryTarget: gameSceneRecovery);
 
                     bool containedRenderFailure = DrawSceneToMainRenderTarget(gameTime);
+                    LogBlackFrameDiagnostics(containedRenderFailure);
                     if (gameSceneRecovery &&
                         containedRenderFailure &&
                         GraphicsManager.Instance.HasRecoveryFrame)
@@ -902,6 +908,48 @@ namespace Client.Main
             }
         }
 
+        /// <summary>
+        /// Lightweight black-frame diagnostics. All probes are throttled and
+        /// allocate nothing unless they fire: a frame that would present black
+        /// leaves one of these lines in the log with the exact cause.
+        /// </summary>
+        private void LogBlackFrameDiagnostics(bool containedRenderFailure)
+        {
+            // Probe 1: a contained render failure presents the recovery frame
+            // (visible freeze, not black) — but a black MainRenderTarget would
+            // poison the next recovery via CommitSceneFrame.
+            if (containedRenderFailure &&
+                ActiveScene is GameScene &&
+                FrameIndex - _lastRecoveryFallbackLog >= 600)
+            {
+                _lastRecoveryFallbackLog = FrameIndex;
+                _logger?.LogWarning(
+                    "Black-frame probe: presenting recovery frame after contained render failure on frame {FrameIndex}.",
+                    FrameIndex);
+            }
+
+            // Probe 2: world Ready and culling had candidates, but produced zero
+            // visible objects. The hero is force-visible, so an empty list means
+            // this frame presents (almost) black. HUD is unaffected (same target,
+            // drawn later). Requiring candidates > 0 excludes the legitimate
+            // loading window where the world is simply still empty.
+            var world = ActiveScene?.World;
+            if (world != null &&
+                world.Status == Models.GameControlStatus.Ready &&
+                world.FrameMetrics.CullCandidates > 0 &&
+                world.FrameMetrics.VisibleObjects == 0 &&
+                FrameIndex - _lastEmptyWorldFrameLog >= 300)
+            {
+                _lastEmptyWorldFrameLog = FrameIndex;
+                Vector3 cameraPos = Camera.Instance.Position;
+                _logger?.LogWarning(
+                    "Black-frame probe: zero visible objects with world Ready on frame {FrameIndex} (cull candidates {CullCandidates}, camera {CameraX:F0},{CameraY:F0},{CameraZ:F0}).",
+                    FrameIndex,
+                    world.FrameMetrics.CullCandidates,
+                    cameraPos.X, cameraPos.Y, cameraPos.Z);
+            }
+        }
+
         private void RecordDrawException(Exception exception, string phase)
         {
             long sequence = Interlocked.Increment(ref _drawExceptionSequence);
@@ -961,6 +1009,17 @@ namespace Client.Main
                     sprite.Draw(preservedScene, GraphicsDevice.Viewport.Bounds, Color.White);
                     sprite.End();
                     return;
+                }
+
+                // Probe 3: no recovery frame available — the fallback below presents
+                // a pure black frame. Throttled: this is the smoking gun for a
+                // one-frame black flash.
+                if (FrameIndex - _lastBlackFallbackLog >= 300)
+                {
+                    _lastBlackFallbackLog = FrameIndex;
+                    _logger?.LogWarning(
+                        "Black-frame probe: presenting black fallback frame (no recovery available) on frame {FrameIndex}, phase {DrawPhase}.",
+                        FrameIndex, _currentDrawPhase);
                 }
 
                 GraphicsDevice.Clear(FallbackClearColor);

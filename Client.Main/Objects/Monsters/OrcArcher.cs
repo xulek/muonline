@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -53,6 +53,14 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mOrcArcherAttack1.wav", Position, listenerPosition);
+
+            // SourceMain5.2 AttackEffect: MODEL_ORCARCHER fires CreateArrows on attack.
+            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
+            {
+                var arrow = new Effects.MonsterArrowProjectileEffect(this, 39, LastAttackTargetId);
+                arrowWorld.Objects.Add(arrow);
+                _ = arrow.Load();
+            }
         }
 
         public override void OnReceiveDamage()

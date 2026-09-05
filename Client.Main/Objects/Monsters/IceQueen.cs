@@ -16,12 +16,13 @@ namespace Client.Main.Objects.Monsters
 
         public IceQueen()
         {
-            RenderShadow = true;
+            RenderShadow = false; // SourceMain5.2 RenderCharacter: MONSTER_ICE_QUEEN excluded from blob shadow pass
             BlendMesh = 2;
             BlendMeshLight = 1f;
             LightEnabled = false;
             Scale = 1.1f; // Set according to C++ Setting_Monster
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
+            Blood = false; // SourceMain5.2 CreateBlood: MODEL_ICE_QUEEN exempt from death blood decals
             _rightHandWeapon = new WeaponObject
             {
                 LinkParentAnimation = false,

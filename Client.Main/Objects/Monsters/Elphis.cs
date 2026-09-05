@@ -12,6 +12,10 @@ namespace Client.Main.Objects.Monsters
     {
         public Elphis()
         {
+            // SourceMain5.2 CreateMonster(MONSTER_ELPHIS): c->Object.Scale = 2.5f,
+            // EnableShadow = false, m_bRenderShadow = false
+            Scale = 2.5f;
+            RenderShadow = false;
         }
 
         public override async Task Load()

@@ -40,6 +40,12 @@ namespace Client.Main.Objects.Worlds.Events
         private Vector2 _wanderTarget;
         private float _wanderRetargetTimer = 1f;
 
+        // SourceMain GOBoid.cpp Range<600 call gates (rand_fps_check on the reference clock)
+        private readonly string? _callPath1;
+        private readonly string? _callPath2;
+        private readonly int _callRollFrames;
+        private readonly bool _callOnlyInSafeZone;
+
         public bool IsFadedOut { get; private set; }
         public bool Live { get; set; } = true;
 
@@ -60,6 +66,31 @@ namespace Client.Main.Objects.Worlds.Events
             // Source renders boids at PlaySpeed 1.0 (~25 keys/s); client AnimationSpeed 15
             // matches the fast flutter precedent set by ButterflyObject.
             AnimationSpeed = style == BoidFlightStyle.GroundScurry ? 4f : 15f;
+
+            // GOBoid.cpp render-loop calls: bird rfc512 x2, bat rfc256, crow rfc128
+            // (safe zones only), rat rfc256.
+            if (ModelPath.Contains("Bird", StringComparison.OrdinalIgnoreCase))
+            {
+                _callPath1 = "Sound/aBird1.wav";
+                _callPath2 = "Sound/aBird2.wav";
+                _callRollFrames = 512;
+            }
+            else if (ModelPath.Contains("Bat", StringComparison.OrdinalIgnoreCase))
+            {
+                _callPath1 = "Sound/aBat.wav";
+                _callRollFrames = 256;
+            }
+            else if (ModelPath.Contains("Crow", StringComparison.OrdinalIgnoreCase))
+            {
+                _callPath1 = "Sound/eCrow.wav";
+                _callRollFrames = 128;
+                _callOnlyInSafeZone = true;
+            }
+            else if (ModelPath.Contains("Rat", StringComparison.OrdinalIgnoreCase))
+            {
+                _callPath1 = "Sound/aMouse.wav";
+                _callRollFrames = 256;
+            }
         }
 
         private string ModelPath { get; }
@@ -148,7 +179,48 @@ namespace Client.Main.Objects.Worlds.Events
 
             if (Alpha < 1f)
                 Alpha = MathF.Min(1f, Alpha + dt * 1.25f);
+
+            UpdateCalls(dt);
         }
+
+        private void UpdateCalls(float dt)
+        {
+            if (_callPath1 == null || _callRollFrames <= 0)
+                return;
+
+            var walker = (World as WalkableWorldControl)?.Walker;
+            if (walker == null)
+                return;
+
+            float dx = Position.X - walker.Position.X;
+            float dy = Position.Y - walker.Position.Y;
+            if (dx * dx + dy * dy >= 600f * 600f)
+                return;
+
+            const int terrainSize = Constants.TERRAIN_SIZE;
+            // SourceMain5.2 GOBoid crow gate checks the HERO tile (Index is computed
+            // from Hero position once per RenderBoids call), not the boid tile.
+            int tileX = (int)(walker.Position.X / Constants.TERRAIN_SCALE);
+            int tileY = (int)(walker.Position.Y / Constants.TERRAIN_SCALE);
+            if (tileX < 0 || tileX >= terrainSize || tileY < 0 || tileY >= terrainSize)
+                return;
+
+            if (_callOnlyInSafeZone && !IsOnSafeZone(tileX, tileY))
+                return;
+
+            float probability = dt * ReferenceFps / _callRollFrames;
+            if ((float)MuGame.Random.NextDouble() < probability)
+                Client.Main.Controllers.SoundController.Instance.PlayBufferWithAttenuation(
+                    _callPath1, Position, walker.Position);
+
+            if (_callPath2 != null && (float)MuGame.Random.NextDouble() < probability)
+                Client.Main.Controllers.SoundController.Instance.PlayBufferWithAttenuation(
+                    _callPath2, Position, walker.Position);
+        }
+
+        // SourceMain5.2 GOBoid crow gate: TerrainWall[tile] == TW_SAFEZONE.
+        private bool IsOnSafeZone(int tileX, int tileY) =>
+            World.Terrain.RequestTerrainFlag(tileX, tileY) == Client.Data.ATT.TWFlags.SafeZone;
 
         private void SteerTowardWanderTarget(float dt)
         {

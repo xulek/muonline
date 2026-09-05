@@ -36,6 +36,7 @@ namespace Client.Main.Core.Client
             [BuffEffectId.ElfAttack] = Create(BuffEffectId.ElfAttack, "Elf Attack Buff", "Attack increased", TimeSpan.FromMinutes(3)),
             [BuffEffectId.ElfDefense] = Create(BuffEffectId.ElfDefense, "Elf Defense Buff", "Defense increased", TimeSpan.FromMinutes(3)),
             [BuffEffectId.ElfHeal] = Create(BuffEffectId.ElfHeal, "Elf Heal", "Recovering health", TimeSpan.FromSeconds(30)),
+            [BuffEffectId.Stun] = Create(BuffEffectId.Stun, "Stun", "Unable to move", TimeSpan.FromSeconds(5), isDebuff: true),
         };
 
         public static BuffDefinition Get(BuffEffectId effectId)

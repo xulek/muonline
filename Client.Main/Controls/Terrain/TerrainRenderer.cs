@@ -3,6 +3,7 @@ using Client.Main.Controls;
 using Client.Main.Graphics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -173,6 +174,13 @@ namespace Client.Main.Controls.Terrain
         // State tracking for GPU optimization
         private Texture2D _lastBoundTexture = null;
         private BlendState _lastBlendState = null;
+
+        // Black-frame probe throttling (see LogTerrainBlackFrameProbe).
+        private int _lastTerrainEmptyLog = -100000;
+        private int _lastTerrainSkippedLog = -100000;
+        private int _lastTerrainCliffLog = -100000;
+        private int _prevFrameDrawnTiles;
+        private int _prevFrameVisibleBlocks;
         private bool _useDynamicLightingShader = false;
         private bool _useTerrainIndexBatching = false;
 
@@ -218,6 +226,8 @@ namespace Client.Main.Controls.Terrain
         public int DrawCalls { get; private set; }
         public int DrawnTriangles { get; private set; }
         public int DrawnBlocks { get; private set; }
+        public int DrawnTiles { get; private set; }
+        public int SkippedTilesNoTexture { get; private set; }
         public int DrawnCells { get; private set; }
         public int IndexedCells { get; private set; }
         public int StreamedCells { get; private set; }
@@ -511,7 +521,19 @@ namespace Client.Main.Controls.Terrain
                     effect.CurrentTechnique = effect.Techniques["DynamicLighting"];
                 }
                 if (!ConfigureDynamicLightingEffect())
+                {
+                    // Whole-terrain silent skip: log it (throttled) instead of going dark quietly.
+                    int configFrame = MuGame.FrameIndex;
+                    if (configFrame - _lastTerrainSkippedLog >= 300)
+                    {
+                        _lastTerrainSkippedLog = configFrame;
+                        MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                            "Black-frame probe: terrain effect configuration failed on frame {Frame}, whole terrain skipped.",
+                            configFrame);
+                    }
+
                     return;
+                }
             }
             else
             {
@@ -597,6 +619,75 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.RasterizerState = previousRasterizer;
                 _graphicsDevice.SamplerStates[0] = previousSampler;
             }
+
+            LogTerrainBlackFrameProbe();
+        }
+
+        /// <summary>
+        /// Black-frame diagnostics for terrain-only blackouts (objects/HUD unaffected).
+        /// Case A (zero visible blocks) points at culling; case B (blocks visible but
+        /// zero draw calls submitted) points at the draw stage (skipped tiles, missing
+        /// technique/textures). Both throttled; allocate nothing unless they fire.
+        /// </summary>
+        private void LogTerrainBlackFrameProbe()
+        {
+            int frame = MuGame.FrameIndex;
+            int visible = _visibility?.VisibleBlocks?.Count ?? -1;
+
+            if (visible == 0 && frame - _lastTerrainEmptyLog >= 300)
+            {
+                _lastTerrainEmptyLog = frame;
+                Vector3 cam = Camera.Instance.Position;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain culling left zero visible blocks on frame {Frame} (camera {X:F0},{Y:F0},{Z:F0}).",
+                    frame, cam.X, cam.Y, cam.Z);
+            }
+            else if (visible > 0 && DrawCalls == 0 && frame - _lastTerrainSkippedLog >= 300)
+            {
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: {VisibleBlocks} terrain blocks visible but zero draw calls submitted on frame {Frame}.",
+                    visible, frame);
+            }
+            else if (visible > 0 && DrawnTiles == 0 && frame - _lastTerrainSkippedLog >= 300)
+            {
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: {VisibleBlocks} terrain blocks visible but zero ground tiles drawn on frame {Frame} ({Skipped} skipped, no texture).",
+                    visible, frame, SkippedTilesNoTexture);
+            }
+            else if (visible > 0 && SkippedTilesNoTexture > 0 && SkippedTilesNoTexture >= DrawnTiles &&
+                     frame - _lastTerrainSkippedLog >= 300)
+            {
+                // Partial skip: most ground tiles dropped for missing textures while a
+                // few still drew (props/edges). In a city the ground is 1-2 textures,
+                // so losing the dominant one looks like the whole terrain going black.
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain mostly skipped on frame {Frame} ({Skipped} skipped, no texture, {Drawn} drawn).",
+                    frame, SkippedTilesNoTexture, DrawnTiles);
+            }
+
+            // Cliff detector: similar block coverage as last frame but drawn tiles
+            // collapsed to under a quarter. Catches partial blackouts from any cause
+            // (skips, batch loss, culling glitch) regardless of absolute counts.
+            // Teleports change both numbers, so they do not trigger this.
+            int prevVisible = _prevFrameVisibleBlocks;
+            int prevDrawn = _prevFrameDrawnTiles;
+            _prevFrameVisibleBlocks = visible;
+            _prevFrameDrawnTiles = DrawnTiles;
+            if (visible > 0 && prevVisible > 0 && prevDrawn > 100 &&
+                Math.Abs(visible - prevVisible) <= Math.Max(4, prevVisible / 2) &&
+                DrawnTiles * 4 < prevDrawn &&
+                frame - _lastTerrainCliffLog >= 300)
+            {
+                _lastTerrainCliffLog = frame;
+                var cam = Camera.Instance.Position;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain tile cliff on frame {Frame} (blocks {PrevBlocks}->{Blocks}, drawn tiles {PrevDrawn}->{Drawn}, skipped {Skipped}, camera {X:F0},{Y:F0},{Z:F0}).",
+                    frame, prevVisible, visible, prevDrawn, DrawnTiles, SkippedTilesNoTexture,
+                    cam.X, cam.Y, cam.Z);
+            }
         }
 
         private void ResetMetrics()
@@ -604,6 +695,8 @@ namespace Client.Main.Controls.Terrain
             DrawCalls = 0;
             DrawnTriangles = 0;
             DrawnBlocks = 0;
+            DrawnTiles = 0;
+            SkippedTilesNoTexture = 0;
             DrawnCells = 0;
             IndexedCells = 0;
             StreamedCells = 0;
@@ -2405,7 +2498,10 @@ namespace Client.Main.Controls.Terrain
                 var batch = GetTileBatchBuffer(texIndex, alphaLayer, vertCount);
                 var texture = _data.Textures[texIndex];
                 if (texture == null || texture.IsDisposed)
+                {
+                    SkippedTilesNoTexture += vertCount / 6;
                     return;
+                }
 
                 var blendState = alphaLayer ? BlendState.NonPremultiplied : BlendState.Opaque;
                 if (_lastBlendState != blendState)
@@ -2439,6 +2535,7 @@ namespace Client.Main.Controls.Terrain
                         pass.Apply();
                         _graphicsDevice.DrawPrimitives(PrimitiveType.TriangleList, 0, triangleCount);
                     }
+                    DrawnTiles += vertCount / 6;
                 }
                 else
                 {
@@ -2480,6 +2577,7 @@ namespace Client.Main.Controls.Terrain
 
                 DrawCalls++;
                 DrawnTriangles += vertCount / 3;
+                DrawnTiles += vertCount / 6;
             }
             finally
             {

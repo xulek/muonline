@@ -33,6 +33,16 @@ namespace Client.Main.Objects.Monsters
                     18, 31, 32, 31, 33, 32, 34, 33
                 }
             });
+
+            // SourceMain5.2 RenderCharacter(MONSTER_QUEEN_RAINER): BITMAP_LIGHT sprite
+            // (scale 0.8) on bone 20.
+            Children.Add(new MonsterBoneSpriteEffect
+            {
+                BoneIndices = new[] { 20 },
+                PrimaryTexturePath = "Effect/light.jpg",
+                PrimaryScale = 0.8f,
+                LightColor = Color.White
+            });
         }
 
         public override async Task Load()
@@ -61,6 +71,16 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mRainnerAttack1.wav", Position, listenerPosition); // Sound 172
+
+            // SourceMain5.2 AttackEffect MONSTER_QUEEN_RAINER (CheckAttackTime(5)):
+            // 20x BITMAP_BLIZZARD on the attack target.
+            if (World != null && TryConsumeAttackEffectWindow() &&
+                TryGetAttackTargetPosition(out Vector3 targetPosition))
+            {
+                var blizzard = new Effects.MonsterBlizzardStrikeEffect(targetPosition);
+                World.Objects.Add(blizzard);
+                _ = blizzard.Load();
+            }
         }
 
         public override void OnDeathAnimationStart()

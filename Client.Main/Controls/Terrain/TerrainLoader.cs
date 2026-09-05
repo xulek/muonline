@@ -88,6 +88,17 @@ namespace Client.Main.Controls.Terrain
                     }
 
                     Console.WriteLine($"[TerrainLoader] Uploaded {_loadedCount}/{_entries.Length} {_label} textures for World{_owner._worldIndex}.");
+
+                    // Diagnostic: entries that never resolved leave their tiles permanently
+                    // skipped (silent holes). List them once so missing map assets can be
+                    // identified instead of blamed on rendering.
+                    foreach (TextureUploadEntry missing in _entries)
+                    {
+                        var tex = missing.Target[missing.TextureIndex];
+                        if (tex == null || tex.IsDisposed)
+                            Console.WriteLine($"[TerrainLoader] Terrain texture MISSING (tiles using it will be skipped): index {missing.TextureIndex} '{missing.Path}' for World{_owner._worldIndex}.");
+                    }
+
                     _completion.TrySetResult(true);
                 }
                 catch (Exception ex)

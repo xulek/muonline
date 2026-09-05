@@ -474,6 +474,16 @@ namespace Client.Main.Content
 
                 var asset = await _reader.Load(path);
 
+                // SourceMain5.2 OpenMonsterModel(): apply original per-model action
+                // PlaySpeed defaults/overrides to every monster model at load time.
+                var relativeModelPath = Path.GetRelativePath(Constants.DataPath, path).Replace("\\", "/");
+                var monsterMatch = System.Text.RegularExpressions.Regex.Match(
+                    relativeModelPath, @"^Monster/Monster(\d+)\.bmd$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (monsterMatch.Success && int.TryParse(monsterMatch.Groups[1].Value, out int monsterFileNumber))
+                {
+                    MonsterActionSpeedDatabase.Apply(asset, monsterFileNumber);
+                }
+
                 // for custom blending from json
                 var relativePath = Path.GetRelativePath(Constants.DataPath, path).Replace("\\", "/");
                 if (_blendingConfig.TryGetValue(relativePath, out var meshConfig))

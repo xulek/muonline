@@ -16,6 +16,7 @@ namespace Client.Main.Objects.Monsters
             RenderShadow = true;
             Scale = 0.95f; // Set according to C++ Setting_Monster
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
+            Blood = false; // SourceMain5.2 CreateBlood: MODEL_ASSASSIN exempt from death blood decals
         }
 
         public override async Task Load()

@@ -172,6 +172,7 @@ namespace Client.Main.Controls
         private readonly List<SourceParticleSystem> _dedicatedParticleSystems = [];
         private readonly List<ModelObject> _dedicatedStaticMapObjects = [];
         private readonly List<ModelObject> _queuedDedicatedStaticMapObjects = [];
+        private readonly List<ModelObject> _queuedSolidStaticMapObjects = [];
         private readonly List<ModelObject> _queuedCrowdSidePasses = [];
         private readonly List<WalkerObject> _walkers = [];
         private readonly List<PlayerObject> _players = [];
@@ -1481,6 +1482,7 @@ namespace Client.Main.Controls
             bool canUseMapInstancing = depthState == DepthStateDefault && Constants.ENABLE_MAP_OBJECT_INSTANCING;
             bool canUseWalkerCrowdInstancing = depthState == DepthStateDefault && Constants.ENABLE_WALKER_CROWD_INSTANCING;
             _queuedCrowdSidePasses.Clear();
+            _queuedSolidStaticMapObjects.Clear();
 
             var spriteBatch = GraphicsManager.Instance.Sprite;
             Helpers.SpriteBatchScope? scope = null;
@@ -1515,8 +1517,14 @@ namespace Client.Main.Controls
                         FlushWalkerCrowdBatchesAndSidePasses(time);
                     }
 
-                    if (canUseMapInstancing && ModelObject.HasPendingStaticMapInstancingBatches())
-                        FlushStaticMapBatchesSafely();
+                    if (canUseMapInstancing && ModelObject.HasPendingStaticMapInstancingBatches() &&
+                        !FlushStaticMapBatchesSafely())
+                    {
+                        // Same failure-only fallback as the dedicated static-map path below:
+                        // redraw queued placements classically so a lost batch cannot
+                        // leave tagged meshes undrawn for this frame.
+                        FallbackQueuedSolidStaticMapObjects(time);
+                    }
 
                     var blend = obj.BlendState ?? BlendState.AlphaBlend;
                     SamplerState sampler;
@@ -1600,6 +1608,11 @@ namespace Client.Main.Controls
                         mapModel.IsMapPlacementObject)
                         ModelObject.RegisterStaticMapInstancingFallback();
 
+                    if (canUseMapInstancing &&
+                        staticMapQueueResult != ModelObject.StaticMapInstancingQueueResult.None &&
+                        obj is ModelObject queuedMapModel)
+                        _queuedSolidStaticMapObjects.Add(queuedMapModel);
+
                     SetDepthState(ResolveObjectDepthState(obj, depthState));
                     try
                     {
@@ -1623,8 +1636,38 @@ namespace Client.Main.Controls
                 FlushWalkerCrowdBatchesAndSidePasses(time);
             }
 
-            if (canUseMapInstancing && ModelObject.HasPendingStaticMapInstancingBatches())
-                FlushStaticMapBatchesSafely();
+            if (canUseMapInstancing && ModelObject.HasPendingStaticMapInstancingBatches() &&
+                !FlushStaticMapBatchesSafely())
+            {
+                // Failure-only fallback mirroring DrawDedicatedStaticMapObjects:
+                // classic redraw of everything queued in this list so tagged meshes
+                // are never left undrawn for the frame.
+                FallbackQueuedSolidStaticMapObjects(time);
+            }
+        }
+
+        private void FallbackQueuedSolidStaticMapObjects(GameTime time)
+        {
+            for (int i = 0; i < _queuedSolidStaticMapObjects.Count; i++)
+            {
+                ModelObject model = _queuedSolidStaticMapObjects[i];
+                if (model == null || ShouldSkipRender(model))
+                    continue;
+
+                model.CancelStaticMapInstancingForCurrentFrame();
+                ModelObject.RegisterStaticMapInstancingFallback();
+                try
+                {
+                    model.Draw(time);
+                    ClearRenderFault(model, "Draw.StaticMapBatchFallback");
+                }
+                catch (Exception ex)
+                {
+                    RecordRenderFailure(model, "Draw.StaticMapBatchFallback", ex);
+                }
+            }
+
+            _queuedSolidStaticMapObjects.Clear();
         }
 
         private void FlushWalkerCrowdBatchesAndSidePasses(GameTime time)

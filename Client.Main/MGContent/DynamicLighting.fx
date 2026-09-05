@@ -47,6 +47,9 @@ sampler SamplerState0 = sampler_state
 UNIFORM_DEFAULT(float3, AmbientLight, float3(0.8, 0.8, 0.8));
 UNIFORM_DEFAULT(float, Alpha, 1.0);
 UNIFORM_DEFAULT(float2, TextureCoordinateOffset, float2(0.0, 0.0));
+// Per-material tint multiplier for chrome/bright overlay passes
+// (SourceMain5.2 glColor(BodyLight) on RENDER_CHROME/BRIGHT body passes).
+UNIFORM_DEFAULT(float3, MaterialTint, float3(1.0, 1.0, 1.0));
 UNIFORM_DEFAULT(float3, HighlightColor, float3(1.0, 0.0, 0.0));
 UNIFORM_DEFAULT(float3, SunDirection, float3(1.0, 0.0, -0.6));
 UNIFORM_DEFAULT(float3, SunColor, float3(1.0, 0.95, 0.85));
@@ -621,7 +624,7 @@ float4 ShadeObjectPixel(PixelInput input, float3 normal, float3 dynamicLight)
     float shadowMix = lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
     finalLight *= lerp(1.0, shadowMix, ShadowsEnabled);
 
-    float3 finalColor = lerp(texColor.rgb * finalLight, float3(0, 0, 0), isDebugPixel);
+    float3 finalColor = lerp(texColor.rgb * finalLight * MaterialTint, float3(0, 0, 0), isDebugPixel);
     finalColor = ApplyWorldFog(finalColor, input.WorldPos);
     return float4(finalColor, finalAlpha);
 }

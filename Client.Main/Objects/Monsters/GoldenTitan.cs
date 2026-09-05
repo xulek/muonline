@@ -21,6 +21,13 @@ namespace Client.Main.Objects.Monsters
             BlendMesh = 2;
             BlendMeshLight = 1f;
 
+            // SourceMain5.2 RenderCharacter: GOLDEN_TITAN/GOLDEN_SOLDIER get the
+            // RENDER_METAL | RENDER_BRIGHT pass with BITMAP_SHINY+1 (= Effect/Shiny02.jpg),
+            // tinted (1.0, 0.5, 0.0) (PartObjectColor Color 0).
+            BrightOverlay = 1f;
+            BrightOverlayTexturePath = "Effect/Shiny02.jpg";
+            BrightOverlayTint = new Vector3(1f, 0.5f, 0f);
+
             _eyeGlow = new GlowingEyesEffect
             {
                 LeftEyeBone = 28,

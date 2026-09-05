@@ -1,6 +1,7 @@
 using Client.Main.Content;
 using Client.Main.Graphics;
 using Client.Main.Models;
+using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Threading.Tasks;
@@ -15,6 +16,20 @@ namespace Client.Main.Objects.Monsters.BloodCastle
     {
         private Texture2D _chromeTexture;
 
+        /// <summary>
+        /// SourceMain5.2 RenderCharacter attaches the Divine weapon of Archangel on bone 1
+        /// (Staff11 / Sword20 / Bow19). Set in subclass constructors.
+        /// </summary>
+        protected string DivineWeaponModelPath { get; set; }
+
+        /// <summary>
+        /// Original renders the link at absolute object scale 0.7 (statues 1-2) or
+        /// 0.9 (statue 3); converted here to child-local scale relative to the statue.
+        /// </summary>
+        protected float DivineWeaponScale { get; set; }
+
+        private WeaponObject _divineWeapon;
+
         protected BloodCastleStatueObject(float scale)
         {
             Scale = scale;
@@ -28,7 +43,26 @@ namespace Client.Main.Objects.Monsters.BloodCastle
         public override async Task Load()
         {
             Model = await BMDLoader.Instance.Prepare("Monster/Monster61.bmd");
+
+            // SourceMain5.2 RenderCharacter(MONSTER_STATUE_OF_SAINT_1..3): Divine weapon of
+            // Archangel linked on bone 1, action 1, PlaySpeed 0.2.
+            if (!string.IsNullOrEmpty(DivineWeaponModelPath))
+            {
+                _divineWeapon = new WeaponObject
+                {
+                    LinkParentAnimation = false,
+                    ParentBoneLink = 1,
+                    Scale = DivineWeaponScale,
+                    RenderShadow = false
+                };
+                _divineWeapon.Model = await BMDLoader.Instance.Prepare(DivineWeaponModelPath);
+                Children.Add(_divineWeapon);
+            }
+
             await base.Load();
+
+            if (_divineWeapon?.Model?.Actions != null && _divineWeapon.Model.Actions.Length > 1 && _divineWeapon.Model.Actions[1] != null)
+                _divineWeapon.Model.Actions[1].PlaySpeed = 0.2f;
         }
 
         public override async Task LoadContent()

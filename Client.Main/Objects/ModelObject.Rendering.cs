@@ -339,7 +339,16 @@ namespace Client.Main.Objects
             if (_meshes == null || (uint)mesh >= (uint)_meshes.Length)
                 return false;
 
-            return BlendMesh == mesh || BlendMesh == -2 || _meshes[mesh].BlendByScript;
+            if (BlendMesh == -2 || _meshes[mesh].BlendByScript)
+                return true;
+
+            // SourceMain5.2 BMD::RenderMesh parity: the blend pass triggers when the
+            // mesh's TEXTURE slot equals BlendMesh ("m->Texture == blendMeshIndex"),
+            // not when the mesh index equals it.
+            if (BlendMesh >= 0 && Model != null && (uint)mesh < (uint)Model.Meshes.Length)
+                return Model.Meshes[mesh].Texture == BlendMesh;
+
+            return false;
         }
 
         /// <summary>
@@ -1418,6 +1427,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1516,6 +1533,14 @@ namespace Client.Main.Objects
                     if (isBlendMesh)
                     {
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                        depthStateChanged = true;
+                    }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
                         depthStateChanged = true;
                     }
 
@@ -1635,6 +1660,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1737,6 +1770,14 @@ namespace Client.Main.Objects
                     if (isBlendMesh)
                     {
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                        depthStateChanged = true;
+                    }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
                         depthStateChanged = true;
                     }
 

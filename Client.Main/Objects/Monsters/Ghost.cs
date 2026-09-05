@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Graphics;
@@ -15,7 +15,11 @@ namespace Client.Main.Objects.Monsters
         public Ghost()
         {
             RenderShadow = false; // Ghosts typically don't cast shadows
-            Scale = 1.0f; // Default
+            // SourceMain5.2 CreateMonster presets c->Blood = true (ZzzCharacter.cpp:13845),
+            // which blocks the one-shot death blood in EtcStopAnimationSetting — equivalent
+            // to no death-blood decals here. (MODEL_GHOST_MONSTER is NOT exempt from the
+            // hit-blood burst at ZzzCharacter.cpp:4712, which only skips MODEL_GHOST.)
+            Blood = false;
             Alpha = 0.4f; // SourceMain5.2: c->Object.AlphaTarget = 0.4f
             MoveSpeed = 375f; // SourceMain5.2: c->MoveSpeed = 15 (15 * 25 FPS)
             BlendState = Blendings.Alpha; // Use Alpha blending

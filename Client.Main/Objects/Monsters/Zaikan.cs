@@ -16,9 +16,16 @@ namespace Client.Main.Objects.Monsters
 
         public Zaikan()
         {
+            RenderShadow = false; // SourceMain5.2 RenderCharacter: MONSTER_ZAIKAN excluded from blob shadow pass
             Scale = 2.1f;
             BlendMesh = 2;
             BlendMeshLight = 1.0f;
+
+            // SourceMain5.2 RenderCharacter: ZAIKAN gets the chrome/bright pass
+            // tinted (0.5, 0.25, 0.0) (Bright = 0.5, PartObjectColor Color 0).
+            BrightOverlay = 1f;
+            BrightOverlayTexturePath = "Effect/Chrome01.jpg";
+            BrightOverlayTint = new Vector3(0.5f, 0.25f, 0f);
 
             _rightHandWeapon = new WeaponObject
             {

@@ -32,6 +32,12 @@ namespace Client.Main.Core.Client
         ElfAttack = 20,
         ElfDefense = 21,
         ElfHeal = 22,
+
+        /// <summary>
+        /// SourceMain5.2 eDeBuff_Stun (_enum.h:3756, eBuffState value 61):
+        /// spinning rings debuff.
+        /// </summary>
+        Stun = 61,
     }
 
     public class BuffStateChangedEventArgs : EventArgs

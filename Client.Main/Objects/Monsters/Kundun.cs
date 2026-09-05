@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,6 +11,8 @@ using Client.Main.Models;
 using Client.Main.Objects.Effects;
 using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
+
+using Joints = Client.Main.Objects.Effects.Joints;
 
 namespace Client.Main.Objects.Monsters
 {
@@ -104,6 +106,49 @@ namespace Client.Main.Objects.Monsters
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = attackType == 1 ? "Sound/mKundunAttack1.wav" : "Sound/mKundunAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+
+            if (World == null || !TryConsumeAttackEffectWindow())
+                return;
+
+            if (attackType == 1)
+            {
+                // SourceMain5.2 RenderHellasMonsterVisual MODEL_ILLUSION_OF_KUNDUN
+                // ATTACK1 (GMHellas.cpp:1684-1698): MODEL_CUNDUN_SKILL sub0 spawned
+                // from bone 49. No CUNDUN model exists in the port, so the inferno
+                // burst approximates the ground slam visual.
+                var inferno = new Effects.ScrollOfInfernoEffect(this, Position);
+                World.Objects.Add(inferno);
+                _ = inferno.Load();
+
+                SpawnMagicAttackEffect(new[] { 49 }, attackType);
+            }
+            else
+            {
+                // ATTACK2 (GMHellas.cpp:1700-1731): MODEL_CUNDUN_SKILL sub1 above
+                // bone 49 (Z forced to 400) + 24x JOINT_SPIRIT2 sub14, scale 100,
+                // yaw stepped by 30 degrees. sub14 joints are stationary
+                // (Velocity 0); SpiritBurst reproduces the radial fan.
+                Vector3 origin = GetBoneWorldPosition(49);
+                for (int i = 0; i < 24; i++)
+                {
+                    var spirit = Joints.SourceJointEffect.SpiritBurst(
+                        origin,
+                        i * 30f,
+                        20f,
+                        scale: 100f);
+                    World.Objects.Add(spirit);
+                    _ = spirit.Load();
+                }
+            }
+        }
+
+        private Vector3 GetBoneWorldPosition(int boneIndex)
+        {
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || boneIndex < 0 || boneIndex >= bones.Length)
+                return WorldPosition.Translation;
+
+            return (bones[boneIndex] * WorldPosition).Translation;
         }
 
         public override void OnReceiveDamage() => OnPerformAttack(1);

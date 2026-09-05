@@ -60,6 +60,7 @@ namespace Client.Main.Objects
                 UseProceduralTerrainUv = effect.Parameters["UseProceduralTerrainUV"];
                 IsWaterTexture = effect.Parameters["IsWaterTexture"];
                 TextureCoordinateOffset = effect.Parameters["TextureCoordinateOffset"];
+                MaterialTint = effect.Parameters["MaterialTint"];
             }
 
             public EffectParameter BoneMatrices { get; }
@@ -103,6 +104,7 @@ namespace Client.Main.Objects
             public EffectParameter UseProceduralTerrainUv { get; }
             public EffectParameter IsWaterTexture { get; }
             public EffectParameter TextureCoordinateOffset { get; }
+            public EffectParameter MaterialTint { get; }
 
             // Tracks the palette currently resident in this shared Effect instance.
             // Rendering another object invalidates the owner, while consecutive meshes of

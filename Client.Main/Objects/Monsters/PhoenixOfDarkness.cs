@@ -31,12 +31,11 @@ namespace Client.Main.Objects.Monsters
 
         public override async Task Load()
         {
-            // SourceMain5.2 renders MODEL_DARK_PHEONIX_SHIELD (Monster57)
-            // and then MODEL_DARK_PHOENIX (Monster56) with the same pose.
+            // SourceMain5.2 CreateMonster(MONSTER_DARK_PHOENIX): MODEL_DARK_PHEONIX_SHIELD = Monster56.bmd,
+            // MODEL_DARK_PHOENIX = Monster57.bmd. The two skeletons differ (61 vs 48 bones),
+            // so the body is drawn as a child object animated with the same actions.
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster57.bmd");
             _body.Model = await BMDLoader.Instance.Prepare($"Monster/Monster56.bmd");
-            BlendMesh = 0;
-            BlendMeshLight = 0.6f;
             await base.Load();
             SetActionSpeed(MonsterActionType.Stop1, 0.25f);
             SetActionSpeed(MonsterActionType.Stop2, 0.20f);
@@ -50,6 +49,20 @@ namespace Client.Main.Objects.Monsters
             // Keep the original action timing, but never share Monster57's bone palette
             // with the body model.
             _body.CopyActionSpeedsFrom(this);
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            // SourceMain5.2 RenderCharacter(MONSTER_DARK_PHOENIX): the shield body glows
+            // on mesh 0 with a pulsing light:
+            //   s = 0.5 * (1 + sin((WorldTime % 10000) * 0.001));
+            //   BlendMeshLight = 0.3 * (1 - s) + 0.3;
+            double worldTimeMs = gameTime.TotalGameTime.TotalMilliseconds % 10000.0;
+            float s = 0.5f * (1f + MathF.Sin((float)worldTimeMs * 0.001f));
+            _body.BlendMesh = 0;
+            _body.BlendMeshLight = 0.3f * (1f - s) + 0.3f;
+
+            base.Update(gameTime);
         }
 
         // Sound mapping based on C++ SetMonsterSound(MODEL_MONSTER01 + Type, 183, 184, 185, 185, -1);
@@ -91,6 +104,13 @@ namespace Client.Main.Objects.Monsters
                     CurrentAction = phoenix.CurrentAction;
                     HoldOnLastFrame = CurrentAction == (int)MonsterActionType.Die || phoenix.IsDead;
                 }
+
+                // SourceMain5.2 MoveCharacterVisual MODEL_DARK_PHEONIX_SHIELD:
+                // V-scroll on the shield mesh.
+                TextureCoordinateOffsetMeshIndex = 0;
+                TextureCoordinateOffset = new Vector2(
+                    0f,
+                    ((long)gameTime.TotalGameTime.TotalMilliseconds % 10000L) * 0.0001f);
 
                 base.Update(gameTime);
             }

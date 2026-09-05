@@ -329,7 +329,7 @@ namespace Client.Main.Scenes
             ushort targetId = ResolveNovaReleaseTargetId(hero);
             _ = MuGame.Network.GetCharacterService().SendSkillRequestAsync(NovaSkillId, targetId);
 
-            ScrollOfNovaChargeEffect.StopForCaster(world, hero.NetworkId);
+            SpawnNovaExplosion(world, hero);
 
             _logger?.LogInformation("Released Nova charge with target {TargetId}", targetId);
             _scene.SetMouseInputConsumed();
@@ -347,7 +347,19 @@ namespace Client.Main.Scenes
 
             ushort targetId = hero.NetworkId != 0 ? hero.NetworkId : ResolveNovaReleaseTargetId(hero);
             _ = MuGame.Network.GetCharacterService().SendSkillRequestAsync(NovaSkillId, targetId);
-            ScrollOfNovaChargeEffect.StopForCaster(world, hero.NetworkId);
+            SpawnNovaExplosion(world, hero);
+        }
+
+        /// <summary>
+        /// Consumes the current Nova charge stage and spawns the release explosion
+        /// (matches remote-player path via NovaSkillEffect factory).
+        /// </summary>
+        private void SpawnNovaExplosion(WalkableWorldControl world, PlayerObject hero)
+        {
+            byte stage = ScrollOfNovaChargeEffect.ConsumeStageAndStop(world, hero.NetworkId);
+            var explosion = new ScrollOfNovaExplosionEffect(hero, hero.WorldPosition.Translation, stage);
+            world.Objects.Add(explosion);
+            _ = explosion.Load();
         }
 
         private ushort ResolveNovaReleaseTargetId(PlayerObject hero)

@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
@@ -21,6 +21,13 @@ namespace Client.Main.Objects.Monsters
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
             BlendMesh = 0;
             BlendMeshLight = 1.0f;
+            // The blend veil (mesh 0) must composite over background drawn earlier.
+            // On the opaque list, batch sorting could draw background behind her AFTER
+            // her, covering the veil (it writes no depth). The transparent list draws
+            // after all opaque with back-to-front order, like the original's
+            // map-objects-then-characters phases. Opaque meshes keep depth-write
+            // (see DrawMesh*), so only the veil stays depth-read.
+            IsTransparent = true;
             _rightHandWeapon = new WeaponObject
             {
                 LinkParentAnimation = false,
@@ -60,6 +67,14 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mBaliAttack2.wav", Position, listenerPosition);
+
+            // SourceMain5.2 AttackEffect: MODEL_VALKYRIE fires CreateArrows on attack.
+            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
+            {
+                var arrow = new Effects.MonsterArrowProjectileEffect(this, 30, LastAttackTargetId);
+                arrowWorld.Objects.Add(arrow);
+                _ = arrow.Load();
+            }
         }
 
         public override void OnReceiveDamage()

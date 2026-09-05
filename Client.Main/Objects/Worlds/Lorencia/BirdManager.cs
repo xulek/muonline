@@ -1,3 +1,4 @@
+using Client.Main.Controllers;
 using Client.Main.Controls;
 using Microsoft.Xna.Framework;
 using System;
@@ -79,7 +80,28 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
                 // Apply final movement
                 bird.ApplyMovement(gameTime);
+
+                // GOBoid.cpp: within 600 of hero, rfc512 -> aBird1 / aBird2
+                UpdateBirdCalls(bird, gameTime);
             }
+        }
+
+        private void UpdateBirdCalls(BirdObject bird, GameTime gameTime)
+        {
+            var walker = _world.Walker;
+            if (walker == null)
+                return;
+
+            float dx = bird.Position.X - walker.Position.X;
+            float dy = bird.Position.Y - walker.Position.Y;
+            if (dx * dx + dy * dy >= 600f * 600f)
+                return;
+
+            float probability = (float)gameTime.ElapsedGameTime.TotalSeconds * 25f / 512f;
+            if ((float)MuGame.Random.NextDouble() < probability)
+                SoundController.Instance.PlayBufferWithAttenuation("Sound/aBird1.wav", bird.Position, walker.Position);
+            if ((float)MuGame.Random.NextDouble() < probability)
+                SoundController.Instance.PlayBufferWithAttenuation("Sound/aBird2.wav", bird.Position, walker.Position);
         }
 
         /// <summary>
