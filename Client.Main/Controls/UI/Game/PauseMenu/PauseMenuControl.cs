@@ -1136,11 +1136,11 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                     {
                         if (value) _owner.ApplyQualityPreset(GraphicsQualityPreset.Low, RefreshOptions);
                     }, ref currentY, OptionRowHeight);
-                    AddOption("Medium (1.0x)", () => GraphicsQualityManager.UserPreset == GraphicsQualityPreset.Medium, value =>
+                    AddOption("Medium (0.90x)", () => GraphicsQualityManager.UserPreset == GraphicsQualityPreset.Medium, value =>
                     {
                         if (value) _owner.ApplyQualityPreset(GraphicsQualityPreset.Medium, RefreshOptions);
                     }, ref currentY, OptionRowHeight);
-                    AddOption("High (2.0x)", () => GraphicsQualityManager.UserPreset == GraphicsQualityPreset.High, value =>
+                    AddOption("High (1.00x)", () => GraphicsQualityManager.UserPreset == GraphicsQualityPreset.High, value =>
                     {
                         if (value) _owner.ApplyQualityPreset(GraphicsQualityPreset.High, RefreshOptions);
                     }, ref currentY, OptionRowHeight);
@@ -1195,6 +1195,10 @@ namespace Client.Main.Controls.UI.Game.PauseMenu
                 BuildCategory("Graphics", (ref int currentY) =>
                 {
                     AddOption("High Quality Textures", () => Constants.HIGH_QUALITY_TEXTURES, value => Constants.HIGH_QUALITY_TEXTURES = value, ref currentY, OptionRowHeight);
+                    AddOption("FXAA", () => GraphicsManager.Instance.IsFXAAEnabled, value =>
+                    {
+                        GraphicsManager.Instance.IsFXAAEnabled = value;
+                    }, ref currentY, OptionRowHeight);
                     AddOption("V-Sync", () => !Constants.DISABLE_VSYNC, value =>
                     {
                         _owner.SetVSync(value);

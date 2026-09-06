@@ -23,6 +23,14 @@ namespace Client.Main.Objects
             MonsterMaterial = 3,
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ApplyQualityModelSampler(GraphicsDevice graphicsDevice)
+        {
+            SamplerState sampler = GraphicsManager.GetQualityLinearWrapSamplerState();
+            if (!ReferenceEquals(graphicsDevice.SamplerStates[0], sampler))
+                graphicsDevice.SamplerStates[0] = sampler;
+        }
+
         // Struct to hold shader selection results
         private readonly struct ShaderSelection
         {
@@ -790,19 +798,14 @@ namespace Client.Main.Objects
                         gd.RasterizerState = targetRasterizer;
                     if (effect != null && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
-                    if (stateKey.ShaderKind == MeshShaderKind.AlphaTest)
-                    {
-                        SamplerState sampler = GraphicsManager.GetQualityLinearWrapSamplerState();
-                        if (!ReferenceEquals(gd.SamplerStates[0], sampler))
-                            gd.SamplerStates[0] = sampler;
-                    }
-
-                    // Bind effect once per group
+                    // Bind effect once per group. Rebind the sampler afterwards because
+                    // Effect.Apply can restore the sampler state embedded in the shader.
                     if (effect != null)
                     {
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                     }
 
                     // Object-level shadow and highlight passes
@@ -824,6 +827,7 @@ namespace Client.Main.Objects
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                     }
 
                     // Draw all meshes in this state group
@@ -857,6 +861,7 @@ namespace Client.Main.Objects
                                 var passes = effect.CurrentTechnique.Passes;
                                 for (int p = 0; p < passes.Count; p++)
                                     passes[p].Apply();
+                                ApplyQualityModelSampler(gd);
                             }
                         }
                         else
@@ -925,6 +930,7 @@ namespace Client.Main.Objects
                 for (int passIndex = 0; passIndex < passCount; passIndex++)
                 {
                     effect.CurrentTechnique.Passes[passIndex].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
                 }
 
@@ -1460,6 +1466,7 @@ namespace Client.Main.Objects
                         for (int p = 0; p < passCount; p++)
                         {
                             passes[p].Apply();
+                            ApplyQualityModelSampler(gd);
                             gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
                         }
 
@@ -1589,6 +1596,7 @@ namespace Client.Main.Objects
                         RegisterGpuSkinnedMeshDraw();
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1707,6 +1715,7 @@ namespace Client.Main.Objects
                         RegisterGpuSkinnedMeshDraw();
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1834,6 +1843,7 @@ namespace Client.Main.Objects
                     int primitiveCount = indexBuffer.IndexCount / 3;
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1897,6 +1907,7 @@ namespace Client.Main.Objects
 
                         int primitiveCount = state.GpuIndexBuffer.IndexCount / 3;
                         technique.Passes[0].Apply();
+                        ApplyQualityModelSampler(GraphicsDevice);
                         GraphicsDevice.DrawIndexedPrimitives(
                             PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
@@ -1932,6 +1943,7 @@ namespace Client.Main.Objects
 
                 int cpuPrimitiveCount = indexBuffer.IndexCount / 3;
                 alphaTestEffect.CurrentTechnique.Passes[0].Apply();
+                ApplyQualityModelSampler(GraphicsDevice);
                 GraphicsDevice.DrawIndexedPrimitives(
                     PrimitiveType.TriangleList, 0, 0, cpuPrimitiveCount);
 

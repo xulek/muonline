@@ -560,7 +560,7 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.RasterizerState = RasterizerState.CullNone;
                 _graphicsDevice.DepthStencilState = DepthStencilState.Default;
                 _graphicsDevice.BlendState = BlendState.Opaque;
-                _graphicsDevice.SamplerStates[0] = SamplerState.LinearWrap;
+                ApplyTerrainTextureSampler();
                 _lastBlendState = BlendState.Opaque;
 
                 _activeWaterCausticsTexture = ResolveWaterCausticsTexture();
@@ -688,6 +688,17 @@ namespace Client.Main.Controls.Terrain
                     frame, prevVisible, visible, prevDrawn, DrawnTiles, SkippedTilesNoTexture,
                     cam.X, cam.Y, cam.Z);
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ApplyTerrainTextureSampler()
+        {
+            SamplerState sampler = _isShadowPass
+                ? SamplerState.LinearWrap
+                : GraphicsManager.GetQualityLinearWrapSamplerState();
+
+            if (!ReferenceEquals(_graphicsDevice.SamplerStates[0], sampler))
+                _graphicsDevice.SamplerStates[0] = sampler;
         }
 
         private void ResetMetrics()
@@ -1900,6 +1911,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, _terrainVertices, 0, 2);
                     }
                 }
@@ -1917,6 +1929,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in basicEffect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, _fallbackTileBuffer, 0, 2);
                     }
                 }
@@ -2400,6 +2413,7 @@ namespace Client.Main.Controls.Terrain
             foreach (var pass in effect.CurrentTechnique.Passes)
             {
                 pass.Apply();
+                ApplyTerrainTextureSampler();
                 _graphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
             }
 
@@ -2533,6 +2547,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawPrimitives(PrimitiveType.TriangleList, 0, triangleCount);
                     }
                     DrawnTiles += vertCount / 6;
@@ -2567,6 +2582,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(
                             PrimitiveType.TriangleList,
                             _fallbackTileBuffer,

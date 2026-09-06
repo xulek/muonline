@@ -161,6 +161,8 @@ namespace Client.Main.Content
                     return null;
                 }
 
+                PrepareMipData(data, path);
+
                 var clientTexture = new ClientTexture
                 {
                     Info = data,
@@ -348,7 +350,7 @@ namespace Client.Main.Content
                 return clientTexture.Texture;
 
             var textureInfo = clientTexture.Info;
-            if (textureInfo?.Width == 0 || textureInfo?.Height == 0 || textureInfo.Data == null)
+            if (textureInfo?.Width <= 0 || textureInfo.Height <= 0 || textureInfo.Data == null)
                 return null;
 
             // Prevent duplicate GPU uploads when several async loads complete at the same time.
@@ -360,76 +362,346 @@ namespace Client.Main.Content
 
                 try
                 {
+                    // Generated mip data normally arrives from the background decode path.
+                    // Rebuild it here only if a previously uploaded GPU texture was externally
+                    // disposed and needs to be recreated.
+                    PrepareMipData(textureInfo, path);
+
                     Texture2D texture;
                     bool isCompressed = textureInfo.IsCompressed;
 
                     if (CustomDecompressFunction != null && isCompressed)
                     {
-                        var data = CustomDecompressFunction(textureInfo);
-                        texture = new Texture2D(_graphicsDevice, textureInfo.Width, textureInfo.Height, false, SurfaceFormat.Color);
+                        // Custom decompressors return a single RGBA base level. Keep this path
+                        // compatible with existing integrations instead of guessing their format.
+                        byte[] data = CustomDecompressFunction(textureInfo);
+                        texture = new Texture2D(
+                            _graphicsDevice,
+                            textureInfo.Width,
+                            textureInfo.Height,
+                            false,
+                            SurfaceFormat.Color);
                         texture.SetData(data);
-                        clientTexture.Texture = texture;
-                        return texture;
                     }
                     else if (isCompressed)
                     {
-                        texture = new Texture2D(_graphicsDevice, textureInfo.Width, textureInfo.Height, false, textureInfo.Format.ToXNA());
-                        texture.SetData(textureInfo.Data);
+                        texture = CreateCompressedTexture(textureInfo);
                     }
                     else
                     {
-                        texture = new Texture2D(_graphicsDevice, textureInfo.Width, textureInfo.Height);
-                        int pixelCount = texture.Width * texture.Height;
-                        int components = textureInfo.Components;
-
-                        if (components != 3 && components != 4)
-                        {
-                            texture.Dispose();
-                            _logger?.LogDebug("Unsupported texture components: {Components} for texture {Path}", components, path);
+                        texture = CreateColorTexture(textureInfo, path);
+                        if (texture == null)
                             return null;
-                        }
-
-                        byte[] data = textureInfo.Data;
-                        int requiredBytes = checked(pixelCount * components);
-                        if (data.Length < requiredBytes)
-                        {
-                            texture.Dispose();
-                            _logger?.LogDebug(
-                                "Texture data is truncated: {ActualBytes}/{RequiredBytes} for {Path}",
-                                data.Length,
-                                requiredBytes,
-                                path);
-                            return null;
-                        }
-
-                        var pool = System.Buffers.ArrayPool<Color>.Shared;
-                        Color[] pixelData = pool.Rent(pixelCount);
-                        try
-                        {
-                            for (int i = 0; i < pixelCount; i++)
-                            {
-                                int dataIndex = i * components;
-                                byte r = data[dataIndex];
-                                byte g = data[dataIndex + 1];
-                                byte b = data[dataIndex + 2];
-                                byte a = components == 4 ? data[dataIndex + 3] : (byte)255;
-                                pixelData[i] = new Color(r, g, b, a);
-                            }
-                            texture.SetData(pixelData, 0, pixelCount);
-                        }
-                        finally
-                        {
-                            pool.Return(pixelData);
-                        }
                     }
 
                     clientTexture.Texture = texture;
+
+                    // Runtime-generated mip levels are only staging data. The GPU owns the full
+                    // chain now, so release the extra CPU memory while retaining the base asset.
+                    if (textureInfo.MipDataGenerated)
+                    {
+                        textureInfo.MipData = Array.Empty<byte[]>();
+                        textureInfo.MipDataGenerated = false;
+                    }
+
                     return texture;
                 }
                 catch (Exception ex)
                 {
                     _logger?.LogError(ex, "Failed creating Texture2D for {Path}", path);
                     return null;
+                }
+            }
+        }
+
+        private Texture2D CreateCompressedTexture(TextureData textureInfo)
+        {
+            byte[][] levels = GetUsableMipLevels(textureInfo);
+            bool useMipMaps = HasCompleteMipChain(textureInfo.Width, textureInfo.Height, levels.Length);
+
+            var texture = new Texture2D(
+                _graphicsDevice,
+                textureInfo.Width,
+                textureInfo.Height,
+                useMipMaps,
+                textureInfo.Format.ToXNA());
+
+            int uploadLevels = useMipMaps ? levels.Length : 1;
+            for (int level = 0; level < uploadLevels; level++)
+            {
+                byte[] levelData = levels[level];
+                texture.SetData(level, null, levelData, 0, levelData.Length);
+            }
+
+            return texture;
+        }
+
+        private Texture2D CreateColorTexture(TextureData textureInfo, string path)
+        {
+            int components = textureInfo.Components;
+            if (components != 3 && components != 4)
+            {
+                _logger?.LogDebug(
+                    "Unsupported texture components: {Components} for texture {Path}",
+                    components,
+                    path);
+                return null;
+            }
+
+            byte[][] levels = GetUsableMipLevels(textureInfo);
+            bool useMipMaps = HasCompleteMipChain(textureInfo.Width, textureInfo.Height, levels.Length);
+            var texture = new Texture2D(
+                _graphicsDevice,
+                textureInfo.Width,
+                textureInfo.Height,
+                useMipMaps,
+                SurfaceFormat.Color);
+
+            int levelWidth = textureInfo.Width;
+            int levelHeight = textureInfo.Height;
+            int uploadLevels = useMipMaps ? levels.Length : 1;
+
+            try
+            {
+                for (int level = 0; level < uploadLevels; level++)
+                {
+                    byte[] levelData = levels[level];
+                    int pixelCount = checked(levelWidth * levelHeight);
+                    int requiredBytes = checked(pixelCount * components);
+                    if (levelData == null || levelData.Length < requiredBytes)
+                    {
+                        _logger?.LogDebug(
+                            "Texture mip data is truncated at level {Level}: {ActualBytes}/{RequiredBytes} for {Path}",
+                            level,
+                            levelData?.Length ?? 0,
+                            requiredBytes,
+                            path);
+                        texture.Dispose();
+                        return null;
+                    }
+
+                    if (components == 4)
+                    {
+                        // SurfaceFormat.Color is RGBA8. Avoid the old per-pixel Color[] conversion
+                        // and upload the decoded bytes directly.
+                        texture.SetData(level, null, levelData, 0, requiredBytes);
+                    }
+                    else
+                    {
+                        UploadRgbLevel(texture, level, levelData, pixelCount);
+                    }
+
+                    levelWidth = Math.Max(1, levelWidth / 2);
+                    levelHeight = Math.Max(1, levelHeight / 2);
+                }
+
+                return texture;
+            }
+            catch
+            {
+                texture.Dispose();
+                throw;
+            }
+        }
+
+        private static void UploadRgbLevel(Texture2D texture, int level, byte[] data, int pixelCount)
+        {
+            var pool = System.Buffers.ArrayPool<Color>.Shared;
+            Color[] pixels = pool.Rent(pixelCount);
+            try
+            {
+                for (int i = 0; i < pixelCount; i++)
+                {
+                    int dataIndex = i * 3;
+                    pixels[i] = new Color(
+                        data[dataIndex],
+                        data[dataIndex + 1],
+                        data[dataIndex + 2],
+                        byte.MaxValue);
+                }
+
+                texture.SetData(level, null, pixels, 0, pixelCount);
+            }
+            finally
+            {
+                pool.Return(pixels);
+            }
+        }
+
+        private static byte[][] GetUsableMipLevels(TextureData textureInfo)
+        {
+            if (textureInfo.MipData != null && textureInfo.MipData.Length > 0)
+                return textureInfo.MipData;
+
+            return new[] { textureInfo.Data };
+        }
+
+        private static bool HasCompleteMipChain(int width, int height, int mipCount)
+            => mipCount > 1 && mipCount == GetExpectedMipCount(width, height);
+
+        private static int GetExpectedMipCount(int width, int height)
+        {
+            int count = 1;
+            while (width > 1 || height > 1)
+            {
+                width = Math.Max(1, width / 2);
+                height = Math.Max(1, height / 2);
+                count++;
+            }
+
+            return count;
+        }
+
+        private static void PrepareMipData(TextureData textureInfo, string path)
+        {
+            if (textureInfo == null || textureInfo.IsCompressed ||
+                textureInfo.MipData is { Length: > 0 } ||
+                !ShouldGenerateMipMaps(path, textureInfo))
+            {
+                return;
+            }
+
+            textureInfo.MipData = GenerateMipChain(
+                textureInfo.Data,
+                textureInfo.Width,
+                textureInfo.Height,
+                textureInfo.Components);
+            textureInfo.MipDataGenerated = textureInfo.MipData.Length > 1;
+        }
+
+        private static bool ShouldGenerateMipMaps(string path, TextureData textureInfo)
+        {
+            if (!Constants.HIGH_QUALITY_TEXTURES ||
+                textureInfo == null || textureInfo.IsCompressed ||
+                textureInfo.Width <= 1 && textureInfo.Height <= 1 ||
+                textureInfo.Components is not (3 or 4) ||
+                textureInfo.Data == null)
+            {
+                return false;
+            }
+
+            string normalized = NormalizePathKey(path);
+            if (string.IsNullOrEmpty(normalized))
+                return false;
+
+            // UI is rendered in screen space and does not benefit from a mip chain. Excluding
+            // it avoids extra CPU memory while keeping world, model and terrain textures filtered.
+            return !ContainsPathSegment(normalized, "interface") &&
+                   !ContainsPathSegment(normalized, "ui") &&
+                   !ContainsPathSegment(normalized, "font") &&
+                   !ContainsPathSegment(normalized, "fonts") &&
+                   !ContainsPathSegment(normalized, "cursor");
+        }
+
+        private static bool ContainsPathSegment(string normalizedPath, string segment)
+        {
+            if (normalizedPath.StartsWith(segment + "/", StringComparison.Ordinal))
+                return true;
+
+            return normalizedPath.Contains("/" + segment + "/", StringComparison.Ordinal);
+        }
+
+        private static byte[][] GenerateMipChain(
+            byte[] baseData,
+            int width,
+            int height,
+            int components)
+        {
+            int baseBytes = checked(width * height * components);
+            if (baseData == null || baseData.Length < baseBytes)
+                return Array.Empty<byte[]>();
+
+            int expectedLevels = GetExpectedMipCount(width, height);
+            var levels = new byte[expectedLevels][];
+            levels[0] = baseData;
+
+            byte[] source = baseData;
+            int sourceWidth = width;
+            int sourceHeight = height;
+
+            for (int level = 1; level < expectedLevels; level++)
+            {
+                int targetWidth = Math.Max(1, sourceWidth / 2);
+                int targetHeight = Math.Max(1, sourceHeight / 2);
+                byte[] target = new byte[checked(targetWidth * targetHeight * components)];
+
+                DownsampleMip(
+                    source,
+                    sourceWidth,
+                    sourceHeight,
+                    target,
+                    targetWidth,
+                    targetHeight,
+                    components);
+
+                levels[level] = target;
+                source = target;
+                sourceWidth = targetWidth;
+                sourceHeight = targetHeight;
+            }
+
+            return levels;
+        }
+
+        private static void DownsampleMip(
+            byte[] source,
+            int sourceWidth,
+            int sourceHeight,
+            byte[] target,
+            int targetWidth,
+            int targetHeight,
+            int components)
+        {
+            for (int y = 0; y < targetHeight; y++)
+            {
+                int y0 = Math.Min(sourceHeight - 1, y * 2);
+                int y1 = Math.Min(sourceHeight - 1, y0 + 1);
+
+                for (int x = 0; x < targetWidth; x++)
+                {
+                    int x0 = Math.Min(sourceWidth - 1, x * 2);
+                    int x1 = Math.Min(sourceWidth - 1, x0 + 1);
+
+                    int i00 = (y0 * sourceWidth + x0) * components;
+                    int i10 = (y0 * sourceWidth + x1) * components;
+                    int i01 = (y1 * sourceWidth + x0) * components;
+                    int i11 = (y1 * sourceWidth + x1) * components;
+                    int dst = (y * targetWidth + x) * components;
+
+                    if (components == 3)
+                    {
+                        for (int channel = 0; channel < 3; channel++)
+                        {
+                            int sum = source[i00 + channel] + source[i10 + channel] +
+                                      source[i01 + channel] + source[i11 + channel];
+                            target[dst + channel] = (byte)((sum + 2) / 4);
+                        }
+                        continue;
+                    }
+
+                    int a00 = source[i00 + 3];
+                    int a10 = source[i10 + 3];
+                    int a01 = source[i01 + 3];
+                    int a11 = source[i11 + 3];
+                    int alphaSum = a00 + a10 + a01 + a11;
+
+                    target[dst + 3] = (byte)((alphaSum + 2) / 4);
+                    if (alphaSum == 0)
+                    {
+                        target[dst] = 0;
+                        target[dst + 1] = 0;
+                        target[dst + 2] = 0;
+                        continue;
+                    }
+
+                    for (int channel = 0; channel < 3; channel++)
+                    {
+                        int weighted = source[i00 + channel] * a00 +
+                                       source[i10 + channel] * a10 +
+                                       source[i01 + channel] * a01 +
+                                       source[i11 + channel] * a11;
+                        target[dst + channel] = (byte)((weighted + alphaSum / 2) / alphaSum);
+                    }
                 }
             }
         }

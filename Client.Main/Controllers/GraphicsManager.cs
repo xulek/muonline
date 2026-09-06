@@ -52,6 +52,24 @@ namespace Client.Main.Controllers
         public Effect DynamicLightingEffect { get; private set; }
         public ShadowMapRenderer ShadowMapRenderer { get; private set; }
         
+        private static readonly SamplerState HighQualityClampSampler = new()
+        {
+            Filter = TextureFilter.Anisotropic,
+            AddressU = TextureAddressMode.Clamp,
+            AddressV = TextureAddressMode.Clamp,
+            AddressW = TextureAddressMode.Clamp,
+            MaxAnisotropy = 8
+        };
+
+        private static readonly SamplerState HighQualityWrapSampler = new()
+        {
+            Filter = TextureFilter.Anisotropic,
+            AddressU = TextureAddressMode.Wrap,
+            AddressV = TextureAddressMode.Wrap,
+            AddressW = TextureAddressMode.Wrap,
+            MaxAnisotropy = 8
+        };
+
         // RasterizerState cache to avoid per-mesh allocations
         private static readonly Dictionary<(float bias, CullMode cull), RasterizerState> _rasterizerCache = new();
         
@@ -182,7 +200,7 @@ namespace Client.Main.Controllers
         {
             if (Constants.HIGH_QUALITY_TEXTURES)
             {
-                return SamplerState.AnisotropicClamp;
+                return HighQualityClampSampler;
             }
             return SamplerState.PointClamp;
         }
@@ -194,7 +212,7 @@ namespace Client.Main.Controllers
         {
             if (Constants.HIGH_QUALITY_TEXTURES)
             {
-                return SamplerState.AnisotropicClamp;
+                return HighQualityClampSampler;
             }
             return SamplerState.LinearClamp;
         }
@@ -203,7 +221,7 @@ namespace Client.Main.Controllers
         {
             if (Constants.HIGH_QUALITY_TEXTURES)
             {
-                return SamplerState.AnisotropicWrap;
+                return HighQualityWrapSampler;
             }
             return SamplerState.LinearWrap;
         }
