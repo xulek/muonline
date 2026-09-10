@@ -3,6 +3,7 @@ using Client.Main.Controls;
 using Client.Main.Graphics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -19,6 +20,10 @@ namespace Client.Main.Controls.Terrain
         private const float SpecialHeight = 1200f;
         private const int BlockSize = 4;
         private const short AtlansWorldIndex = 8;
+        private const short DoppelgangerUnderwaterWorldIndex = 68;
+
+        // SourceMain IsDoppelGanger3(): both worlds share the animated-water flipbook path.
+        private bool IsAnimatedWaterWorld => WorldIndex == AtlansWorldIndex || WorldIndex == DoppelgangerUnderwaterWorldIndex;
         private const byte AtlansCausticsLayer = 5;
         private const int WaterCausticsFrameCount = 32;
         private const int MaxWaterCausticsVertices =
@@ -169,6 +174,13 @@ namespace Client.Main.Controls.Terrain
         // State tracking for GPU optimization
         private Texture2D _lastBoundTexture = null;
         private BlendState _lastBlendState = null;
+
+        // Black-frame probe throttling (see LogTerrainBlackFrameProbe).
+        private int _lastTerrainEmptyLog = -100000;
+        private int _lastTerrainSkippedLog = -100000;
+        private int _lastTerrainCliffLog = -100000;
+        private int _prevFrameDrawnTiles;
+        private int _prevFrameVisibleBlocks;
         private bool _useDynamicLightingShader = false;
         private bool _useTerrainIndexBatching = false;
 
@@ -214,6 +226,8 @@ namespace Client.Main.Controls.Terrain
         public int DrawCalls { get; private set; }
         public int DrawnTriangles { get; private set; }
         public int DrawnBlocks { get; private set; }
+        public int DrawnTiles { get; private set; }
+        public int SkippedTilesNoTexture { get; private set; }
         public int DrawnCells { get; private set; }
         public int IndexedCells { get; private set; }
         public int StreamedCells { get; private set; }
@@ -290,7 +304,7 @@ namespace Client.Main.Controls.Terrain
             double elapsedSeconds = time.ElapsedGameTime.TotalSeconds;
             _waterTotal += (float)elapsedSeconds * WaterSpeed;
 
-            if (WorldIndex != AtlansWorldIndex || _data.WaterCausticsTextures == null)
+            if (!IsAnimatedWaterWorld || _data.WaterCausticsTextures == null)
                 return;
 
             _waterCausticsAccumulator += elapsedSeconds;
@@ -507,7 +521,19 @@ namespace Client.Main.Controls.Terrain
                     effect.CurrentTechnique = effect.Techniques["DynamicLighting"];
                 }
                 if (!ConfigureDynamicLightingEffect())
+                {
+                    // Whole-terrain silent skip: log it (throttled) instead of going dark quietly.
+                    int configFrame = MuGame.FrameIndex;
+                    if (configFrame - _lastTerrainSkippedLog >= 300)
+                    {
+                        _lastTerrainSkippedLog = configFrame;
+                        MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                            "Black-frame probe: terrain effect configuration failed on frame {Frame}, whole terrain skipped.",
+                            configFrame);
+                    }
+
                     return;
+                }
             }
             else
             {
@@ -534,7 +560,7 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.RasterizerState = RasterizerState.CullNone;
                 _graphicsDevice.DepthStencilState = DepthStencilState.Default;
                 _graphicsDevice.BlendState = BlendState.Opaque;
-                _graphicsDevice.SamplerStates[0] = SamplerState.LinearWrap;
+                ApplyTerrainTextureSampler();
                 _lastBlendState = BlendState.Opaque;
 
                 _activeWaterCausticsTexture = ResolveWaterCausticsTexture();
@@ -581,7 +607,7 @@ namespace Client.Main.Controls.Terrain
                 FlushWaterCaustics();
 
                 // The original Atlans terrain pass does not render standard grass.
-                if (WorldIndex != AtlansWorldIndex)
+                if (!IsAnimatedWaterWorld)
                     _grassRenderer.Draw();
             }
             finally
@@ -593,6 +619,86 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.RasterizerState = previousRasterizer;
                 _graphicsDevice.SamplerStates[0] = previousSampler;
             }
+
+            LogTerrainBlackFrameProbe();
+        }
+
+        /// <summary>
+        /// Black-frame diagnostics for terrain-only blackouts (objects/HUD unaffected).
+        /// Case A (zero visible blocks) points at culling; case B (blocks visible but
+        /// zero draw calls submitted) points at the draw stage (skipped tiles, missing
+        /// technique/textures). Both throttled; allocate nothing unless they fire.
+        /// </summary>
+        private void LogTerrainBlackFrameProbe()
+        {
+            int frame = MuGame.FrameIndex;
+            int visible = _visibility?.VisibleBlocks?.Count ?? -1;
+
+            if (visible == 0 && frame - _lastTerrainEmptyLog >= 300)
+            {
+                _lastTerrainEmptyLog = frame;
+                Vector3 cam = Camera.Instance.Position;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain culling left zero visible blocks on frame {Frame} (camera {X:F0},{Y:F0},{Z:F0}).",
+                    frame, cam.X, cam.Y, cam.Z);
+            }
+            else if (visible > 0 && DrawCalls == 0 && frame - _lastTerrainSkippedLog >= 300)
+            {
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: {VisibleBlocks} terrain blocks visible but zero draw calls submitted on frame {Frame}.",
+                    visible, frame);
+            }
+            else if (visible > 0 && DrawnTiles == 0 && frame - _lastTerrainSkippedLog >= 300)
+            {
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: {VisibleBlocks} terrain blocks visible but zero ground tiles drawn on frame {Frame} ({Skipped} skipped, no texture).",
+                    visible, frame, SkippedTilesNoTexture);
+            }
+            else if (visible > 0 && SkippedTilesNoTexture > 0 && SkippedTilesNoTexture >= DrawnTiles &&
+                     frame - _lastTerrainSkippedLog >= 300)
+            {
+                // Partial skip: most ground tiles dropped for missing textures while a
+                // few still drew (props/edges). In a city the ground is 1-2 textures,
+                // so losing the dominant one looks like the whole terrain going black.
+                _lastTerrainSkippedLog = frame;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain mostly skipped on frame {Frame} ({Skipped} skipped, no texture, {Drawn} drawn).",
+                    frame, SkippedTilesNoTexture, DrawnTiles);
+            }
+
+            // Cliff detector: similar block coverage as last frame but drawn tiles
+            // collapsed to under a quarter. Catches partial blackouts from any cause
+            // (skips, batch loss, culling glitch) regardless of absolute counts.
+            // Teleports change both numbers, so they do not trigger this.
+            int prevVisible = _prevFrameVisibleBlocks;
+            int prevDrawn = _prevFrameDrawnTiles;
+            _prevFrameVisibleBlocks = visible;
+            _prevFrameDrawnTiles = DrawnTiles;
+            if (visible > 0 && prevVisible > 0 && prevDrawn > 100 &&
+                Math.Abs(visible - prevVisible) <= Math.Max(4, prevVisible / 2) &&
+                DrawnTiles * 4 < prevDrawn &&
+                frame - _lastTerrainCliffLog >= 300)
+            {
+                _lastTerrainCliffLog = frame;
+                var cam = Camera.Instance.Position;
+                MuGame.AppLoggerFactory?.CreateLogger("TerrainRenderer")?.LogWarning(
+                    "Black-frame probe: terrain tile cliff on frame {Frame} (blocks {PrevBlocks}->{Blocks}, drawn tiles {PrevDrawn}->{Drawn}, skipped {Skipped}, camera {X:F0},{Y:F0},{Z:F0}).",
+                    frame, prevVisible, visible, prevDrawn, DrawnTiles, SkippedTilesNoTexture,
+                    cam.X, cam.Y, cam.Z);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ApplyTerrainTextureSampler()
+        {
+            SamplerState sampler = _isShadowPass
+                ? SamplerState.LinearWrap
+                : GraphicsManager.GetQualityLinearWrapSamplerState();
+
+            if (!ReferenceEquals(_graphicsDevice.SamplerStates[0], sampler))
+                _graphicsDevice.SamplerStates[0] = sampler;
         }
 
         private void ResetMetrics()
@@ -600,6 +706,8 @@ namespace Client.Main.Controls.Terrain
             DrawCalls = 0;
             DrawnTriangles = 0;
             DrawnBlocks = 0;
+            DrawnTiles = 0;
+            SkippedTilesNoTexture = 0;
             DrawnCells = 0;
             IndexedCells = 0;
             StreamedCells = 0;
@@ -1085,6 +1193,9 @@ namespace Client.Main.Controls.Terrain
             effect.Parameters["SunStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
             effect.Parameters["ShadowStrength"]?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
 
+            // World-scoped linear fog (disabled unless a world opts in)
+            Graphics.WorldFog.Apply(effect, Camera.Instance.Position);
+
             // Apply global shadow map parameters when available so terrain receives the same shadows as objects
             GraphicsManager.Instance.ShadowMapRenderer?.ApplyShadowParameters(effect);
             UploadDynamicLights(effect);
@@ -1423,7 +1534,7 @@ namespace Client.Main.Controls.Terrain
 
         private void PrepareWaterCausticsRenderResources()
         {
-            if (WorldIndex != AtlansWorldIndex || ResolveWaterCausticsTexture() == null)
+            if (!IsAnimatedWaterWorld || ResolveWaterCausticsTexture() == null)
                 return;
 
             EnsureWaterCausticsEffect();
@@ -1432,7 +1543,7 @@ namespace Client.Main.Controls.Terrain
 
         private bool IsAtlansCausticsTile(int terrainIndex, bool hasMappingAlpha)
         {
-            return WorldIndex == AtlansWorldIndex &&
+            return IsAnimatedWaterWorld &&
                    hasMappingAlpha &&
                    _data.Mapping.Layer2 != null &&
                    (uint)terrainIndex < (uint)_data.Mapping.Layer2.Length &&
@@ -1441,7 +1552,7 @@ namespace Client.Main.Controls.Terrain
 
         private Texture2D ResolveWaterCausticsTexture()
         {
-            if (WorldIndex != AtlansWorldIndex)
+            if (!IsAnimatedWaterWorld)
                 return null;
 
             Texture2D[] frames = _data.WaterCausticsTextures;
@@ -1800,6 +1911,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, _terrainVertices, 0, 2);
                     }
                 }
@@ -1817,6 +1929,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in basicEffect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, _fallbackTileBuffer, 0, 2);
                     }
                 }
@@ -2300,6 +2413,7 @@ namespace Client.Main.Controls.Terrain
             foreach (var pass in effect.CurrentTechnique.Passes)
             {
                 pass.Apply();
+                ApplyTerrainTextureSampler();
                 _graphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
             }
 
@@ -2398,7 +2512,10 @@ namespace Client.Main.Controls.Terrain
                 var batch = GetTileBatchBuffer(texIndex, alphaLayer, vertCount);
                 var texture = _data.Textures[texIndex];
                 if (texture == null || texture.IsDisposed)
+                {
+                    SkippedTilesNoTexture += vertCount / 6;
                     return;
+                }
 
                 var blendState = alphaLayer ? BlendState.NonPremultiplied : BlendState.Opaque;
                 if (_lastBlendState != blendState)
@@ -2430,8 +2547,10 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawPrimitives(PrimitiveType.TriangleList, 0, triangleCount);
                     }
+                    DrawnTiles += vertCount / 6;
                 }
                 else
                 {
@@ -2463,6 +2582,7 @@ namespace Client.Main.Controls.Terrain
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
+                        ApplyTerrainTextureSampler();
                         _graphicsDevice.DrawUserPrimitives(
                             PrimitiveType.TriangleList,
                             _fallbackTileBuffer,
@@ -2473,6 +2593,7 @@ namespace Client.Main.Controls.Terrain
 
                 DrawCalls++;
                 DrawnTriangles += vertCount / 3;
+                DrawnTiles += vertCount / 6;
             }
             finally
             {
@@ -2573,7 +2694,8 @@ namespace Client.Main.Controls.Terrain
                     requiredVertexCount,
                     InitialTileBatchVerts,
                     MaxTileBatchVerts);
-                buffer = new TerrainVertexPositionColorNormalTexture[capacity];
+                // Growth can happen after tiles have already been queued for this draw.
+                Array.Resize(ref buffer, capacity);
                 batches[texIndex] = buffer;
             }
             return buffer;
@@ -2605,7 +2727,8 @@ namespace Client.Main.Controls.Terrain
             if (buffer == null || buffer.Length < requiredCapacity ||
                 (!_buildingPersistentTerrainIndexCache && buffer.Length != TileBatchIndices))
             {
-                buffer = new ushort[requiredCapacity];
+                // Preserve indices already queued while rebuilding the visible terrain cache.
+                Array.Resize(ref buffer, requiredCapacity);
                 batches[texIndex] = buffer;
             }
 
@@ -2646,3 +2769,4 @@ namespace Client.Main.Controls.Terrain
 
     }
 }
+

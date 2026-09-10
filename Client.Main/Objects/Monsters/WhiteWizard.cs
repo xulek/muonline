@@ -13,11 +13,17 @@ namespace Client.Main.Objects.Monsters
         public WhiteWizard()
         {
             Scale = 1.7f;
+
+            // SourceMain5.2 RenderCharacter L8783: MONSTER_WHITE_WIZARD gets the
+            // RENDER_BRIGHT | RENDER_EXTRA body pass (no chrome texture).
+            BrightOverlay = 1f;
         }
 
         public override async Task Load()
         {
-            Model = await BMDLoader.Instance.Prepare($"Monster/Monster48.bmd");
+            // SourceMain5.2 CreateMonster: MONSTER_WHITE_WIZARD shares the MONSTER_CURSED_KING
+            // case (MODEL_CURSED_KING = MODEL_MONSTER01 + 48 -> Monster49.bmd)
+            Model = await BMDLoader.Instance.Prepare($"Monster/Monster49.bmd");
             await base.Load();
         }
     }

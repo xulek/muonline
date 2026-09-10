@@ -329,7 +329,7 @@ namespace Client.Main.Scenes
             ushort targetId = ResolveNovaReleaseTargetId(hero);
             _ = MuGame.Network.GetCharacterService().SendSkillRequestAsync(NovaSkillId, targetId);
 
-            ScrollOfNovaChargeEffect.StopForCaster(world, hero.NetworkId);
+            SpawnNovaExplosion(world, hero);
 
             _logger?.LogInformation("Released Nova charge with target {TargetId}", targetId);
             _scene.SetMouseInputConsumed();
@@ -347,7 +347,19 @@ namespace Client.Main.Scenes
 
             ushort targetId = hero.NetworkId != 0 ? hero.NetworkId : ResolveNovaReleaseTargetId(hero);
             _ = MuGame.Network.GetCharacterService().SendSkillRequestAsync(NovaSkillId, targetId);
-            ScrollOfNovaChargeEffect.StopForCaster(world, hero.NetworkId);
+            SpawnNovaExplosion(world, hero);
+        }
+
+        /// <summary>
+        /// Consumes the current Nova charge stage and spawns the release explosion
+        /// (matches remote-player path via NovaSkillEffect factory).
+        /// </summary>
+        private void SpawnNovaExplosion(WalkableWorldControl world, PlayerObject hero)
+        {
+            byte stage = ScrollOfNovaChargeEffect.ConsumeStageAndStop(world, hero.NetworkId);
+            var explosion = new ScrollOfNovaExplosionEffect(hero, hero.WorldPosition.Translation, stage);
+            world.Objects.Add(explosion);
+            _ = explosion.Load();
         }
 
         private ushort ResolveNovaReleaseTargetId(PlayerObject hero)
@@ -631,6 +643,49 @@ namespace Client.Main.Scenes
                 skill.SkillId,
                 target.NetworkId);
 
+            return true;
+        }
+
+        /// <summary>
+        /// Casts a skill activated by the Classic touch hotbar using its declared usage type.
+        /// Target skills use the nearest monster, area skills use that monster's position,
+        /// and self skills target the player's own character.
+        /// </summary>
+        internal bool CastSkillFromHotbar(Core.Client.SkillEntryState skill, MonsterObject target)
+        {
+            var hero = _scene.Hero;
+            if (skill == null || hero == null || hero.IsDead)
+                return false;
+
+            if (SkillDatabase.IsSelfSkill(skill.SkillId))
+                return UseSelfSkill(skill, hero);
+
+            if (SkillDatabase.IsAreaSkill(skill.SkillId))
+            {
+                Vector2 targetLocation = target?.Location ?? hero.Location;
+                ushort targetId = target?.NetworkId ?? (ushort)0;
+                return UseAreaSkill(skill, targetId, targetLocation);
+            }
+
+            return target != null && UseSkillOnTarget(skill, target);
+        }
+
+        private bool UseSelfSkill(Core.Client.SkillEntryState skill, PlayerObject hero)
+        {
+            if (skill == null || hero == null || hero.IsDead)
+                return false;
+
+            if (!TryBeginSkillCast(skill, hero))
+                return false;
+
+            ushort targetId = hero.NetworkId;
+            if (targetId == 0)
+                targetId = MuGame.Network?.GetCharacterState()?.Id ?? (ushort)0;
+
+            _logger?.LogInformation("Using self skill {SkillId} (Level {Level}) on player {TargetId}",
+                skill.SkillId, skill.SkillLevel, targetId);
+
+            _ = MuGame.Network.GetCharacterService().SendSkillRequestAsync(skill.SkillId, targetId);
             return true;
         }
 

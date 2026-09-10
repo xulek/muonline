@@ -1,5 +1,6 @@
-﻿using Client.Main.Controls;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Events;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -12,9 +13,20 @@ namespace Client.Main.Worlds
     [WorldInfo(66, "Doppelganger Blaze Zone")]
     public class DoppelgangerBlazeWorld : WalkableWorldControl
     {
+        private FireSnuffEmberSystem _emberSystem;
+
         public DoppelgangerBlazeWorld() : base(worldIndex: 67) // DOPPELGANGER BLAZEZONE (VULCAN)
         {
 
+        }
+
+        // CGMDoppelGanger2::CreateFireSpark — drifting red embers, scale bias 0.4
+        public override Task Load()
+        {
+            _emberSystem = new FireSnuffEmberSystem(this, maxEmbers: 40, scaleBias: 0.4f);
+            Objects.Add(_emberSystem);
+
+            return base.Load();
         }
 
         public override void AfterLoad()
@@ -38,8 +50,21 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
-            
+
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_emberSystem != null)
+            {
+                Objects.Remove(_emberSystem);
+                _emberSystem.Dispose();
+                _emberSystem = null;
+            }
+
+            base.Dispose();
         }
     }
 }
+

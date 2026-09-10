@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Client.Main.Controllers;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Helpers;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
@@ -23,18 +24,20 @@ namespace Client.Main.Controls.UI.Game
 
         private static class Theme
         {
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color Success = new(128, 255, 128);
-            public static readonly Color Failure = new(255, 128, 128);
-            public static readonly Color ExpColor = new(210, 255, 210);
-            public static readonly Color ZenColor = new(255, 210, 210);
-            public static readonly Color ScoreColor = new(210, 210, 255);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color Success => IsClassic ? ModernHudTheme.Success : new Color(128, 255, 128);
+            public static Color Failure => IsClassic ? ModernHudTheme.Danger : new Color(255, 128, 128);
+            public static Color ExpColor => IsClassic ? ModernHudTheme.Success : new Color(210, 255, 210);
+            public static Color ZenColor => IsClassic ? ModernHudTheme.Warning : new Color(255, 210, 210);
+            public static Color ScoreColor => IsClassic ? ModernHudTheme.SecondaryBright : new Color(210, 210, 255);
+
+            private static bool IsClassic => UiThemeManager.CurrentId == UiThemeId.Classic;
         }
 
         private static BloodCastleResultControl _instance;

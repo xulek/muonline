@@ -1,4 +1,4 @@
-﻿using Client.Main.Controls;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
 using System;
@@ -38,8 +38,12 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
+
+            // SourceMain WaterMove: WD_42CHANGEUP3RD_2ND = (WorldTime % 50000) * 0.00002f -> 0.02 UV/s (slowest)
+            Terrain.WaterSpeed = 0.02f;
             
             base.AfterLoad();
         }
     }
 }
+

@@ -13,7 +13,6 @@ namespace Client.Main.Objects.Monsters
         public Worm()
         {
             RenderShadow = true;
-            Scale = 1.0f; // Default
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
         }
 

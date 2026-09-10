@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
@@ -64,6 +64,14 @@ namespace Client.Main.Objects.Monsters
                 ? "Sound/mHunterAttack1.wav"
                 : "Sound/mHunterAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+
+            // SourceMain5.2 AttackEffect: MODEL_HUNTER fires CreateArrows on attack.
+            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
+            {
+                var arrow = new Effects.MonsterArrowProjectileEffect(this, 25, LastAttackTargetId);
+                arrowWorld.Objects.Add(arrow);
+                _ = arrow.Load();
+            }
         }
 
         public override void OnReceiveDamage()

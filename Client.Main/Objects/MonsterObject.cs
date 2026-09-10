@@ -1,6 +1,8 @@
 using Client.Data.BMD;
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Content;
+using Client.Main.Graphics;
 using Client.Main.Helpers;
 using Client.Main.Models;
 using Client.Main.Objects.Player;
@@ -66,6 +68,9 @@ namespace Client.Main.Objects
         {
             Interactive = true;
             AnimationSpeed = 6f;
+            // SourceMain5.2 CreateCharacterPointer: o->Scale = 0.9f default for every
+            // character/monster; per-monster cases in CreateMonster override it.
+            Scale = 0.9f;
         }
 
         public void StartDeathFade(float duration = 3.5f)
@@ -231,6 +236,42 @@ namespace Client.Main.Objects
         }
 
         /// <summary>
+        /// Resolves the world position of the last attack target received from
+        /// server animation packets; falls back to this monster's position.
+        /// </summary>
+        protected bool TryGetAttackTargetPosition(out Vector3 targetPosition)
+        {
+            if (World is WalkableWorldControl world &&
+                LastAttackTargetId != 0 &&
+                world.TryGetWalkerById(LastAttackTargetId, out var target))
+            {
+                targetPosition = target.WorldPosition.Translation;
+                return true;
+            }
+
+            targetPosition = Position;
+            return false;
+        }
+
+        private double _lastAttackEffectSpawnTime = double.MinValue;
+
+        /// <summary>
+        /// Gates attack visuals to one spawn per interval. SourceMain5.2 fires attack
+        /// effects once per attack via CheckAttackTime(...); server animation packets
+        /// can repeat for the same swing, so the client throttles instead.
+        /// </summary>
+        protected bool TryConsumeAttackEffectWindow(float minIntervalSeconds = 0.5f)
+        {
+            var gameTime = MuGame.Instance?.GameTime;
+            double now = gameTime != null ? gameTime.TotalGameTime.TotalSeconds : 0.0;
+            if (now - _lastAttackEffectSpawnTime < minIntervalSeconds)
+                return false;
+
+            _lastAttackEffectSpawnTime = now;
+            return true;
+        }
+
+        /// <summary>
         /// Starts a short bone-to-target magic attack effect using the target id
         /// captured from the server animation packet.
         /// </summary>
@@ -238,8 +279,7 @@ namespace Client.Main.Objects
             int[] sourceBones,
             int attackType,
             Vector3 sourceOffset = default)
-        {
-            if (World is not WalkableWorldControl world ||
+        {            if (World is not WalkableWorldControl world ||
                 Status != GameControlStatus.Ready ||
                 Model == null)
                 return;
@@ -267,16 +307,28 @@ namespace Client.Main.Objects
         }
 
         /// <summary>
+        /// Whether the standard hit-blood burst is spawned when this monster is damaged.
+        /// SourceMain5.2 hit-blood loop (ZzzCharacter.cpp:4712) only skips MODEL_GHOST
+        /// (the ambient Lorencia ghost), not MODEL_GHOST_MONSTER — monsters keep the burst.
+        /// </summary>
+        public virtual bool SpawnsHitBlood => true;
+
+        /// <summary>
         /// Spawns the standard blood burst used by the original client when this monster is hit.
+        /// Also emits melee impact sparks (SourceMain5.2 CreateSpark on weapon hits).
         /// </summary>
         public void SpawnHitEffect()
         {
-            if (World == null || Status != GameControlStatus.Ready)
+            if (World == null || Status != GameControlStatus.Ready || !SpawnsHitBlood)
                 return;
 
             var effect = new Effects.MonsterHitEffect(Position, Angle);
             World.Objects.Add(effect);
             _ = effect.Load();
+
+            var spark = new Effects.MonsterHitSparkEffect(Position);
+            World.Objects.Add(spark);
+            _ = spark.Load();
         }
 
         /// <summary>
@@ -509,6 +561,118 @@ namespace Client.Main.Objects
 
             // Otherwise use the base implementation
             return base.IsBlendMesh(mesh);
+        }
+
+        // --- SourceMain5.2 bright/chrome body pass (RenderPartObjectBodyColor approximation) ---
+
+        private Texture2D _brightOverlayTexture;
+
+        /// <summary>
+        /// When greater than zero, all visible meshes are redrawn additively after the main
+        /// pass — approximates SourceMain5.2 RENDER_BRIGHT / RENDER_CHROME | RENDER_BRIGHT
+        /// body passes (RenderCharacter golden-monster block, White Wizard, etc.).
+        /// </summary>
+        public float BrightOverlay { get; set; } = 0f;
+
+        /// <summary>
+        /// Color tint applied during the BrightOverlay pass — SourceMain5.2
+        /// glColor(BodyLight) on RENDER_CHROME/BRIGHT body passes
+        /// (ZzzObject.cpp RenderPartObjectBodyColor + PartObjectColor).
+        /// </summary>
+        public Vector3 BrightOverlayTint { get; set; } = Vector3.One;
+
+        /// <summary>
+        /// Optional texture replacing mesh textures during the overlay pass
+        /// (RENDER_CHROME uses BITMAP_CHROME, RENDER_METAL uses BITMAP_SHINY).
+        /// </summary>
+        public string BrightOverlayTexturePath { get; set; }
+
+        /// <summary>Tint for the second overlay pass (BrightOverlayTexturePath2).</summary>
+        public Vector3 BrightOverlayTint2 { get; set; } = Vector3.One;
+
+        /// <summary>
+        /// Optional second overlay texture drawn as another additive pass right after
+        /// the first (e.g. DRAKAN renders CHROME|BRIGHT and then CHROME2|LIGHTMAP).
+        /// </summary>
+        public string BrightOverlayTexturePath2 { get; set; }
+
+        private Texture2D _brightOverlayTexture2;
+
+        public override async Task LoadContent()
+        {
+            await base.LoadContent();
+
+            if (!string.IsNullOrEmpty(BrightOverlayTexturePath))
+                _brightOverlayTexture = await TextureLoader.Instance.PrepareAndGetTexture(BrightOverlayTexturePath);
+            if (!string.IsNullOrEmpty(BrightOverlayTexturePath2))
+                _brightOverlayTexture2 = await TextureLoader.Instance.PrepareAndGetTexture(BrightOverlayTexturePath2);
+        }
+
+        public override void Draw(GameTime gameTime)
+        {
+            base.Draw(gameTime);
+
+            // SourceMain5.2 renders the body first, then the RENDER_BRIGHT/CHROME
+            // overlay passes on top (ZzzCharacter.cpp RenderCharacter) — same order here.
+            if (BrightOverlay > 0f && !Hidden && Model?.Meshes != null)
+                DrawBrightOverlayPass();
+        }
+
+        private void DrawBrightOverlayPass()
+        {
+            var previousBlendState = BlendState;
+            BlendState = Blendings.OneOneAdditive;
+
+            // SourceMain5.2 tints chrome passes via glColor(BodyLight). The port's
+            // DynamicLighting shader multiplies by the MaterialTint uniform instead.
+            var tintParam = GraphicsManager.Instance.DynamicLightingEffect?.Parameters["MaterialTint"];
+
+            try
+            {
+                for (int meshIndex = 0; meshIndex < Model.Meshes.Length; meshIndex++)
+                {
+                    if (HiddenMesh == meshIndex || HiddenMesh == -2 || !ShouldRenderMesh(meshIndex))
+                        continue;
+
+                    Texture2D originalTexture = GetMeshTexture(meshIndex);
+                    try
+                    {
+                        if (_brightOverlayTexture != null)
+                        {
+                            tintParam?.SetValue(BrightOverlayTint);
+                            SetMeshTextureOverride(meshIndex, _brightOverlayTexture);
+                            DrawMesh(meshIndex);
+                        }
+                        else if (originalTexture != null)
+                        {
+                            tintParam?.SetValue(BrightOverlayTint);
+                            DrawMesh(meshIndex);
+                        }
+
+                        if (_brightOverlayTexture2 != null)
+                        {
+                            tintParam?.SetValue(BrightOverlayTint2);
+                            SetMeshTextureOverride(meshIndex, _brightOverlayTexture2);
+                            DrawMesh(meshIndex);
+                        }
+                    }
+                    finally
+                    {
+                        if (_brightOverlayTexture != null || _brightOverlayTexture2 != null)
+                        {
+                            if (originalTexture != null)
+                                SetMeshTextureOverride(meshIndex, originalTexture);
+                            else
+                                ClearMeshTextureOverride(meshIndex);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                tintParam?.SetValue(Vector3.One);
+                BlendState = previousBlendState;
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using Client.Main;
+using Client.Main.Models;
 using Microsoft.Xna.Framework.Input;
 
 namespace Client.Main.Controls.UI
@@ -10,6 +11,26 @@ namespace Client.Main.Controls.UI
 
         public UIControl()
         {
+            UiThemeManager.ThemeChanged += HandleThemeChanged;
+        }
+
+        private void HandleThemeChanged(object sender, UiThemeChangedEventArgs e)
+        {
+            if (Status == GameControlStatus.Disposed)
+                return;
+
+            MarkLayoutDirty();
+            OnThemeChanged(e);
+        }
+
+        protected virtual void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+        }
+
+        public override void Dispose()
+        {
+            UiThemeManager.ThemeChanged -= HandleThemeChanged;
+            base.Dispose();
         }
     }
 }

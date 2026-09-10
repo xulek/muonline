@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.DuelArena;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -16,6 +17,14 @@ namespace Client.Main.Worlds
         {
 
         }
+
+        protected override void CreateMapTileObjects()
+        {
+            var duelArenaDefault = typeof(DuelArenaObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = duelArenaDefault;
+        }
+
 
         public override void AfterLoad()
         {

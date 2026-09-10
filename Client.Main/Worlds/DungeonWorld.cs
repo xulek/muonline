@@ -1,6 +1,7 @@
 using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.Dungeon;
+using Client.Main.Objects.Worlds.Events;
 using Microsoft.Xna.Framework;
 
 namespace Client.Main.Worlds
@@ -8,6 +9,9 @@ namespace Client.Main.Worlds
     [WorldInfo(1, "Dungeon")]
     public class DungeonWorld : WalkableWorldControl
     {
+        private AmbientFlockSystem _batFlock;
+        private AmbientFlockSystem _ratFlock;
+
         public DungeonWorld() : base(worldIndex: 2)
         {
             BackgroundMusicPath = "Music/Dungeon.mp3";
@@ -36,7 +40,21 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
+
+            // GOBoid fauna: bats (MODEL_BAT01, Object2/Bat01) and rats (MODEL_RAT01)
+            _batFlock = new AmbientFlockSystem(this, "Object2/Bat01.bmd", 0.8f, BoidFlightStyle.FlyingLow, maxBoids: 6);
+            _ratFlock = new AmbientFlockSystem(this, "Object2/Rat01.bmd", 0.55f, BoidFlightStyle.GroundScurry, maxBoids: 4);
+            Objects.Add(_batFlock);
+            Objects.Add(_ratFlock);
+
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_batFlock != null) { Objects.Remove(_batFlock); _batFlock.Dispose(); _batFlock = null; }
+            if (_ratFlock != null) { Objects.Remove(_ratFlock); _ratFlock.Dispose(); _ratFlock = null; }
+            base.Dispose();
         }
 
         protected override void CreateMapTileObjects()

@@ -33,6 +33,8 @@ namespace Client.Main.Controls.UI.Game.Map
         private const int PadX = 10;
         private const int PadY = 5;
 
+        private bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+
         public CurrentLocationControl(CharacterState characterState)
         {
             _characterState = characterState;
@@ -57,6 +59,13 @@ namespace Client.Main.Controls.UI.Game.Map
         {
             base.OnScreenSizeChanged();
             _lastVirtualSize = Point.Zero;
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            _lastVirtualSize = Point.Zero;
+            RefreshLayout();
         }
 
         public override void Update(GameTime gameTime)
@@ -116,20 +125,22 @@ namespace Client.Main.Controls.UI.Game.Map
 
             _lastVirtualSize = virtualSize;
 
-            float scaleX = virtualSize.X / 1024f;
-            float scaleY = virtualSize.Y / 768f;
-            float scale = Math.Clamp(MathF.Min(scaleX, scaleY), 0.82f, 1.35f);
+            float scaleX = virtualSize.X / (IsSeason6 ? 1280f : 1024f);
+            float scaleY = virtualSize.Y / (IsSeason6 ? 720f : 768f);
+            float scale = IsSeason6
+                ? Math.Clamp(MathF.Min(scaleX, scaleY), 0.90f, 1.20f)
+                : Math.Clamp(MathF.Min(scaleX, scaleY), 0.82f, 1.35f);
 
-            X = ScaleValue(BaseX, scale);
-            Y = ScaleValue(BaseY, scale);
+            X = ScaleValue(IsSeason6 ? 16 : BaseX, scale);
+            Y = ScaleValue(IsSeason6 ? 16 : BaseY, scale);
 
-            int width = ScaleValue(BaseWidth, scale);
-            int height = ScaleValue(BaseHeight, scale);
+            int width = ScaleValue(IsSeason6 ? 320 : BaseWidth, scale);
+            int height = ScaleValue(IsSeason6 ? 32 : BaseHeight, scale);
             ControlSize = new Point(width, height);
             ViewSize = ControlSize;
 
-            _mapScale = Math.Clamp(0.54f * scale, 0.46f, 0.72f);
-            _coordsScale = Math.Clamp(0.47f * scale, 0.40f, 0.62f);
+            _mapScale = Math.Clamp((IsSeason6 ? 0.58f : 0.54f) * scale, 0.46f, 0.72f);
+            _coordsScale = Math.Clamp((IsSeason6 ? 0.50f : 0.47f) * scale, 0.40f, 0.62f);
         }
 
         private void RefreshData()

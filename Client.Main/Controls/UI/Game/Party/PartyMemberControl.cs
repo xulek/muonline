@@ -1,4 +1,5 @@
 using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
@@ -15,23 +16,25 @@ namespace Client.Main.Controls.UI.Game.Party
 
         private readonly ColorBarControl[] _healthSegments;
 
+        private bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+
         public PartyMemberInfo MemberInfo { get; private set; }
         public bool IsCurrentPlayer { get; private set; }
 
         public PartyMemberControl()
         {
             AutoViewSize = false;
-            ViewSize = new Point(160, 48);
-            BackgroundColor = new Color(15, 15, 25) * 0.9f;
-            BorderColor = new Color(100, 150, 200) * 0.8f;
+            ViewSize = IsSeason6 ? new Point(240, 42) : new Point(160, 48);
+            BackgroundColor = IsSeason6 ? ModernHudTheme.BgDark * 0.94f : new Color(15, 15, 25) * 0.9f;
+            BorderColor = IsSeason6 ? ModernHudTheme.BorderInner : new Color(100, 150, 200) * 0.8f;
             BorderThickness = 1;
 
             _nameLabel = new LabelControl
             {
                 X = 6,
-                Y = 4,
-                FontSize = 11f,
-                TextColor = Color.White,
+                Y = IsSeason6 ? 3 : 4,
+                FontSize = IsSeason6 ? 10f : 11f,
+                TextColor = IsSeason6 ? ModernHudTheme.TextWhite : Color.White,
                 IsBold = true,
                 HasShadow = true,
                 ShadowColor = Color.Black,
@@ -40,7 +43,7 @@ namespace Client.Main.Controls.UI.Game.Party
             };
 
             _healthSegments = new ColorBarControl[4];
-            int segmentWidth = 30;
+            int segmentWidth = IsSeason6 ? 42 : 30;
             int segmentSpacing = 2;
 
             for (int i = 0; i < 4; i++)
@@ -48,11 +51,11 @@ namespace Client.Main.Controls.UI.Game.Party
                 _healthSegments[i] = new ColorBarControl
                 {
                     X = 6 + i * (segmentWidth + segmentSpacing),
-                    Y = 20,
+                    Y = IsSeason6 ? 18 : 20,
                     ViewSize = new Point(segmentWidth, 7),
-                    BackgroundColor = new Color(60, 20, 20) * 0.8f,
+                    BackgroundColor = IsSeason6 ? ModernHudTheme.SlotBg : new Color(60, 20, 20) * 0.8f,
                     FillColor = GetHealthSegmentColor(i),
-                    BorderColor = Color.Black * 0.8f,
+                    BorderColor = IsSeason6 ? ModernHudTheme.BorderOuter : Color.Black * 0.8f,
                     BorderThickness = 1
                 };
                 Controls.Add(_healthSegments[i]);
@@ -60,10 +63,10 @@ namespace Client.Main.Controls.UI.Game.Party
 
             _healthPercentLabel = new LabelControl
             {
-                X = 4 * (segmentWidth + segmentSpacing) + 5,
-                Y = 18,
-                FontSize = 8f,
-                TextColor = Color.Yellow,
+                X = IsSeason6 ? ViewSize.X - 34 : 4 * (segmentWidth + segmentSpacing) + 5,
+                Y = IsSeason6 ? 17 : 18,
+                FontSize = IsSeason6 ? 8f : 8f,
+                TextColor = IsSeason6 ? ModernHudTheme.Warning : Color.Yellow,
                 IsBold = true,
                 HasShadow = true,
                 ShadowColor = Color.Black,
@@ -74,9 +77,9 @@ namespace Client.Main.Controls.UI.Game.Party
             _infoLabel = new LabelControl
             {
                 X = 6,
-                Y = 28,
-                FontSize = 9f,
-                TextColor = Color.LightBlue,
+                Y = IsSeason6 ? 28 : 28,
+                FontSize = IsSeason6 ? 8f : 9f,
+                TextColor = IsSeason6 ? ModernHudTheme.TextGray : Color.LightBlue,
                 HasShadow = true,
                 ShadowColor = Color.Black,
                 ShadowOffset = new Vector2(1, 1),
@@ -85,14 +88,14 @@ namespace Client.Main.Controls.UI.Game.Party
 
             _leaveButton = new ButtonControl
             {
-                X = ViewSize.X - 18,
+                X = ViewSize.X - (IsSeason6 ? 20 : 18),
                 Y = 3,
-                ViewSize = new Point(15, 15),
+                ViewSize = IsSeason6 ? new Point(17, 17) : new Point(15, 15),
                 Text = "×",
                 FontSize = 12f,
                 TextColor = Color.White,
-                BackgroundColor = new Color(150, 50, 50) * 0.8f,
-                BorderColor = new Color(200, 100, 100),
+                BackgroundColor = IsSeason6 ? ModernHudTheme.Danger * 0.75f : new Color(150, 50, 50) * 0.8f,
+                BorderColor = IsSeason6 ? ModernHudTheme.Danger : new Color(200, 100, 100),
                 BorderThickness = 1,
                 Visible = false,
             };
@@ -102,6 +105,37 @@ namespace Client.Main.Controls.UI.Game.Party
             Controls.Add(_infoLabel);
             Controls.Add(_healthPercentLabel);
             Controls.Add(_leaveButton);
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+            int segmentWidth = season6 ? 42 : 30;
+            int segmentSpacing = 2;
+            ViewSize = season6 ? new Point(240, 42) : new Point(160, 48);
+            BackgroundColor = season6 ? ModernHudTheme.BgDark * 0.94f : new Color(15, 15, 25) * 0.9f;
+            BorderColor = season6 ? ModernHudTheme.BorderInner : new Color(100, 150, 200) * 0.8f;
+            _nameLabel.Y = season6 ? 3 : 4;
+            _nameLabel.FontSize = season6 ? 10f : 11f;
+            _nameLabel.TextColor = season6 ? ModernHudTheme.TextWhite : Color.White;
+            for (int i = 0; i < _healthSegments.Length; i++)
+            {
+                _healthSegments[i].X = 6 + i * (segmentWidth + segmentSpacing);
+                _healthSegments[i].Y = season6 ? 18 : 20;
+                _healthSegments[i].ViewSize = new Point(segmentWidth, 7);
+                _healthSegments[i].BackgroundColor = season6 ? ModernHudTheme.SlotBg : new Color(60, 20, 20) * 0.8f;
+                _healthSegments[i].BorderColor = season6 ? ModernHudTheme.BorderOuter : Color.Black * 0.8f;
+            }
+            _healthPercentLabel.X = season6 ? ViewSize.X - 34 : 4 * (segmentWidth + segmentSpacing) + 5;
+            _healthPercentLabel.Y = season6 ? 17 : 18;
+            _healthPercentLabel.TextColor = season6 ? ModernHudTheme.Warning : Color.Yellow;
+            _infoLabel.FontSize = season6 ? 8f : 9f;
+            _infoLabel.TextColor = season6 ? ModernHudTheme.TextGray : Color.LightBlue;
+            _leaveButton.X = ViewSize.X - (season6 ? 20 : 18);
+            _leaveButton.ViewSize = season6 ? new Point(17, 17) : new Point(15, 15);
+            _leaveButton.BackgroundColor = season6 ? ModernHudTheme.Danger * 0.75f : new Color(150, 50, 50) * 0.8f;
+            _leaveButton.BorderColor = season6 ? ModernHudTheme.Danger : new Color(200, 100, 100);
         }
 
         private Color GetHealthSegmentColor(int segmentIndex)
@@ -148,13 +182,13 @@ namespace Client.Main.Controls.UI.Game.Party
 
             if (isCurrentPlayer)
             {
-                BorderColor = new Color(150, 200, 100) * 0.9f; // Zielona ramka
-                BackgroundColor = new Color(15, 25, 15) * 0.9f; // Lekko zielone tło
+                BorderColor = IsSeason6 ? ModernHudTheme.Success : new Color(150, 200, 100) * 0.9f; // Zielona ramka
+                BackgroundColor = IsSeason6 ? ModernHudTheme.Success * 0.16f : new Color(15, 25, 15) * 0.9f; // Lekko zielone tło
             }
             else
             {
-                BorderColor = new Color(100, 150, 200) * 0.8f; // Standardowa ramka
-                BackgroundColor = new Color(15, 15, 25) * 0.9f; // Standardowe tło
+                BorderColor = IsSeason6 ? ModernHudTheme.BorderInner : new Color(100, 150, 200) * 0.8f; // Standardowa ramka
+                BackgroundColor = IsSeason6 ? ModernHudTheme.BgDark * 0.94f : new Color(15, 15, 25) * 0.9f; // Standardowe tło
             }
         }
 

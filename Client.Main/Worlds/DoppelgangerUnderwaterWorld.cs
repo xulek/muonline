@@ -1,4 +1,4 @@
-﻿using Client.Main.Controls;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
 using System;
@@ -38,8 +38,15 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
+
+            // SourceMain: Atlans/DoppelGanger3 share the animated-water path
+            // (WaterMove default %20000 * 0.00005 -> 0.05 UV/s) with wind-driven wobble.
+            Terrain.WaterSpeed = 0.05f;
+            Terrain.DistortionAmplitude = 0.25f;
+            Terrain.DistortionFrequency = 1.0f;
             
             base.AfterLoad();
         }
     }
 }
+

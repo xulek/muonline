@@ -1,6 +1,7 @@
 using Client.Main.Controllers; // Needed for SoundController
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Login;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Core.Client;
 using Client.Main.Core.Models;   // For ServerInfo
 using Client.Main.Models;
@@ -60,7 +61,9 @@ namespace Client.Main.Scenes
                 Align = ControlAlign.HorizontalCenter | ControlAlign.VerticalCenter
             };
             _loginDialog.LoginAttempt += LoginDialog_LoginAttempt;
+            _loginDialog.CancelAttempt += LoginDialog_CancelAttempt;
             Controls.Add(_loginDialog);
+            UiThemeManager.ThemeChanged += LoginScene_ThemeChanged;
 
             // Server selection UI elements are initialized later in InitializeServerSelectionUI
             _nonEventGroup = null;
@@ -175,9 +178,21 @@ namespace Client.Main.Scenes
         public override void Dispose()
         {
             _logger?.LogDebug("Disposing LoginScene, unsubscribing from network events.");
+            if (_loginDialog != null)
+            {
+                _loginDialog.LoginAttempt -= LoginDialog_LoginAttempt;
+                _loginDialog.CancelAttempt -= LoginDialog_CancelAttempt;
+            }
+            UiThemeManager.ThemeChanged -= LoginScene_ThemeChanged;
             UnsubscribeFromNetworkEvents();
             RestoreDayNightCycle();
             base.Dispose();
+        }
+
+        private void LoginScene_ThemeChanged(object sender, UiThemeChangedEventArgs e)
+        {
+            _statusLabel.TextColor = Color.Yellow;
+            ApplyServerSelectionLayout();
         }
 
         // Private Methods
@@ -217,7 +232,23 @@ namespace Client.Main.Scenes
             Controls.Add(_serverList);
 
             _uiInitialized = true;
+            ApplyServerSelectionLayout();
             _logger.LogInformation("Server Selection UI Initialized and added to scene controls.");
+        }
+
+        private void ApplyServerSelectionLayout()
+        {
+            const int groupOffset = 220;
+
+            if (_nonEventGroup != null)
+            {
+                _nonEventGroup.Margin = new Margin { Left = -groupOffset };
+            }
+
+            if (_eventGroup != null)
+            {
+                _eventGroup.Margin = new Margin { Right = -groupOffset };
+            }
         }
 
         private void SubscribeToNetworkEvents()
@@ -339,14 +370,22 @@ namespace Client.Main.Scenes
 
         private void UpdateUIVisibility(bool showServerSelectionUi, bool showLoginDialog, bool hideAll)
         {
-            if (_nonEventGroup != null) _nonEventGroup.Visible = showServerSelectionUi && !hideAll;
-            if (_eventGroup != null) _eventGroup.Visible = showServerSelectionUi && !hideAll;
-            if (_loginDialog != null) _loginDialog.Visible = showLoginDialog && !hideAll;
+            bool showSelection = showServerSelectionUi && !hideAll;
+            bool showLogin = showLoginDialog && !hideAll;
+
+            if (_nonEventGroup != null) _nonEventGroup.Visible = showSelection && !showLogin;
+            if (_eventGroup != null) _eventGroup.Visible = showSelection && !showLogin;
+            if (_loginDialog != null)
+            {
+                _loginDialog.Visible = showLogin;
+                if (showLogin)
+                    _loginDialog.BringToFront();
+            }
 
             if (_serverList != null)
             {
                 bool groupSelected = (_nonEventGroup?.ActiveIndex != -1) || (_eventGroup?.ActiveIndex != -1);
-                _serverList.Visible = showServerSelectionUi && groupSelected &&
+                _serverList.Visible = showSelection && !showLogin && groupSelected &&
                                       _serverList.Controls.Count > 0 && !hideAll;
             }
         }
@@ -386,6 +425,20 @@ namespace Client.Main.Scenes
                 _logger.LogWarning("Login attempt ignored, invalid state: {State}", _networkManager.CurrentState);
                 MessageWindow.Show($"Cannot login in state: {_networkManager.CurrentState}");
             }
+        }
+
+        private void LoginDialog_CancelAttempt(object sender, EventArgs e)
+        {
+            if (_loginDialog != null)
+                _loginDialog.Visible = false;
+
+            bool hasServers = _serverList != null && _serverList.Controls.Count > 0;
+            if (_nonEventGroup != null)
+                _nonEventGroup.Visible = true;
+            if (_eventGroup != null)
+                _eventGroup.Visible = true;
+            if (_serverList != null)
+                _serverList.Visible = hasServers;
         }
 
         private void HandleServerListReceived(object sender, List<ServerInfo> servers)
@@ -535,7 +588,7 @@ namespace Client.Main.Scenes
                     _serverList.Clear();
                     foreach (var server in currentServerList)
                     {
-                        // TODO: Filter servers for this group
+                        // The current server list is shared by the regular group.
                         _serverList.AddServer((byte)server.ServerId, $"Server {server.ServerId}", server.LoadPercentage);
                     }
                     _serverList.Visible = true;
@@ -568,7 +621,7 @@ namespace Client.Main.Scenes
                     _serverList.Clear();
                     foreach (var server in currentServerList)
                     {
-                        // TODO: Filter event servers
+                        // The current server list is shared by the event group.
                         _serverList.AddServer((byte)server.ServerId, $"Event Srv {server.ServerId}", server.LoadPercentage);
                     }
                     _serverList.Visible = true;
@@ -603,7 +656,6 @@ namespace Client.Main.Scenes
 
             // Proactively hide server selection UI right away to avoid overlap if the
             // connection state change is delayed (observed on Android builds).
-            _serverList?.GetType(); // no-op to avoid nullable warnings below
             if (_serverList != null) _serverList.Visible = false;
             if (_nonEventGroup != null) _nonEventGroup.Visible = false;
             if (_eventGroup != null) _eventGroup.Visible = false;

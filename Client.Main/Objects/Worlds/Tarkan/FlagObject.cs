@@ -11,6 +11,7 @@ namespace Client.Main.Objects.Worlds.Tarkan
             BlendState = BlendState.NonPremultiplied;
             var idx = (Type + 1).ToString().PadLeft(2, '0');
             Model = await BMDLoader.Instance.Prepare($"Object9/Object{idx}.bmd");
+            AnimationSpeed = 4.0f; // 4x animation speed multiplier from SourceMain5.2 (ZzzObject.cpp)
             await base.Load();
         }
     }

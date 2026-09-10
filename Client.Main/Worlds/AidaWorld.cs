@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Tarkan;
 using Microsoft.Xna.Framework;
 
 namespace Client.Main.Worlds
@@ -7,11 +8,15 @@ namespace Client.Main.Worlds
     [WorldInfo(33, "Aida")]
     public class AidaWorld : WalkableWorldControl
     {
+        private TarkanBoidManager _bugManager;
+
         public AidaWorld() : base(worldIndex: 34) // AIDA
         {
             Name = "Aida";
             BackgroundMusicPath = "Music/Aida.mp3";
         }
+
+        // Aida shares Tarkan's energy-tail crawler fauna (GOBoid.cpp MODEL_BUG01+1, Bug02.bmd)
 
         public override void AfterLoad()
         {
@@ -34,8 +39,23 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
-            
+
+            _bugManager = new TarkanBoidManager(this);
+
             base.AfterLoad();
+        }
+
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            _bugManager?.Update(time);
+        }
+
+        public override void Dispose()
+        {
+            _bugManager?.Clear();
+            _bugManager = null;
+            base.Dispose();
         }
     }
 }

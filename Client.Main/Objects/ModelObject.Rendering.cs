@@ -23,6 +23,14 @@ namespace Client.Main.Objects
             MonsterMaterial = 3,
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ApplyQualityModelSampler(GraphicsDevice graphicsDevice)
+        {
+            SamplerState sampler = GraphicsManager.GetQualityLinearWrapSamplerState();
+            if (!ReferenceEquals(graphicsDevice.SamplerStates[0], sampler))
+                graphicsDevice.SamplerStates[0] = sampler;
+        }
+
         // Struct to hold shader selection results
         private readonly struct ShaderSelection
         {
@@ -339,7 +347,16 @@ namespace Client.Main.Objects
             if (_meshes == null || (uint)mesh >= (uint)_meshes.Length)
                 return false;
 
-            return BlendMesh == mesh || BlendMesh == -2 || _meshes[mesh].BlendByScript;
+            if (BlendMesh == -2 || _meshes[mesh].BlendByScript)
+                return true;
+
+            // SourceMain5.2 BMD::RenderMesh parity: the blend pass triggers when the
+            // mesh's TEXTURE slot equals BlendMesh ("m->Texture == blendMeshIndex"),
+            // not when the mesh index equals it.
+            if (BlendMesh >= 0 && Model != null && (uint)mesh < (uint)Model.Meshes.Length)
+                return Model.Meshes[mesh].Texture == BlendMesh;
+
+            return false;
         }
 
         /// <summary>
@@ -781,19 +798,14 @@ namespace Client.Main.Objects
                         gd.RasterizerState = targetRasterizer;
                     if (effect != null && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
-                    if (stateKey.ShaderKind == MeshShaderKind.AlphaTest)
-                    {
-                        SamplerState sampler = GraphicsManager.GetQualityLinearWrapSamplerState();
-                        if (!ReferenceEquals(gd.SamplerStates[0], sampler))
-                            gd.SamplerStates[0] = sampler;
-                    }
-
-                    // Bind effect once per group
+                    // Bind effect once per group. Rebind the sampler afterwards because
+                    // Effect.Apply can restore the sampler state embedded in the shader.
                     if (effect != null)
                     {
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                     }
 
                     // Object-level shadow and highlight passes
@@ -815,6 +827,7 @@ namespace Client.Main.Objects
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
                             passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                     }
 
                     // Draw all meshes in this state group
@@ -848,6 +861,7 @@ namespace Client.Main.Objects
                                 var passes = effect.CurrentTechnique.Passes;
                                 for (int p = 0; p < passes.Count; p++)
                                     passes[p].Apply();
+                                ApplyQualityModelSampler(gd);
                             }
                         }
                         else
@@ -916,6 +930,7 @@ namespace Client.Main.Objects
                 for (int passIndex = 0; passIndex < passCount; passIndex++)
                 {
                     effect.CurrentTechnique.Passes[passIndex].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
                 }
 
@@ -1418,6 +1433,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1443,6 +1466,7 @@ namespace Client.Main.Objects
                         for (int p = 0; p < passCount; p++)
                         {
                             passes[p].Apply();
+                            ApplyQualityModelSampler(gd);
                             gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
                         }
 
@@ -1518,6 +1542,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1564,6 +1596,7 @@ namespace Client.Main.Objects
                         RegisterGpuSkinnedMeshDraw();
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1635,6 +1668,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1674,6 +1715,7 @@ namespace Client.Main.Objects
                         RegisterGpuSkinnedMeshDraw();
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1739,6 +1781,14 @@ namespace Client.Main.Objects
                         gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
                         depthStateChanged = true;
                     }
+                    else if (!ReferenceEquals(gd.DepthStencilState, DepthStencilState.Default))
+                    {
+                        // Opaque meshes must write depth even when their object rides the
+                        // transparent list (e.g. Valkyrie body + blend veil). Otherwise
+                        // geometry drawn later behind them would cover the whole object.
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
 
                     gd.BlendState = blendState;
 
@@ -1778,10 +1828,8 @@ namespace Client.Main.Objects
                     if (useGpuSkinning)
                         RegisterGpuSkinnedMeshDraw();
 
-                    // Texture scrolling is mesh-local. Setting the shared shader parameter
-                    // for the complete object made every waterspout mesh scroll and leaked
-                    // the value into unrelated objects rendered by another technique.
-                    Vector2 meshTextureOffset = mesh == TextureCoordinateOffsetMeshIndex
+                    // Texture scrolling is mesh-local when index >= 0, or applies to all meshes when index < 0.
+                    Vector2 meshTextureOffset = (TextureCoordinateOffsetMeshIndex < 0 || mesh == TextureCoordinateOffsetMeshIndex)
                         ? TextureCoordinateOffset
                         : Vector2.Zero;
                     bindings.TextureCoordinateOffset?.SetValue(meshTextureOffset);
@@ -1795,6 +1843,7 @@ namespace Client.Main.Objects
                     int primitiveCount = indexBuffer.IndexCount / 3;
 
                     effect.CurrentTechnique.Passes[0].Apply();
+                    ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
                     gd.BlendState = prevBlend;
@@ -1858,6 +1907,7 @@ namespace Client.Main.Objects
 
                         int primitiveCount = state.GpuIndexBuffer.IndexCount / 3;
                         technique.Passes[0].Apply();
+                        ApplyQualityModelSampler(GraphicsDevice);
                         GraphicsDevice.DrawIndexedPrimitives(
                             PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
@@ -1893,6 +1943,7 @@ namespace Client.Main.Objects
 
                 int cpuPrimitiveCount = indexBuffer.IndexCount / 3;
                 alphaTestEffect.CurrentTechnique.Passes[0].Apply();
+                ApplyQualityModelSampler(GraphicsDevice);
                 GraphicsDevice.DrawIndexedPrimitives(
                     PrimitiveType.TriangleList, 0, 0, cpuPrimitiveCount);
 

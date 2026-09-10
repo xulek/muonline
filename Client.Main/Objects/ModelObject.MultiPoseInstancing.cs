@@ -620,6 +620,7 @@ namespace Client.Main.Objects
                     for (int passIndex = 0; passIndex < passCount; passIndex++)
                     {
                         effect.CurrentTechnique.Passes[passIndex].Apply();
+                        ApplyQualityModelSampler(gd);
                         gd.DrawInstancedPrimitives(
                             PrimitiveType.TriangleList,
                             0,

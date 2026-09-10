@@ -1,6 +1,7 @@
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controls.UI.SelectCharacter;
 using Client.Main.Controllers;
 using Client.Main.Core.Client;
@@ -28,38 +29,38 @@ namespace Client.Main.Scenes
         private static class Theme
         {
             // Background layers
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
-            public static readonly Color BgLighter = new(48, 56, 68, 240);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
+            public static Color BgLighter => ModernHudTheme.BgLighter;
 
             // Accent - Warm Gold
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
 
             // Secondary accent - Cool Blue
-            public static readonly Color Secondary = new(90, 140, 200);
-            public static readonly Color SecondaryBright = new(130, 180, 240);
-            public static readonly Color SecondaryDim = new(50, 80, 120);
+            public static Color Secondary => ModernHudTheme.Secondary;
+            public static Color SecondaryBright => ModernHudTheme.SecondaryBright;
+            public static Color SecondaryDim => ModernHudTheme.SecondaryDim;
 
             // Borders
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
 
             // Text
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
-            public static readonly Color TextDark = new(100, 105, 115);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
+            public static Color TextDark => ModernHudTheme.TextDark;
 
             // Status colors
-            public static readonly Color Success = new(80, 200, 120);
-            public static readonly Color Warning = new(240, 180, 60);
-            public static readonly Color Danger = new(220, 80, 80);
+            public static Color Success => ModernHudTheme.Success;
+            public static Color Warning => ModernHudTheme.Warning;
+            public static Color Danger => ModernHudTheme.Danger;
         }
 
         private const int PANEL_WIDTH = 340;
@@ -93,6 +94,7 @@ namespace Client.Main.Scenes
         private ButtonControl _deleteCharacterButton;
         private ButtonControl _enterGameButton;
         private ButtonControl _exitButton;
+        private ClassicCharacterSelectionControl _classicSelectionChrome;
         private CharacterCreationDialog _characterCreationDialog;
         private string _currentlySelectedCharacterName = null;
         private bool _isIntentionalLogout = false;
@@ -120,6 +122,7 @@ namespace Client.Main.Scenes
             _loadingScreen.BringToFront();
 
             InitializeModernUI();
+            UiThemeManager.ThemeChanged += HandleUiThemeChanged;
 
             try
             {
@@ -134,6 +137,7 @@ namespace Client.Main.Scenes
             Controls.Add(_progressBar);
 
             SubscribeToNetworkEvents();
+            ApplyUiThemeVisibility();
         }
 
         private void DisableDayNightCycleForScene()
@@ -199,6 +203,18 @@ namespace Client.Main.Scenes
             _exitButton = CreateModernButton("EXIT", Theme.BgLight);
             _exitButton.Click += OnExitButtonClick;
             Controls.Add(_exitButton);
+
+            _classicSelectionChrome = new ClassicCharacterSelectionControl
+            {
+                Visible = false,
+                Interactive = false
+            };
+            _classicSelectionChrome.CharacterSelected += OnClassicCharacterSelected;
+            _classicSelectionChrome.EmptySlotClicked += OnCreateCharacterButtonClick;
+            _classicSelectionChrome.EnterClicked += OnEnterGameButtonClick;
+            _classicSelectionChrome.DeleteClicked += OnDeleteCharacterButtonClick;
+            _classicSelectionChrome.BackClicked += OnExitButtonClick;
+            Controls.Add(_classicSelectionChrome);
 
             CalculatePanelLayout();
         }
@@ -296,6 +312,18 @@ namespace Client.Main.Scenes
                 return;
             }
 
+            if (UiThemeManager.CurrentId == UiThemeId.Classic)
+            {
+                _previousCharacterButton.Visible = false;
+                _nextCharacterButton.Visible = false;
+                _enterGameButton.Visible = false;
+                _createCharacterButton.Visible = false;
+                _deleteCharacterButton.Visible = false;
+                _exitButton.Visible = false;
+                UpdateClassicSelectionState();
+                return;
+            }
+
             CalculatePanelLayout();
             
             bool ready = _initialLoadComplete && (_loadingScreen == null || !_loadingScreen.Visible) && !_isSelectionInProgress;
@@ -365,6 +393,80 @@ namespace Client.Main.Scenes
                 _exitButton.Visible = ready;
             }
 
+        }
+
+        private void HandleUiThemeChanged(object sender, UiThemeChangedEventArgs e)
+        {
+            ApplyUiThemeVisibility();
+        }
+
+        private void ApplyUiThemeVisibility()
+        {
+            bool classic = UiThemeManager.CurrentId == UiThemeId.Classic;
+            bool ready = _initialLoadComplete && (_loadingScreen == null || !_loadingScreen.Visible) &&
+                         !_isSelectionInProgress;
+
+            ButtonControl[] classicControls =
+            {
+                _previousCharacterButton, _nextCharacterButton, _enterGameButton,
+                _createCharacterButton, _deleteCharacterButton, _exitButton
+            };
+            foreach (ButtonControl control in classicControls)
+            {
+                if (control == null)
+                    continue;
+                if (classic)
+                {
+                    control.Visible = false;
+                    control.Interactive = false;
+                }
+                else
+                {
+                    control.Interactive = true;
+                }
+            }
+
+            if (_classicSelectionChrome != null)
+            {
+                _classicSelectionChrome.Visible = classic && ready;
+                _classicSelectionChrome.Interactive = classic && ready;
+                if (classic)
+                {
+                    _classicSelectionChrome.SetCharacters(_characters.Select(character =>
+                        new ClassicCharacterSelectionControl.Entry(character.Name, character.Class, character.Level)));
+                    _classicSelectionChrome.SetSelectedIndex(_currentCharacterIndex);
+                    if (Status == GameControlStatus.Ready)
+                        _ = _classicSelectionChrome.Load();
+                    _classicSelectionChrome.BringToFront();
+                }
+            }
+
+            if (!classic)
+                PositionNavigationButtons();
+        }
+
+        private void UpdateClassicSelectionState()
+        {
+            if (_classicSelectionChrome == null)
+                return;
+
+            bool ready = _initialLoadComplete && (_loadingScreen == null || !_loadingScreen.Visible) &&
+                         !_isSelectionInProgress;
+            _classicSelectionChrome.SetCharacters(_characters.Select(character =>
+                new ClassicCharacterSelectionControl.Entry(character.Name, character.Class, character.Level)));
+            _classicSelectionChrome.SetSelectedIndex(_currentCharacterIndex);
+            _classicSelectionChrome.CanEnter = ready && _currentCharacterIndex >= 0 &&
+                                               !string.IsNullOrWhiteSpace(_currentlySelectedCharacterName);
+            _classicSelectionChrome.Visible = UiThemeManager.CurrentId == UiThemeId.Classic && ready;
+            _classicSelectionChrome.Interactive = _classicSelectionChrome.Visible;
+        }
+
+        private void OnClassicCharacterSelected(object sender, string characterName)
+        {
+            int index = _characters.FindIndex(character =>
+                string.Equals(character.Name, characterName, StringComparison.Ordinal));
+            if (index >= 0)
+                SelectCharacterByIndex(index);
         }
 
         private void UpdateNavigationButtonState()
@@ -669,6 +771,15 @@ namespace Client.Main.Scenes
         public override void Dispose()
         {
             _logger.LogDebug("Disposing SelectCharacterScene.");
+            UiThemeManager.ThemeChanged -= HandleUiThemeChanged;
+            if (_classicSelectionChrome != null)
+            {
+                _classicSelectionChrome.CharacterSelected -= OnClassicCharacterSelected;
+                _classicSelectionChrome.EmptySlotClicked -= OnCreateCharacterButtonClick;
+                _classicSelectionChrome.EnterClicked -= OnEnterGameButtonClick;
+                _classicSelectionChrome.DeleteClicked -= OnDeleteCharacterButtonClick;
+                _classicSelectionChrome.BackClicked -= OnExitButtonClick;
+            }
             UnsubscribeFromNetworkEvents();
 
             var refreshCancellation = Interlocked.Exchange(ref _characterRefreshCancellation, null);
@@ -818,7 +929,7 @@ namespace Client.Main.Scenes
             {
                 _isSelectionInProgress = false;
                 if (MuGame.Instance.ActiveScene == this)
-                    UpdateNavigationButtonState();
+                    PositionNavigationButtons();
                 _characterRefreshLock.Release();
             }
         }
@@ -978,7 +1089,7 @@ namespace Client.Main.Scenes
             UpdateNavigationButtonState();
         }
 
-        private void OnCreateCharacterButtonClick(object sender, EventArgs e)
+        private async void OnCreateCharacterButtonClick(object sender, EventArgs e)
         {
             if (_characterCreationDialog != null)
             {
@@ -988,14 +1099,16 @@ namespace Client.Main.Scenes
 
             _logger.LogInformation("Opening character creation dialog...");
 
-            // Create and show dialog
-            _characterCreationDialog = new CharacterCreationDialog();
-            _characterCreationDialog.CharacterCreateRequested += OnCharacterCreateRequested;
-            _characterCreationDialog.CancelRequested += OnCharacterCreationCancelled;
+            // Keep the dialog hidden until its child controls and Classic textures are ready.
+            // Showing it earlier renders procedural fallbacks for one or more frames and the
+            // first touch can land before the name field has been initialized.
+            CharacterCreationDialog dialog = new() { Visible = false };
+            _characterCreationDialog = dialog;
+            dialog.CharacterCreateRequested += OnCharacterCreateRequested;
+            dialog.CancelRequested += OnCharacterCreationCancelled;
+            dialog.SelectionChanged += OnCharacterCreationSelectionChanged;
             
-            Controls.Add(_characterCreationDialog);
-            _characterCreationDialog.BringToFront();
-            Cursor?.BringToFront();
+            Controls.Add(dialog);
 
             // Disable interactions with world
             if (_selectWorld != null)
@@ -1005,6 +1118,40 @@ namespace Client.Main.Scenes
             if (_createCharacterButton != null)
             {
                 _createCharacterButton.Enabled = false;
+            }
+
+            if (_classicSelectionChrome != null)
+            {
+                _classicSelectionChrome.Visible = false;
+                _classicSelectionChrome.Interactive = false;
+            }
+
+            bool classicTheme = UiThemeManager.CurrentId == UiThemeId.Classic;
+            if (classicTheme)
+            {
+                _selectWorld?.BeginCreateRoleFace();
+                SetSelectionCharactersVisible(false);
+            }
+
+            try
+            {
+                await dialog.Initialize();
+                if (!ReferenceEquals(_characterCreationDialog, dialog))
+                    return;
+                if (dialog.Status != GameControlStatus.Ready)
+                    throw new InvalidOperationException("Character creation dialog did not reach the ready state.");
+
+                if (classicTheme && _selectWorld != null)
+                    await _selectWorld.ShowCreateRoleFace(dialog.SelectedClassPreviewModel);
+
+                dialog.Visible = true;
+                dialog.BringToFront();
+                Cursor?.BringToFront();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize the character creation dialog.");
+                CloseCharacterCreationDialog();
             }
         }
 
@@ -1153,17 +1300,53 @@ namespace Client.Main.Scenes
             {
                 _characterCreationDialog.CharacterCreateRequested -= OnCharacterCreateRequested;
                 _characterCreationDialog.CancelRequested -= OnCharacterCreationCancelled;
+                _characterCreationDialog.SelectionChanged -= OnCharacterCreationSelectionChanged;
                 Controls.Remove(_characterCreationDialog);
                 _characterCreationDialog.Dispose();
                 _characterCreationDialog = null;
             }
+
+            _selectWorld?.HideCreateRoleFace();
+            SetSelectionCharactersVisible(true);
 
             // Re-enable interactions
             if (_selectWorld != null)
             {
                 _selectWorld.Interactive = true;
             }
+            UpdateClassicSelectionState();
             UpdateNavigationButtonState();
+        }
+
+        private void OnCharacterCreationSelectionChanged(object sender, EventArgs e)
+        {
+            if (sender is CharacterCreationDialog dialog &&
+                ReferenceEquals(dialog, _characterCreationDialog) &&
+                UiThemeManager.CurrentId == UiThemeId.Classic)
+            {
+                _ = _selectWorld?.ShowCreateRoleFace(dialog.SelectedClassPreviewModel);
+            }
+        }
+
+        private void SetSelectionCharactersVisible(bool visible)
+        {
+            if (_characterController == null)
+                return;
+
+            int activeIndex = _characterController.ActiveIndex;
+            for (int i = 0; i < _characterController.Characters.Count; i++)
+            {
+                var player = _characterController.Characters[i];
+                bool active = visible && i == activeIndex;
+                player.Hidden = !active;
+                player.Interactive = active;
+
+                if (_characterController.Labels.TryGetValue(player, out var label))
+                    label.Visible = active;
+            }
+
+            if (visible && activeIndex >= 0)
+                _characterController.SetActiveCharacter(activeIndex);
         }
 
         public override void Update(GameTime gameTime)
@@ -1190,6 +1373,9 @@ namespace Client.Main.Scenes
 
         private void UpdateCharacterCardInteraction()
         {
+            if (UiThemeManager.CurrentId == UiThemeId.Classic)
+                return;
+
             if (_characterCardRects.Count == 0 || !_initialLoadComplete || Cursor == null)
                 return;
 
@@ -1269,6 +1455,20 @@ namespace Client.Main.Scenes
 
         private void DrawModernUI(GameTime gameTime)
         {
+            // Classic has a separate chrome control. Drawing the Modern card panel after
+            // the scene controls would put the old geometry back over the new interface.
+            if (UiThemeManager.CurrentId == UiThemeId.Classic)
+            {
+                using var classicScope = new SpriteBatchScope(
+                    GraphicsManager.Instance.Sprite, SpriteSortMode.Deferred,
+                    BlendState.AlphaBlend, SamplerState.LinearClamp,
+                    DepthStencilState.None, RasterizerState.CullNone,
+                    null, UiScaler.SpriteTransform);
+                Cursor?.Draw(gameTime);
+                DebugPanel?.Draw(gameTime);
+                return;
+            }
+
             // Draw character info panel
             using (var scope = new SpriteBatchScope(
                 GraphicsManager.Instance.Sprite, SpriteSortMode.Deferred,

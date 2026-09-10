@@ -1,6 +1,8 @@
 ﻿using Client.Main.Models;
 using Client.Main.Controllers;
 using Client.Main.Helpers;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Extensions.Logging;
@@ -59,6 +61,7 @@ namespace Client.Main.Controls.UI
             Controls.Add(_okButton);
 
             AdjustSizeAndLayout();
+            ApplyThemeLayout();
         }
 
         private void AdjustSizeAndLayout()
@@ -90,6 +93,22 @@ namespace Client.Main.Controls.UI
             _okButton.Y = finalHeight - buttonHeight - 20;
         }
 
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
+        }
+
+        private void ApplyThemeLayout()
+        {
+            bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+            _background.Visible = !season6;
+            _label.TextColor = season6 ? ModernHudTheme.TextWhite : Color.White;
+            _okButton.ViewSize = season6 ? new Point(100, 34) : new Point(54, 30);
+            _okButton.ControlSize = _okButton.ViewSize;
+            AdjustSizeAndLayout();
+        }
+
         public static MessageWindow Show(string text)
         {
             var scene = MuGame.Instance?.ActiveScene;
@@ -114,6 +133,52 @@ namespace Client.Main.Controls.UI
         {
             if (Status != GameControlStatus.Ready || !Visible)
                 return;
+
+            if (UiThemeManager.CurrentId == UiThemeId.Season6)
+            {
+                using (new SpriteBatchScope(
+                    GraphicsManager.Instance.Sprite,
+                    SpriteSortMode.Deferred,
+                    BlendState.AlphaBlend,
+                    transform: UiScaler.SpriteTransform))
+                {
+                    var sprite = GraphicsManager.Instance.Sprite;
+                    var rect = DisplayRectangle;
+                    UiDrawHelper.DrawPanel(sprite, rect, ModernHudTheme.BgDark * 0.98f,
+                        ModernHudTheme.BorderInner, ModernHudTheme.BorderOuter,
+                        ModernHudTheme.BorderHighlight, withGlow: true,
+                        glowColor: ModernHudTheme.AccentGlow * 0.4f);
+                    sprite.Draw(GraphicsManager.Instance.Pixel,
+                        new Rectangle(rect.X + 18, rect.Y + 16, rect.Width - 36, 2),
+                        ModernHudTheme.Accent * 0.75f);
+
+                    _label?.Draw(gameTime);
+
+                    Rectangle button = _okButton.DisplayRectangle;
+                    Color buttonColor = _okButton.IsMouseOver
+                        ? ModernHudTheme.Accent
+                        : ModernHudTheme.BgLight;
+                    UiDrawHelper.DrawPanel(sprite, button, buttonColor,
+                        ModernHudTheme.BorderInner, ModernHudTheme.BorderOuter,
+                        ModernHudTheme.BorderHighlight);
+                    SpriteFont font = GraphicsManager.GetUiFont(12f, out float scale) ?? GraphicsManager.Instance.Font;
+                    if (font != null)
+                    {
+                        const string text = "OK";
+                        Vector2 size = font.MeasureString(text) * scale;
+                        Vector2 position = new(button.X + (button.Width - size.X) * 0.5f,
+                            button.Y + (button.Height - size.Y) * 0.5f);
+                        sprite.DrawString(font, text, position + Vector2.One,
+                            Color.Black * 0.7f, 0f, Vector2.Zero, scale,
+                            SpriteEffects.None, 0f);
+                        sprite.DrawString(font, text, position,
+                            ModernHudTheme.TextWhite, 0f, Vector2.Zero, scale,
+                            SpriteEffects.None, 0f);
+                    }
+                }
+
+                return;
+            }
 
             using (new SpriteBatchScope(
                 GraphicsManager.Instance.Sprite,

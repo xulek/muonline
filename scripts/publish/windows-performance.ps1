@@ -24,7 +24,10 @@ if (Test-Path $OutputDirectory) {
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 
 Write-Host "Restoring $project for $RuntimeIdentifier..."
-& dotnet restore $project -r $RuntimeIdentifier
+& dotnet restore $project `
+    -r $RuntimeIdentifier `
+    -p:MonoGameFramework=MonoGame.Framework.WindowsDX `
+    -p:MonoGamePlatform=Windows
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet restore failed with exit code $LASTEXITCODE"
 }
@@ -36,6 +39,8 @@ Write-Host "Publishing maximum-performance Release build..."
     --self-contained true `
     --no-restore `
     -o $OutputDirectory `
+    -p:MonoGameFramework=MonoGame.Framework.WindowsDX `
+    -p:MonoGamePlatform=Windows `
     -p:PerformanceRelease=true `
     -p:ContinuousIntegrationBuild=true `
     -p:PublishReadyToRun=true `

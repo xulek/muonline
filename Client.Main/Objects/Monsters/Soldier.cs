@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Objects.Player;
@@ -63,6 +63,14 @@ namespace Client.Main.Objects.Monsters
                 SoundController.Instance.PlayBufferWithAttenuation("Sound/mLizardKing1.wav", Position, listenerPosition); // Sound 138
             else
                 SoundController.Instance.PlayBufferWithAttenuation("Sound/mLizardKing2.wav", Position, listenerPosition); // Sound 139
+
+            // SourceMain5.2 AttackEffect: MODEL_SOLDIER fires CreateArrows on attack.
+            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
+            {
+                var arrow = new Effects.MonsterArrowProjectileEffect(this, 33, LastAttackTargetId);
+                arrowWorld.Objects.Add(arrow);
+                _ = arrow.Load();
+            }
         }
 
         public override void OnDeathAnimationStart()

@@ -1,10 +1,12 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
 using Client.Main.Objects.Effects;
 using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
+
+using Joints = Client.Main.Objects.Effects.Joints;
 
 namespace Client.Main.Objects.Monsters
 {
@@ -56,6 +58,47 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mHydraAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 142
+
+            if (World == null || !TryConsumeAttackEffectWindow())
+                return;
+
+            if (attackType == 1)
+            {
+                // SourceMain5.2 AttackEffect MONSTER_HYDRA normal branch
+                // (attackTime % 5 == 1): BITMAP_BOSS_LASER+1 (orange) fired from
+                // bone 63 along the facing direction.
+                Vector3 mouth = GetBoneWorldPosition(63);
+                var laser = Joints.SourceProjectileEffect.Create(
+                    Joints.SourceProjectileKind.BossLaserOrange,
+                    mouth,
+                    new Vector3(0f, 0f, MathHelper.ToDegrees(Angle.Z)));
+                World.Objects.Add(laser);
+                _ = laser.Load();
+            }
+            else
+            {
+                // Boss branch (CheckAttackTime(1)): 9x BITMAP_BOSS_LASER (blue),
+                // yaw starting +20 deg stepping +40 deg, origin +50 Z.
+                for (int i = 0; i < 9; i++)
+                {
+                    float yawDeg = MathHelper.ToDegrees(Angle.Z) + 20f + i * 40f;
+                    var laser = Joints.SourceProjectileEffect.Create(
+                        Joints.SourceProjectileKind.BossLaser,
+                        Position + Vector3.UnitZ * 50f,
+                        new Vector3(0f, 0f, yawDeg));
+                    World.Objects.Add(laser);
+                    _ = laser.Load();
+                }
+            }
+        }
+
+        private Vector3 GetBoneWorldPosition(int boneIndex)
+        {
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || boneIndex < 0 || boneIndex >= bones.Length)
+                return WorldPosition.Translation;
+
+            return (bones[boneIndex] * WorldPosition).Translation;
         }
 
         public override void Update(GameTime gameTime)

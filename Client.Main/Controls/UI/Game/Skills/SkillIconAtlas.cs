@@ -1,6 +1,7 @@
 #nullable enable
 using Client.Data.BMD;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Controls.UI.Game.Skills
 {
@@ -24,6 +25,7 @@ namespace Client.Main.Controls.UI.Game.Skills
     {
         public const int IconWidth = 20;
         public const int IconHeight = 28;
+        public const int AtlasSize = 256;
 
         public const string Skill1TexturePath = "Interface/newui_skill.jpg";
         public const string Skill2TexturePath = "Interface/newui_skill2.jpg";
@@ -38,7 +40,23 @@ namespace Client.Main.Controls.UI.Game.Skills
             CommandTexturePath
         ];
 
-        private const int AtlasSize = 256;
+        public static Rectangle ScaleToTexture(Rectangle source, Texture2D texture)
+        {
+            return new Rectangle(
+                source.X * texture.Width / AtlasSize,
+                source.Y * texture.Height / AtlasSize,
+                source.Width * texture.Width / AtlasSize,
+                source.Height * texture.Height / AtlasSize);
+        }
+
+        public static Rectangle CircleSource(Rectangle source)
+        {
+            return new Rectangle(
+                source.X,
+                source.Y + (IconHeight - IconWidth) / 2,
+                IconWidth,
+                IconWidth);
+        }
 
         private const int PetCommandDefaultSkillId = 120;
         private const int PetCommandLastSkillId = 123;

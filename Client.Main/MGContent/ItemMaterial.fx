@@ -35,7 +35,7 @@ UNIFORM_DEFAULT(float3, LightDirection, float3(0.707, -0.707, 0));
 Texture2D DiffuseTexture : register(t0);
 SamplerState DiffuseSampler : register(s0)
 {
-    Filter = Point;
+    Filter = Linear;
     AddressU = Wrap;
     AddressV = Wrap;
 };
@@ -76,9 +76,9 @@ Texture2D DiffuseTexture;
 sampler DiffuseSampler = sampler_state
 {
     Texture = <DiffuseTexture>;
-    MinFilter = Point;
-    MagFilter = Point;
-    MipFilter = Point;
+    MinFilter = Linear;
+    MagFilter = Linear;
+    MipFilter = Linear;
     AddressU = Wrap;
     AddressV = Wrap;
 };

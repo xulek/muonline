@@ -1,9 +1,10 @@
 using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Client.Main.Controllers; // Dla GraphicsManager
+using Client.Main.Controllers; // Graphics and UI rendering helpers.
 using System.Text;
-using System.Threading.Tasks;           // Dla StringBuilder
+using System.Threading.Tasks;           // Async asset loading.
+using Client.Main.Controls.UI;
 
 namespace Client.Main.Controls.UI.Common
 {
@@ -40,6 +41,32 @@ namespace Client.Main.Controls.UI.Common
         public Color HoverBackgroundColor { get; set; } = new Color(80, 80, 120, 200);
         public Color PressedBackgroundColor { get; set; } = new Color(60, 60, 100, 220);
         public bool Enabled { get; set; } = true;
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            TextColor = RemapThemeColor(TextColor, e.Previous.Palette, e.Current.Palette);
+            HoverTextColor = RemapThemeColor(HoverTextColor, e.Previous.Palette, e.Current.Palette);
+            DisabledTextColor = RemapThemeColor(DisabledTextColor, e.Previous.Palette, e.Current.Palette);
+            BackgroundColor = RemapThemeColor(BackgroundColor, e.Previous.Palette, e.Current.Palette);
+            HoverBackgroundColor = RemapThemeColor(HoverBackgroundColor, e.Previous.Palette, e.Current.Palette);
+            PressedBackgroundColor = RemapThemeColor(PressedBackgroundColor, e.Previous.Palette, e.Current.Palette);
+            _truncatedText = null;
+        }
+
+        private static Color RemapThemeColor(Color color, UiThemePalette previous, UiThemePalette current)
+        {
+            if (color == previous.TextWhite) return current.TextWhite;
+            if (color == previous.TextGold) return current.TextGold;
+            if (color == previous.TextGray) return current.TextGray;
+            if (color == previous.TextDark) return current.TextDark;
+            if (color == previous.SecondaryBright) return current.SecondaryBright;
+            if (color == previous.BgDarkest) return current.BgDarkest;
+            if (color == previous.BgDark) return current.BgDark;
+            if (color == previous.BgMid) return current.BgMid;
+            if (color == previous.BgLight) return current.BgLight;
+            return color;
+        }
 
         private SpriteFont _font;
         private string _truncatedText;

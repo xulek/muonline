@@ -1,4 +1,5 @@
 ﻿using Client.Main.Controllers;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Models;
 using Client.Main.Scenes;
 using Microsoft.Xna.Framework;
@@ -63,13 +64,17 @@ namespace Client.Main.Controls.UI.Game.Map
 
             if (Scene.MouseControl == this)
             {
-                BackgroundColor = Color.Yellow;
-                TextColor = Color.Black;
+                BackgroundColor = UiThemeManager.CurrentId == UiThemeId.Season6
+                    ? ModernHudTheme.AccentDim : Color.Yellow;
+                TextColor = UiThemeManager.CurrentId == UiThemeId.Season6
+                    ? ModernHudTheme.TextWhite : Color.Black;
             }
             else
             {
-                BackgroundColor = Color.Transparent;
-                TextColor = Color.White;
+                BackgroundColor = UiThemeManager.CurrentId == UiThemeId.Season6
+                    ? ModernHudTheme.SlotBg : Color.Transparent;
+                TextColor = UiThemeManager.CurrentId == UiThemeId.Season6
+                    ? ModernHudTheme.TextGray : Color.White;
             }
         }
     }

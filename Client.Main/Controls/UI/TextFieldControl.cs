@@ -44,6 +44,7 @@ namespace Client.Main.Controls.UI
         private const int CursorBlinkInterval = 500;
 
         private Texture2D[] _nineSlice = new Texture2D[9];
+        private Task _nineSliceLoadTask;
         private static readonly string[] s_nineSliceSuffixes =
         {
             "01", "02", "03", "04", "05", "06", "07", "08", "09"
@@ -102,10 +103,36 @@ namespace Client.Main.Controls.UI
             await base.Load();
 
             if (Skin == TextFieldSkin.NineSlice)
+                await EnsureNineSliceLoadedAsync();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+
+            // A field can change from the procedural Classic skin back to the original
+            // nine-slice skin while the scene is alive. Load those assets once in the
+            // background so the Modern renderer does not remain on its flat fallback.
+            if (e.Current.Id == UiThemeId.Modern && Status == GameControlStatus.Ready)
+                _ = EnsureNineSliceLoadedAsync();
+        }
+
+        private Task EnsureNineSliceLoadedAsync()
+        {
+            if (_nineSlice[0] != null)
+                return Task.CompletedTask;
+
+            return _nineSliceLoadTask ??= LoadNineSliceAsync();
+        }
+
+        private async Task LoadNineSliceAsync()
+        {
+            for (int i = 0; i < s_nineSliceSuffixes.Length; i++)
             {
-                for (int i = 0; i < s_nineSliceSuffixes.Length; i++)
+                if (_nineSlice[i] == null)
                 {
-                    _nineSlice[i] = await TextureLoader.Instance.PrepareAndGetTexture($"Interface/GFx/textbg{s_nineSliceSuffixes[i]}.ozd");
+                    _nineSlice[i] = await TextureLoader.Instance.PrepareAndGetTexture(
+                        $"Interface/GFx/textbg{s_nineSliceSuffixes[i]}.ozd");
                 }
             }
         }
@@ -119,7 +146,7 @@ namespace Client.Main.Controls.UI
             _cursorBlinkTimer = 0;
             if (Scene != null) Scene.FocusControl = this;
 
-            _logger?.LogDebug("TextFieldControl: OnFocus called. Subscribing to TextInput.");
+            _logger?.LogDebug("TextFieldControl: OnFocus called.");
         }
 
         public override void OnBlur()
@@ -400,7 +427,8 @@ namespace Client.Main.Controls.UI
                 DrawTextAndCursor(spriteBatch);
             }
 
-            base.Draw(gameTime);
+            // TextFieldControl owns its complete rendering pass. Calling base.Draw here
+            // would paint BackgroundColor and BorderColor over the text and cursor.
         }
 
         private void DrawFlatBackground(SpriteBatch spriteBatch)

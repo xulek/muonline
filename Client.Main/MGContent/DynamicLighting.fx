@@ -47,6 +47,9 @@ sampler SamplerState0 = sampler_state
 UNIFORM_DEFAULT(float3, AmbientLight, float3(0.8, 0.8, 0.8));
 UNIFORM_DEFAULT(float, Alpha, 1.0);
 UNIFORM_DEFAULT(float2, TextureCoordinateOffset, float2(0.0, 0.0));
+// Per-material tint multiplier for chrome/bright overlay passes
+// (SourceMain5.2 glColor(BodyLight) on RENDER_CHROME/BRIGHT body passes).
+UNIFORM_DEFAULT(float3, MaterialTint, float3(1.0, 1.0, 1.0));
 UNIFORM_DEFAULT(float3, HighlightColor, float3(1.0, 0.0, 0.0));
 UNIFORM_DEFAULT(float3, SunDirection, float3(1.0, 0.0, -0.6));
 UNIFORM_DEFAULT(float3, SunColor, float3(1.0, 0.95, 0.85));
@@ -98,6 +101,19 @@ UNIFORM_DEFAULT(float, WaterTotal, 0.0);
 UNIFORM_DEFAULT(float, DistortionAmplitude, 0.0);
 UNIFORM_DEFAULT(float, DistortionFrequency, 0.0);
 
+// World fog (e.g. Valley of Loren siege haze) — disabled unless a world opts in
+UNIFORM_DEFAULT(float, FogEnabled, 0.0);
+UNIFORM_DEFAULT(float3, FogColor, float3(0.0, 0.0, 0.0));
+UNIFORM_DEFAULT(float, FogStart, 2000.0);
+UNIFORM_DEFAULT(float, FogEnd, 2700.0);
+UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
+
+float3 ApplyWorldFog(float3 color, float3 worldPos)
+{
+    float f = saturate((length(worldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0));
+    return lerp(color, FogColor, f * FogEnabled);
+}
+
 // Input structures
 struct VertexInput
 {
@@ -144,6 +160,25 @@ struct VertexInputSkinnedMultiPoseInstanced
     float4 InstWorld3    : TEXCOORD5;
     float4 InstanceColor : COLOR1;
     float2 PaletteData   : TEXCOORD6;
+};
+
+// Keep the same CPU-composed WVP as individual cutout draws. Re-associating the
+// matrix products shifts alpha-tested leaf edges at subpixel precision.
+struct VertexInputSkinnedCutoutInstanced
+{
+    float3 Position : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 TexCoord : TEXCOORD0;
+    float4 Color : COLOR0;
+    float2 BoneIndices : TEXCOORD1;
+    float4 InstWorld0 : TEXCOORD2;
+    float4 InstWorld1 : TEXCOORD3;
+    float4 InstWorld2 : TEXCOORD4;
+    float4 InstWorld3 : TEXCOORD5;
+    float4 InstWvp0 : TEXCOORD6;
+    float4 InstWvp1 : TEXCOORD7;
+    float4 InstWvp2 : TEXCOORD8;
+    float4 InstWvp3 : TEXCOORD9;
 };
 #endif
 
@@ -415,6 +450,31 @@ PixelInput VS_ObjectsSkinnedInstanced(VertexInputSkinnedInstanced input)
     return output;
 }
 
+PixelInput VS_ObjectsCutoutInstanced(VertexInputSkinnedCutoutInstanced input)
+{
+    PixelInput output;
+    int positionBoneIndex = min(max((int)input.BoneIndices.x, 0), 255);
+    int normalBoneIndex = min(max((int)input.BoneIndices.y, 0), 255);
+    float4x4 instanceWorld = transpose(float4x4(input.InstWorld0, input.InstWorld1, input.InstWorld2, input.InstWorld3));
+    float4x4 instanceWvp = transpose(float4x4(input.InstWvp0, input.InstWvp1, input.InstWvp2, input.InstWvp3));
+    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[positionBoneIndex]);
+    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[normalBoneIndex]);
+    output.WorldPos = mul(localPos, instanceWorld).xyz;
+    output.Position = mul(localPos, instanceWvp);
+    output.Normal = normalize(mul(localNormal, (float3x3)instanceWorld));
+    output.TexCoord = input.TexCoord + TextureCoordinateOffset;
+    output.Color = input.Color;
+    output.DynamicLight = float3(0, 0, 0);
+    return output;
+}
+
+PixelInput VS_ObjectsCutoutInstancedVertexLit(VertexInputSkinnedCutoutInstanced input)
+{
+    PixelInput output = VS_ObjectsCutoutInstanced(input);
+    output.DynamicLight = CalculateDynamicLighting(output.WorldPos, output.Normal);
+    return output;
+}
+
 // Static map geometry trades per-pixel dynamic-light evaluation for per-vertex
 // evaluation. This preserves light selection and attenuation while reducing the
 // dominant shader cost on large opaque buildings and repeated decorations.
@@ -576,6 +636,7 @@ float4 PS_Terrain(PixelInput input) : SV_Target
     finalLight *= lerp(1.0, shadowMix, ShadowsEnabled);
 
     float3 finalColor = lerp(texColor.rgb * finalLight, float3(0, 0, 0), isDebugPixel);
+    finalColor = ApplyWorldFog(finalColor, input.WorldPos);
 
     return float4(finalColor, finalAlpha);
 }
@@ -607,7 +668,8 @@ float4 ShadeObjectPixel(PixelInput input, float3 normal, float3 dynamicLight)
     float shadowMix = lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
     finalLight *= lerp(1.0, shadowMix, ShadowsEnabled);
 
-    float3 finalColor = lerp(texColor.rgb * finalLight, float3(0, 0, 0), isDebugPixel);
+    float3 finalColor = lerp(texColor.rgb * finalLight * MaterialTint, float3(0, 0, 0), isDebugPixel);
+    finalColor = ApplyWorldFog(finalColor, input.WorldPos);
     return float4(finalColor, finalAlpha);
 }
 
@@ -654,6 +716,33 @@ technique DynamicLighting_SunOnly
 }
 
 #if !OPENGL
+technique DynamicLighting_CutoutInstanced
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL VS_ObjectsCutoutInstanced();
+        PixelShader = compile PS_SHADERMODEL PS_Objects();
+    }
+}
+
+technique DynamicLighting_CutoutInstanced_VertexLit
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL VS_ObjectsCutoutInstancedVertexLit();
+        PixelShader = compile PS_SHADERMODEL PS_ObjectsVertexLit();
+    }
+}
+
+technique DynamicLighting_CutoutInstanced_SunOnly
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL VS_ObjectsCutoutInstanced();
+        PixelShader = compile PS_SHADERMODEL PS_ObjectsVertexLit();
+    }
+}
+
 technique DynamicLighting_Skinned
 {
     pass Pass1

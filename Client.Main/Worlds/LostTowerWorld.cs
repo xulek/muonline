@@ -1,5 +1,6 @@
 using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Events;
 using Client.Main.Objects.Worlds.LostTower;
 using Microsoft.Xna.Framework;
 
@@ -8,6 +9,7 @@ namespace Client.Main.Worlds
     [WorldInfo(4, "Lost Tower")]
     public class LostTowerWorld : WalkableWorldControl
     {
+        private AmbientFlockSystem _batFlock;
         public LostTowerWorld() : base(worldIndex: 5)
         {
             BackgroundMusicPath = "Music/lost_tower_b.mp3";
@@ -36,7 +38,18 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
+
+            // GOBoid fauna: Lost Tower hosts bats (MODEL_BAT01)
+            _batFlock = new AmbientFlockSystem(this, "Object2/Bat01.bmd", 0.8f, BoidFlightStyle.FlyingLow, maxBoids: 5);
+            Objects.Add(_batFlock);
+
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_batFlock != null) { Objects.Remove(_batFlock); _batFlock.Dispose(); _batFlock = null; }
+            base.Dispose();
         }
 
         protected override void CreateMapTileObjects()
@@ -59,3 +72,4 @@ namespace Client.Main.Worlds
         }
     }
 }
+

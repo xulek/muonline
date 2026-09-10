@@ -15,6 +15,9 @@ namespace Client.Main.Objects.Monsters
         {
             RenderShadow = true;
             Scale = 1.1f; // Set according to C++ Setting_Monster
+            // NOTE: SourceMain5.2 MoveCharacterVisual scrolls MODEL_DEVIL UVs, but that
+            // offset only reaches the blend-mesh channel (invisible here), so the base
+            // body texture intentionally does not scroll.
         }
 
         public override async Task Load()

@@ -1,4 +1,4 @@
-﻿using Client.Main.Controls;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.Tarkan;
 using Microsoft.Xna.Framework;
@@ -12,6 +12,18 @@ namespace Client.Main.Worlds
         {
             Name = "Tarkan";
             BackgroundMusicPath = "Music/tarkan.mp3";
+            AmbientSoundPath = "Sound/aDesert.wav";
+        }
+
+        private TarkanSandstormOverlay _sandstormOverlay;
+        private TarkanBoidManager _boidManager;
+
+        public override async Task Load()
+        {
+            _sandstormOverlay = new TarkanSandstormOverlay();
+            await _sandstormOverlay.Load();
+
+            await base.Load();
         }
 
         public override void AfterLoad()
@@ -35,24 +47,42 @@ namespace Client.Main.Worlds
             }
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
+
+            _boidManager = new TarkanBoidManager(this);
+
+            // SourceMain WaterMove: WD_8TARKAN = (WorldTime % 40000) * 0.000025f -> 0.025 UV/s
+            Terrain.WaterSpeed = 0.025f;
+
             base.AfterLoad();
+        }
+
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            _boidManager?.Update(time);
+        }
+
+        public override void DrawAfter(GameTime time)
+        {
+            base.DrawAfter(time);
+            _sandstormOverlay?.DrawOverlay(time);
+        }
+
+        public override void Dispose()
+        {
+            _sandstormOverlay?.Dispose();
+            _sandstormOverlay = null;
+            _boidManager?.Clear();
+            _boidManager = null;
+            base.Dispose();
         }
 
         protected override void CreateMapTileObjects()
         {
-            base.CreateMapTileObjects();
-            MapTileObjects[82] = typeof(LightBeamObject);
-            MapTileObjects[7] = typeof(LavaObject);
-            MapTileObjects[8] = typeof(FlagObject);
-            MapTileObjects[6] = typeof(GrassObject);
-            MapTileObjects[15] = typeof(GrassObject);
-            MapTileObjects[16] = typeof(GrassObject);
-            MapTileObjects[17] = typeof(GrassObject);
-            MapTileObjects[18] = typeof(GrassObject);
-            MapTileObjects[19] = typeof(GrassObject);
-            MapTileObjects[22] = typeof(GrassObject);
-            MapTileObjects[33] = typeof(TreeObject);
-            MapTileObjects[35] = typeof(GrassObject);
+            var tarkanDefault = typeof(TarkanObject);
+            for (int i = 0; i < MapTileObjects.Length; i++)
+                MapTileObjects[i] = tarkanDefault;
         }
     }
 }
+

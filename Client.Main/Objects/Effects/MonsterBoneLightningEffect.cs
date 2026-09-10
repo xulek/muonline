@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Effects
 {
     /// <summary>
-    /// SourceMain5.2 CreateJoint(BITMAP_JOINT_THUNDER) between animated bones.
+    /// SourceMain5.2 CreateJoint(...) between animated bones.
     /// The source rebuilds these short lightning joints every frame; drawing the
     /// current bone pairs directly keeps the same animated network without a
     /// growing list of temporary world objects.
@@ -19,6 +19,14 @@ namespace Client.Main.Objects.Effects
     public sealed class MonsterBoneLightningEffect : EffectObject
     {
         private Texture2D _texture;
+
+        /// <summary>
+        /// Billboard texture selecting the joint family:
+        /// Effect/JointThunder01.jpg (thunder), Effect/JointLaser01.jpg (laser),
+        /// Effect/JointSpirit01.jpg (spirit), Effect/Flare01.jpg (flare).
+        /// TextureLoader requires the extension in the path.
+        /// </summary>
+        public string JointTexturePath { get; set; } = "Effect/JointThunder01.jpg";
 
         public int[] BonePairs { get; set; } = Array.Empty<int>();
         public ModelObject SourceModel { get; set; }
@@ -43,7 +51,7 @@ namespace Client.Main.Objects.Effects
         public override async Task Load()
         {
             await base.Load();
-            _texture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/JointThunder01.jpg");
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(JointTexturePath);
         }
 
         public override void Update(GameTime gameTime)
@@ -108,6 +116,41 @@ namespace Client.Main.Objects.Effects
         }
 
         private void DrawLightning(ModelObject parentModel, Vector3 firstWorld, Vector3 secondWorld)
+        {
+            // SourceMain5.2 JOINT_THUNDER re-jitters tail endpoints by ±50 and respawns
+            // child joints every frame (ZzzEffect.cpp MoveJoint); reproducing that
+            // crackle here with a chain of short segments re-randomized per frame.
+            Vector3 delta = secondWorld - firstWorld;
+            float length = delta.Length();
+            if (length < 1f)
+                return;
+
+            Vector3 dir = delta / length;
+
+            const int Segments = 6;
+            Vector3 prev = firstWorld;
+            for (int i = 1; i <= Segments; i++)
+            {
+                bool last = i == Segments;
+                Vector3 next = last ? secondWorld : Vector3.Lerp(firstWorld, secondWorld, i / (float)Segments);
+
+                if (!last)
+                {
+                    Vector3 rnd = new Vector3(
+                        (float)(MuGame.Random.NextDouble() * 2.0 - 1.0),
+                        (float)(MuGame.Random.NextDouble() * 2.0 - 1.0),
+                        (float)(MuGame.Random.NextDouble() * 2.0 - 1.0));
+                    Vector3 perp = rnd - dir * Vector3.Dot(rnd, dir);
+                    if (perp.LengthSquared() > 0.0001f)
+                        next += Vector3.Normalize(perp) * length * 0.08f;
+                }
+
+                DrawSegment(parentModel, prev, next);
+                prev = next;
+            }
+        }
+
+        private void DrawSegment(ModelObject parentModel, Vector3 firstWorld, Vector3 secondWorld)
         {
             Vector3 midpoint = (firstWorld + secondWorld) * 0.5f;
             Vector3 projected = GraphicsDevice.Viewport.Project(

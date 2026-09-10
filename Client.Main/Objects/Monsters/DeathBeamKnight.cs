@@ -1,4 +1,6 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
+using Client.Main.Controllers;
+using Client.Main.Controls;
 using Client.Main.Objects.Effects;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
@@ -7,6 +9,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+
+using Joints = Client.Main.Objects.Effects.Joints;
 
 namespace Client.Main.Objects.Monsters
 {
@@ -17,6 +21,7 @@ namespace Client.Main.Objects.Monsters
 
         public DeathBeamKnight()
         {
+            RenderShadow = false; // SourceMain5.2 RenderCharacter: MONSTER_DEATH_BEAM_KNIGHT excluded from blob shadow pass
             Scale = 1.9f;
             MoveSpeed = 250f;
             BlendMesh = -2; // Makes the entire monster semi-transparent like in original
@@ -50,6 +55,7 @@ namespace Client.Main.Objects.Monsters
                 ParticleScaleMax = 1.0f,
                 ParticleLifetimeFrames = 20f
             });
+            Children.Add(new SourceMonsterSandSmokeEffect());
         }
 
         public override async Task Load()
@@ -63,6 +69,39 @@ namespace Client.Main.Objects.Monsters
             SetActionSpeed(MonsterActionType.Attack2, 0.33f);
             SetActionSpeed(MonsterActionType.Shock, 0.50f);
             SetActionSpeed(MonsterActionType.Die, 0.30f);
+        }
+
+        public override void OnPerformAttack(int attackType = 1)
+        {
+            base.OnPerformAttack(attackType);
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            // SourceMain5.2 OpenMonsterModel: SOUND_MONSTER_DEATH_ATTACK1 = death_attack1.wav
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/death_attack1.wav", Position, listenerPosition);
+
+            if (World == null || !TryConsumeAttackEffectWindow())
+                return;
+
+            // SourceMain5.2 AttackEffect MONSTER_DEATH_BEAM_KNIGHT (CheckAttackTime(1)):
+            // CreateInferno + MODEL_SKILL_INFERNO at self on every attack.
+            var inferno = new ScrollOfInfernoEffect(this, Position);
+            World.Objects.Add(inferno);
+            _ = inferno.Load();
+
+            if (attackType == 2)
+            {
+                // Boss branch (CheckAttackTime(14)): 18x MODEL_STAFF_OF_DESTRUCTION,
+                // yaw fanned in 20 degree steps from the caster.
+                for (int i = 0; i < 18; i++)
+                {
+                    float yawDeg = MathHelper.ToDegrees(Angle.Z) + i * 20f;
+                    var orb = Joints.SourceProjectileEffect.Create(
+                        Joints.SourceProjectileKind.StaffOfDestruction,
+                        Position,
+                        new Vector3(0f, 0f, yawDeg));
+                    World.Objects.Add(orb);
+                    _ = orb.Load();
+                }
+            }
         }
     }
 }

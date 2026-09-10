@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Login;
+using Client.Main.Controls.UI.Game.Common;
 using Microsoft.Xna.Framework;
 using Microsoft.Extensions.Logging;
 using Client.Main.Controllers;
@@ -25,10 +26,12 @@ namespace Client.Main.Scenes
         public ServerConfigScene()
         {
             _logger = MuGame.AppLoggerFactory?.CreateLogger<ServerConfigScene>();
-            BackgroundColor = new Color(12, 12, 20);
+            BackgroundColor = UiThemeManager.CurrentId == UiThemeId.Classic
+                ? ModernHudTheme.BgDarkest : new Color(12, 12, 20);
 
             Controls.Add(_dialog = new ServerConfigDialog());
             _dialog.SubmitRequested += OnSubmit;
+            UiThemeManager.ThemeChanged += ServerConfigScene_ThemeChanged;
         }
 
         protected override async Task LoadSceneContentWithProgress(Action<string, float> progressCallback)
@@ -120,11 +123,18 @@ namespace Client.Main.Scenes
 
         public override void Dispose()
         {
+            UiThemeManager.ThemeChanged -= ServerConfigScene_ThemeChanged;
             if (_dialog != null)
             {
                 _dialog.SubmitRequested -= OnSubmit;
             }
             base.Dispose();
+        }
+
+        private void ServerConfigScene_ThemeChanged(object sender, UiThemeChangedEventArgs e)
+        {
+            BackgroundColor = e.Current.Id == UiThemeId.Classic
+                ? ModernHudTheme.BgDarkest : new Color(12, 12, 20);
         }
 
         public override void Draw(GameTime gameTime)
@@ -196,10 +206,15 @@ namespace Client.Main.Scenes
 
     internal sealed class ServerConfigDialog : PopupFieldDialog
     {
+        private readonly LabelControl _titleLabel;
+        private readonly TextureControl _separator;
+        private readonly LabelControl _hostLabel;
         private readonly TextFieldControl _hostInput;
+        private readonly LabelControl _portLabel;
         private readonly TextFieldControl _portInput;
         private readonly LabelControl _errorLabel;
         private readonly OkButton _okButton;
+        private readonly ButtonControl _classicOkButton;
 
         public string Host
         {
@@ -220,16 +235,16 @@ namespace Client.Main.Scenes
             ControlSize = new Point(400, 220);
             Align = ControlAlign.HorizontalCenter | ControlAlign.VerticalCenter;
 
-            Controls.Add(new LabelControl
+            Controls.Add(_titleLabel = new LabelControl
             {
                 Text = "Connection Settings",
                 Align = ControlAlign.HorizontalCenter,
                 Y = 12,
                 FontSize = 14f,
-                TextColor = new Color(241, 188, 37)
+                TextColor = ModernHudTheme.TextGold
             });
 
-            Controls.Add(new TextureControl
+            Controls.Add(_separator = new TextureControl
             {
                 TexturePath = "Interface/GFx/popup_line_m.ozd",
                 X = 12,
@@ -239,7 +254,7 @@ namespace Client.Main.Scenes
                 Alpha = 0.9f
             });
 
-            Controls.Add(new LabelControl
+            Controls.Add(_hostLabel = new LabelControl
             {
                 Text = "Host",
                 X = 26,
@@ -248,7 +263,7 @@ namespace Client.Main.Scenes
                 ViewSize = new Point(70, 20),
                 TextAlign = HorizontalAlign.Right,
                 FontSize = 12f,
-                TextColor = Color.LightGray
+                TextColor = ModernHudTheme.TextGray
             });
 
             _hostInput = TextFieldControl.Create();
@@ -261,7 +276,7 @@ namespace Client.Main.Scenes
 
             Controls.Add(_hostInput);
 
-            Controls.Add(new LabelControl
+            Controls.Add(_portLabel = new LabelControl
             {
                 Text = "Port",
                 X = 26,
@@ -270,7 +285,7 @@ namespace Client.Main.Scenes
                 ViewSize = new Point(70, 20),
                 TextAlign = HorizontalAlign.Right,
                 FontSize = 12f,
-                TextColor = Color.LightGray
+                TextColor = ModernHudTheme.TextGray
             });
 
             _portInput = TextFieldControl.Create();
@@ -291,7 +306,7 @@ namespace Client.Main.Scenes
                 AutoViewSize = false,
                 ViewSize = new Point(ControlSize.X - 60, 20),
                 FontSize = 11f,
-                TextColor = Color.OrangeRed,
+                TextColor = ModernHudTheme.Danger,
                 Visible = false
             };
             Controls.Add(_errorLabel);
@@ -304,11 +319,118 @@ namespace Client.Main.Scenes
             _okButton.Click += (_, _) => SubmitRequested?.Invoke(this, EventArgs.Empty);
             Controls.Add(_okButton);
 
+            _classicOkButton = new ButtonControl
+            {
+                Text = "CONNECT",
+                AutoViewSize = false,
+                FontSize = 12f,
+                BackgroundColor = ModernHudTheme.Success,
+                HoverBackgroundColor = Color.Lerp(ModernHudTheme.Success, Color.White, 0.15f),
+                PressedBackgroundColor = Color.Lerp(ModernHudTheme.Success, Color.Black, 0.15f),
+                TextColor = ModernHudTheme.TextWhite,
+                HoverTextColor = ModernHudTheme.TextWhite,
+                BorderColor = ModernHudTheme.BorderInner,
+                BorderThickness = 1,
+                Interactive = true,
+                Visible = false
+            };
+            _classicOkButton.Click += (_, _) => SubmitRequested?.Invoke(this, EventArgs.Empty);
+            Controls.Add(_classicOkButton);
+
             _hostInput.Click += (_, _) => FocusHost();
             _portInput.Click += (_, _) => FocusPort();
 
             _hostInput.EnterKeyPressed += (_, _) => FocusPort();
             _portInput.EnterKeyPressed += (_, _) => SubmitRequested?.Invoke(this, EventArgs.Empty);
+
+            ApplyThemeLayout();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
+        }
+
+        private void ApplyThemeLayout()
+        {
+            bool classic = UiThemeManager.CurrentId == UiThemeId.Classic;
+            ControlSize = classic ? new Point(420, 260) : new Point(400, 220);
+            ViewSize = ControlSize;
+
+            _titleLabel.TextColor = classic ? ModernHudTheme.TextWhite : new Color(241, 188, 37);
+            _hostLabel.TextColor = classic ? ModernHudTheme.TextWhite : Color.LightGray;
+            _portLabel.TextColor = classic ? ModernHudTheme.TextWhite : Color.LightGray;
+            _errorLabel.TextColor = classic ? ModernHudTheme.Danger : Color.OrangeRed;
+            _separator.Visible = !classic;
+
+            if (classic)
+            {
+                _titleLabel.Y = 16;
+                _separator.X = 14;
+                _separator.Y = 46;
+                _separator.ViewSize = new Point(ControlSize.X - 28, 1);
+
+                _hostLabel.X = 30;
+                _hostLabel.Y = 82;
+                _portLabel.X = 30;
+                _portLabel.Y = 126;
+                _hostInput.X = 120;
+                _hostInput.Y = 76;
+                _hostInput.ViewSize = new Point(270, 32);
+                _portInput.X = 120;
+                _portInput.Y = 120;
+                _portInput.ViewSize = new Point(150, 32);
+                _hostInput.Skin = TextFieldSkin.Flat;
+                _portInput.Skin = TextFieldSkin.Flat;
+                _hostInput.BackgroundColor = ModernHudTheme.BgDarkest;
+                _portInput.BackgroundColor = ModernHudTheme.BgDarkest;
+                _hostInput.BorderColor = ModernHudTheme.BorderInner;
+                _portInput.BorderColor = ModernHudTheme.BorderInner;
+                _hostInput.TextColor = ModernHudTheme.TextWhite;
+                _portInput.TextColor = ModernHudTheme.TextWhite;
+
+                _errorLabel.X = 30;
+                _errorLabel.Y = 164;
+                _errorLabel.ViewSize = new Point(ControlSize.X - 60, 20);
+                _okButton.Visible = false;
+                _classicOkButton.Visible = true;
+                _classicOkButton.X = 135;
+                _classicOkButton.Y = 204;
+                _classicOkButton.ViewSize = new Point(150, 36);
+                _classicOkButton.BackgroundColor = ModernHudTheme.Success;
+                _classicOkButton.HoverBackgroundColor = Color.Lerp(ModernHudTheme.Success, Color.White, 0.15f);
+                _classicOkButton.PressedBackgroundColor = Color.Lerp(ModernHudTheme.Success, Color.Black, 0.15f);
+                _classicOkButton.BorderColor = ModernHudTheme.BorderInner;
+            }
+            else
+            {
+                _titleLabel.Y = 12;
+                _separator.X = 12;
+                _separator.Y = 40;
+                _separator.ViewSize = new Point(ControlSize.X - 24, 6);
+
+                _hostLabel.X = 26;
+                _hostLabel.Y = 72;
+                _portLabel.X = 26;
+                _portLabel.Y = 108;
+                _hostInput.X = 110;
+                _hostInput.Y = 68;
+                _hostInput.ControlSize = new Point(240, 30);
+                _portInput.X = 110;
+                _portInput.Y = 104;
+                _portInput.ControlSize = new Point(120, 30);
+                _hostInput.Skin = TextFieldSkin.NineSlice;
+                _portInput.Skin = TextFieldSkin.NineSlice;
+                _hostInput.TextColor = Color.White;
+                _portInput.TextColor = Color.White;
+                _errorLabel.X = 26;
+                _errorLabel.Y = 140;
+                _errorLabel.ViewSize = new Point(ControlSize.X - 60, 20);
+                _okButton.Visible = true;
+                _okButton.Y = 170;
+                _classicOkButton.Visible = false;
+            }
         }
 
         public void SetValues(string host, string port)

@@ -9,6 +9,7 @@ namespace Client.Main.Worlds
     public class AtlansWorld : WalkableWorldControl
     {
         private BoidManager _boidManager;
+        private Objects.Worlds.Noria.NoriaLeafAmbientEffect _leafEffect;
 
         public AtlansWorld() : base(worldIndex: 8)
         {
@@ -41,8 +42,17 @@ namespace Client.Main.Worlds
             Walker.MoveTargetPosition = Walker.TargetPosition;
             Walker.Position = Walker.TargetPosition;
 
+            // SourceMain: Atlans/DoppelGanger3 share the animated-water path
+            // (WaterMove default %20000 * 0.00005 -> 0.05 UV/s) with wind-driven wobble.
+            Terrain.WaterSpeed = 0.05f;
+            Terrain.DistortionAmplitude = 0.25f;
+            Terrain.DistortionFrequency = 1.0f;
+
             // Initialize fish boid system for underwater areas
             _boidManager = new BoidManager(this);
+            _leafEffect = new Objects.Worlds.Noria.NoriaLeafAmbientEffect(this, new Client.Main.Configuration.NoriaLeafEffectSettings());
+            if (_leafEffect != null)
+                Objects.Add(_leafEffect);
 
             base.AfterLoad();
         }
@@ -88,3 +98,9 @@ namespace Client.Main.Worlds
         }
     }
 }
+
+
+
+
+
+

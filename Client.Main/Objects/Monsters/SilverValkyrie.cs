@@ -12,6 +12,15 @@ namespace Client.Main.Objects.Monsters
         public SilverValkyrie()
         {
             Scale = 1.4f; // Set according to C++ Setting_Monster
+
+            // SourceMain5.2 sets no BlendMesh for SILVER_VALKYRIE (unlike VALKYRIE's 0),
+            // so reset the inherited value to the engine default.
+            BlendMesh = -1;
+
+            // SourceMain5.2 RenderCharacter L8526: MONSTER_SILVER_VALKYRIE gets the
+            // RENDER_CHROME | RENDER_BRIGHT body pass.
+            BrightOverlay = 1f;
+            BrightOverlayTexturePath = "Effect/Chrome01.jpg";
         }
         // Sounds are inherited from Valkyrie
     }

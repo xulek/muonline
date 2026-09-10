@@ -10,6 +10,7 @@ using Client.Main.Core.Utilities;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Game.Hud;
 using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Networking;
 using Client.Main.Models;
@@ -30,45 +31,49 @@ namespace Client.Main.Controls.UI.Game
         // ═══════════════════════════════════════════════════════════════
         public const int Columns = 8;
         public const int Rows = 15;
+        private static bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+        private static int VisibleRows => IsSeason6 ? VaultLayout.GridRows : Rows;
+        private static int Season6PageCount => (Rows + VaultLayout.GridRows - 1) / VaultLayout.GridRows;
         private const int VAULT_SQUARE_WIDTH = 32;
         private const int VAULT_SQUARE_HEIGHT = 32;
 
-        private const int HEADER_HEIGHT = 46;
+        private static int HEADER_HEIGHT => IsSeason6 ? VaultLayout.DragBarH : 46;
         private const int SECTION_HEADER_HEIGHT = 22;
         private const int GRID_PADDING = 10;
         private const int FOOTER_HEIGHT = 50;
         private const int WINDOW_MARGIN = 12;
 
-        private static readonly int GRID_WIDTH = Columns * VAULT_SQUARE_WIDTH;
-        private static readonly int GRID_HEIGHT = Rows * VAULT_SQUARE_HEIGHT;
-        private static readonly int WINDOW_WIDTH = GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
-        private static readonly int WINDOW_HEIGHT = HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + FOOTER_HEIGHT + WINDOW_MARGIN;
+        private static int GRID_WIDTH => Columns * VAULT_SQUARE_WIDTH;
+        private static int GRID_HEIGHT => VisibleRows * VAULT_SQUARE_HEIGHT;
+        private static int WINDOW_WIDTH => IsSeason6
+            ? VaultLayout.PanelW
+            : GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
+        private static int WINDOW_HEIGHT => IsSeason6
+            ? VaultLayout.PanelH
+            : HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + FOOTER_HEIGHT + WINDOW_MARGIN;
 
         // ═══════════════════════════════════════════════════════════════
         // MODERN DARK THEME
         // ═══════════════════════════════════════════════════════════════
         private static class Theme
         {
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
 
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
-
-            public static readonly Color Secondary = new(90, 140, 200);
-
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
-
-            public static readonly Color SlotBg = new(12, 15, 20, 240);
-            public static readonly Color SlotBorder = new(45, 52, 65, 180);
-            public static readonly Color SlotHover = new(70, 85, 110, 150);
-            public static readonly Color SlotSelected = new(212, 175, 85, 100);
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
+            public static Color Secondary => ModernHudTheme.Secondary;
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
+            public static Color SlotBg => ModernHudTheme.SlotBg;
+            public static Color SlotBorder => ModernHudTheme.SlotBorder;
+            public static Color SlotHover => ModernHudTheme.SlotHover;
+            public static Color SlotSelected => ModernHudTheme.SlotSelected;
 
             public static readonly Color GlowNormal = new(150, 150, 150, 25);
             public static readonly Color GlowMagic = new(100, 150, 255, 50);
@@ -76,12 +81,12 @@ namespace Client.Main.Controls.UI.Game
             public static readonly Color GlowAncient = new(80, 200, 255, 70);
             public static readonly Color GlowLegendary = new(255, 180, 80, 70);
 
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
-
-            public static readonly Color Success = new(80, 200, 120);
-            public static readonly Color Danger = new(220, 80, 80);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
+            public static Color TextDark => ModernHudTheme.TextDark;
+            public static Color Success => ModernHudTheme.Success;
+            public static Color Danger => ModernHudTheme.Danger;
         }
 
         private static readonly ItemGlowPalette GlowPalette = new(
@@ -96,6 +101,10 @@ namespace Client.Main.Controls.UI.Game
         private readonly List<InventoryItem> _items = new();
         private readonly List<(InventoryItem Item, Rectangle Rect)> _jewelEntries = new();
         private InventoryItem[,] _itemGrid = new InventoryItem[Columns, Rows];
+        private readonly Dictionary<InventoryItem, byte> _serverSlots = new();
+        private int _season6Page;
+        private bool _pagePreviousHovered;
+        private bool _pageNextHovered;
 
         private readonly Dictionary<string, Texture2D> _itemTextureCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<(InventoryItem item, int width, int height, bool animated), Texture2D> _bmdPreviewCache = new();
@@ -108,9 +117,21 @@ namespace Client.Main.Controls.UI.Game
         private Rectangle _depositButtonRect;
         private Rectangle _withdrawButtonRect;
         private Rectangle _closeButtonRect;
+        private Rectangle _pagePreviousRect;
+        private Rectangle _pageNextRect;
 
         private RenderTarget2D _staticSurface;
         private bool _staticSurfaceDirty = true;
+
+        private Texture2D _s6Panel;
+        private Texture2D _s6Rect;
+        private Texture2D _s6DarkCard;
+        private Texture2D _s6GridRow;
+        private Texture2D _s6Field;
+        private Texture2D _s6ButtonDark;
+        private Texture2D _s6ButtonGold;
+        private Texture2D _s6Close;
+        private Task _season6AssetsTask;
 
         private SpriteFont _font;
 
@@ -200,6 +221,33 @@ namespace Client.Main.Controls.UI.Game
 
         private void BuildLayoutMetrics()
         {
+            if (IsSeason6)
+            {
+                _headerRect = new Rectangle(0, 0, VaultLayout.PanelW, VaultLayout.DragBarH);
+                _gridFrameRect = new Rectangle(VaultLayout.CardX, VaultLayout.CardY,
+                    VaultLayout.CardW, VaultLayout.CardH);
+                _gridRect = new Rectangle(VaultLayout.GridX, VaultLayout.GridY,
+                    VaultLayout.GridCols * VAULT_SQUARE_WIDTH,
+                    VaultLayout.GridRows * VAULT_SQUARE_HEIGHT);
+                _footerRect = new Rectangle(0, VaultLayout.ButtonRowY - 82,
+                    VaultLayout.PanelW, VaultLayout.PanelH - (VaultLayout.ButtonRowY - 82));
+                _zenFieldRect = new Rectangle(VaultLayout.ZenFieldX,
+                    VaultLayout.ZenRowY - VaultLayout.ZenFieldH / 2,
+                    VaultLayout.ZenFieldW, VaultLayout.ZenFieldH);
+                _depositButtonRect = new Rectangle(VaultLayout.ButtonRowX, VaultLayout.ButtonRowY,
+                    VaultLayout.ButtonW, VaultLayout.ButtonH);
+                _withdrawButtonRect = new Rectangle(
+                    VaultLayout.ButtonRowX + VaultLayout.ButtonW + VaultLayout.ButtonGap,
+                    VaultLayout.ButtonRowY, VaultLayout.ButtonW, VaultLayout.ButtonH);
+                _closeButtonRect = new Rectangle(VaultLayout.CloseX, VaultLayout.CloseY,
+                    VaultLayout.CloseW, VaultLayout.CloseH);
+                _pagePreviousRect = new Rectangle(VaultLayout.PagePreviousX, VaultLayout.PageY,
+                    VaultLayout.PageButtonW, VaultLayout.PageButtonH);
+                _pageNextRect = new Rectangle(VaultLayout.PageNextX, VaultLayout.PageY,
+                    VaultLayout.PageButtonW, VaultLayout.PageButtonH);
+                return;
+            }
+
             _headerRect = new Rectangle(0, 0, WINDOW_WIDTH, HEADER_HEIGHT);
 
             int gridFrameX = WINDOW_MARGIN;
@@ -225,12 +273,42 @@ namespace Client.Main.Controls.UI.Game
             _depositButtonRect = new Rectangle(_zenFieldRect.Right + buttonGap, _zenFieldRect.Y, buttonWidth, fieldHeight);
             _withdrawButtonRect = new Rectangle(_depositButtonRect.Right + buttonGap, _zenFieldRect.Y, buttonWidth, fieldHeight);
             _closeButtonRect = new Rectangle(WINDOW_WIDTH - 30, 10, 20, 20);
+            _pagePreviousRect = Rectangle.Empty;
+            _pageNextRect = Rectangle.Empty;
         }
 
         public override async Task Load()
         {
             await base.Load();
             _font = GraphicsManager.Instance.Font;
+            if (IsSeason6)
+                await EnsureSeason6AssetsAsync();
+            InvalidateStaticSurface();
+        }
+
+        public Task EnsureSeason6AssetsAsync()
+        {
+            if (!IsSeason6)
+                return Task.CompletedTask;
+            return _season6AssetsTask ??= LoadSeason6AssetsAsync();
+        }
+
+        private async Task LoadSeason6AssetsAsync()
+        {
+            async Task<Texture2D> Load(string path, string fallback = null)
+            {
+                try { return await UiThemeManager.LoadThemeTextureAsync(path, fallback); }
+                catch { return null; }
+            }
+
+            _s6Panel = await Load("Interface/Imprint/imprint_panel.OZP", "Interface/GFx/NpcShop_I3.ozd");
+            _s6Rect = await Load("Interface/Inventory/inv_rect.OZP");
+            _s6DarkCard = await Load("Interface/Inventory/inv_darkcard.OZP");
+            _s6GridRow = await Load("Interface/Inventory/inv_grid_row.OZP");
+            _s6Field = await Load("Interface/Inventory/inv_field.OZP");
+            _s6ButtonDark = await Load("Interface/Inventory/inv_btn_dark.OZP");
+            _s6ButtonGold = await Load("Interface/Inventory/inv_btn_gold.OZP");
+            _s6Close = await Load("Interface/Imprint/imprint_close.OZP", "Interface/newui_exit_00.tga");
             InvalidateStaticSurface();
         }
 
@@ -398,6 +476,7 @@ namespace Client.Main.Controls.UI.Game
 
                 DrawGridOverlays(spriteBatch);
                 DrawVaultItems(spriteBatch);
+                DrawSeason6PageButtons(spriteBatch);
                 DrawCloseButton(spriteBatch);
                 DrawZenButtons(spriteBatch);
                 DrawZenText(spriteBatch);
@@ -493,7 +572,7 @@ namespace Client.Main.Controls.UI.Game
 
         public Point GetSlotAtScreenPosition(Point screenPos)
         {
-            return ItemGridRenderHelper.GetSlotAtScreenPosition(DisplayRectangle, _gridRect, Columns, Rows, VAULT_SQUARE_WIDTH, VAULT_SQUARE_HEIGHT, screenPos);
+            return ItemGridRenderHelper.GetSlotAtScreenPosition(DisplayRectangle, _gridRect, Columns, VisibleRows, VAULT_SQUARE_WIDTH, VAULT_SQUARE_HEIGHT, screenPos);
         }
 
         public bool CanPlaceAt(Point gridSlot, InventoryItem item)
@@ -507,7 +586,8 @@ namespace Client.Main.Controls.UI.Game
                     int gx = gridSlot.X + x;
                     int gy = gridSlot.Y + y;
 
-                    if (gx < 0 || gx >= Columns || gy < 0 || gy >= Rows)
+                    if (gx < 0 || gx >= Columns || gy < 0 || gy >= Rows ||
+                        (IsSeason6 && gy >= VisibleRows))
                         return false;
 
                     var occupant = _itemGrid[gx, gy];
@@ -607,16 +687,198 @@ namespace Client.Main.Controls.UI.Game
 
         private void InvalidateStaticSurface() => _staticSurfaceDirty = true;
 
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            BuildLayoutMetrics();
+            _season6Page = 0;
+            RebuildVisibleVaultGrid();
+            ControlSize = new Point(WINDOW_WIDTH, WINDOW_HEIGHT);
+            ViewSize = ControlSize;
+            if (Visible)
+                ForceAlignNow();
+            if (IsSeason6)
+            {
+                _season6AssetsTask = null;
+                _ = EnsureSeason6AssetsAsync();
+            }
+            else
+            {
+                _s6Panel = null;
+                _s6Rect = null;
+                _s6DarkCard = null;
+                _s6GridRow = null;
+                _s6Field = null;
+                _s6ButtonDark = null;
+                _s6ButtonGold = null;
+                _s6Close = null;
+                _season6AssetsTask = null;
+            }
+            InvalidateStaticSurface();
+        }
+
         private void DrawStaticElements(SpriteBatch spriteBatch)
         {
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null) return;
+
+            if (IsSeason6)
+            {
+                DrawSeason6StaticElements(spriteBatch);
+                return;
+            }
 
             var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
             DrawWindowBackground(spriteBatch, fullRect);
             DrawModernHeader(spriteBatch);
             DrawModernGridSection(spriteBatch);
             DrawModernFooter(spriteBatch);
+        }
+
+        private void DrawSeason6StaticElements(SpriteBatch spriteBatch)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            if (IsUsableTexture(_s6Panel))
+                spriteBatch.Draw(_s6Panel, fullRect, Color.White);
+            else
+                DrawWindowBackground(spriteBatch, fullRect);
+
+            if (_font != null)
+            {
+                string title = "Storage";
+                float scale = 13f / 25f;
+                Vector2 size = _font.MeasureString(title) * scale;
+                Vector2 pos = new((WINDOW_WIDTH - size.X) / 2f, 65f - size.Y / 2f);
+                spriteBatch.DrawString(_font, title, pos + Vector2.One, Color.Black * 0.6f,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_font, title, pos, Theme.TextWhite,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            }
+
+            if (IsUsableTexture(_s6DarkCard))
+                spriteBatch.Draw(_s6DarkCard, new Rectangle(VaultLayout.DarkCardX, VaultLayout.DarkCardY,
+                    VaultLayout.DarkCardW, VaultLayout.DarkCardH), Color.White);
+            if (IsUsableTexture(_s6Rect))
+                DrawNineSlice(spriteBatch, _s6Rect, _gridFrameRect);
+            else if (!IsUsableTexture(_s6DarkCard))
+                DrawPanel(spriteBatch, _gridFrameRect, Theme.BgMid);
+
+            if (IsUsableTexture(_s6GridRow))
+            {
+                for (int row = 0; row < VisibleRows; row++)
+                {
+                    var rowRect = new Rectangle(_gridRect.X, _gridRect.Y + row * VAULT_SQUARE_HEIGHT,
+                        _gridRect.Width, VAULT_SQUARE_HEIGHT);
+                    spriteBatch.Draw(_s6GridRow, rowRect, Color.White);
+                }
+            }
+            else
+            {
+                spriteBatch.Draw(pixel, _gridRect, Theme.SlotBg);
+                for (int x = 1; x < Columns; x++)
+                    spriteBatch.Draw(pixel, new Rectangle(_gridRect.X + x * VAULT_SQUARE_WIDTH, _gridRect.Y, 1, _gridRect.Height), Theme.SlotBorder);
+                for (int y = 1; y < VisibleRows; y++)
+                    spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y + y * VAULT_SQUARE_HEIGHT, _gridRect.Width, 1), Theme.SlotBorder);
+            }
+
+            if (IsUsableTexture(_s6Field))
+            {
+                spriteBatch.Draw(_s6Field, _zenFieldRect, Color.White);
+            }
+            else
+            {
+                DrawPanel(spriteBatch, _zenFieldRect, Theme.SlotBg);
+            }
+
+            DrawSeason6Button(spriteBatch, _depositButtonRect, "Deposit", _s6ButtonGold);
+            DrawSeason6Button(spriteBatch, _withdrawButtonRect, "Withdraw", _s6ButtonDark);
+        }
+
+        private void DrawSeason6PageButtons(SpriteBatch spriteBatch)
+        {
+            if (!IsSeason6 || _font == null || Season6PageCount <= 1)
+                return;
+
+            DrawPageButton(spriteBatch, _pagePreviousRect, "<", _season6Page > 0, _pagePreviousHovered);
+            DrawPageButton(spriteBatch, _pageNextRect, ">", _season6Page < Season6PageCount - 1, _pageNextHovered);
+
+            Rectangle labelRect = new(VaultLayout.PagePreviousX + VaultLayout.PageButtonW,
+                VaultLayout.PageY, VaultLayout.PageNextX - VaultLayout.PagePreviousX - VaultLayout.PageButtonW,
+                VaultLayout.PageButtonH);
+            string label = $"{_season6Page + 1}/{Season6PageCount}";
+            float scale = 0.23f;
+            Vector2 size = _font.MeasureString(label) * scale;
+            Vector2 position = new(DisplayRectangle.X + labelRect.X + (labelRect.Width - size.X) / 2f,
+                DisplayRectangle.Y + labelRect.Y + (labelRect.Height - size.Y) / 2f);
+            spriteBatch.DrawString(_font, label, position + Vector2.One, Color.Black * 0.6f,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_font, label, position, Theme.TextWhite,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        }
+
+        private void DrawPageButton(SpriteBatch spriteBatch, Rectangle localRect, string label,
+            bool enabled, bool hovered)
+        {
+            Rectangle rect = Translate(localRect);
+            Color background = !enabled ? Theme.BgDarkest * 0.45f : hovered ? Theme.SlotHover : Theme.SlotBg;
+            spriteBatch.Draw(GraphicsManager.Instance.Pixel, rect, background);
+            UiDrawHelper.DrawBorder(spriteBatch, rect, enabled ? Theme.BorderInner : Theme.BorderOuter, 1);
+
+            float scale = 0.28f;
+            Vector2 size = _font.MeasureString(label) * scale;
+            Vector2 position = new(rect.X + (rect.Width - size.X) / 2f,
+                rect.Y + (rect.Height - size.Y) / 2f);
+            spriteBatch.DrawString(_font, label, position, enabled ? Theme.TextWhite : Theme.TextDark,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        }
+
+        private static bool IsUsableTexture(Texture2D texture)
+            => texture != null && !texture.IsDisposed;
+
+        private static void DrawNineSlice(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, int margin = 8)
+        {
+            if (!IsUsableTexture(texture) || destination.Width <= margin * 2 || destination.Height <= margin * 2)
+            {
+                if (IsUsableTexture(texture)) spriteBatch.Draw(texture, destination, Color.White);
+                return;
+            }
+
+            int sw = texture.Width - margin * 2;
+            int sh = texture.Height - margin * 2;
+            int dw = destination.Width - margin * 2;
+            int dh = destination.Height - margin * 2;
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y, margin, margin), new Rectangle(0, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y, margin, margin), new Rectangle(texture.Width - margin, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Bottom - margin, margin, margin), new Rectangle(0, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Bottom - margin, margin, margin), new Rectangle(texture.Width - margin, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y, dw, margin), new Rectangle(margin, 0, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Bottom - margin, dw, margin), new Rectangle(margin, texture.Height - margin, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y + margin, margin, dh), new Rectangle(0, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y + margin, margin, dh), new Rectangle(texture.Width - margin, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y + margin, dw, dh), new Rectangle(margin, margin, sw, sh), Color.White);
+        }
+
+        private void DrawSeason6Button(SpriteBatch spriteBatch, Rectangle localRect, string label, Texture2D texture)
+        {
+            // This method is called while the static surface is bound. Coordinates must stay
+            // local to the render target; screen translation is only valid in live Draw().
+            var rect = localRect;
+            if (IsUsableTexture(texture))
+                spriteBatch.Draw(texture, rect, Color.White);
+            else
+            {
+                spriteBatch.Draw(GraphicsManager.Instance.Pixel, rect, Theme.SlotBg);
+                UiDrawHelper.DrawBorder(spriteBatch, rect, Theme.BorderInner, 1);
+            }
+            if (_font == null) return;
+            float scale = 0.25f;
+            Vector2 size = _font.MeasureString(label) * scale;
+            Vector2 pos = new(rect.X + (rect.Width - size.X) / 2f, rect.Y + (rect.Height - size.Y) / 2f);
+            spriteBatch.DrawString(_font, label, pos + Vector2.One, Color.Black * 0.55f,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_font, label, pos, Theme.TextWhite,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
         private void DrawModernHeader(SpriteBatch spriteBatch)
@@ -676,10 +938,10 @@ namespace Client.Main.Controls.UI.Game
                 spriteBatch.Draw(pixel, new Rectangle(lineX, _gridRect.Y, 1, _gridRect.Height), isMajor ? gridLineMajor : gridLine);
             }
 
-            for (int y = 1; y < Rows; y++)
+            for (int y = 1; y < VisibleRows; y++)
             {
                 int lineY = _gridRect.Y + y * VAULT_SQUARE_HEIGHT;
-                bool isMajor = y == Rows / 2;
+                bool isMajor = y == VisibleRows / 2;
                 spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, lineY, _gridRect.Width, 1), isMajor ? gridLineMajor : gridLine);
             }
 
@@ -725,6 +987,11 @@ namespace Client.Main.Controls.UI.Game
             if (pixel == null) return;
 
             var rect = Translate(_closeButtonRect);
+            if (IsSeason6 && IsUsableTexture(_s6Close))
+            {
+                spriteBatch.Draw(_s6Close, rect, Color.White);
+                return;
+            }
             Color btnColor = _closeHovered ? Theme.Accent : Theme.TextGray;
 
             // Draw X symbol
@@ -817,7 +1084,7 @@ namespace Client.Main.Controls.UI.Game
             if (activeDragged != null && _pendingDropSlot.X >= 0)
             {
                 // Match inventory: highlight the entire footprint (green=valid, red=invalid)
-                for (int y = 0; y < Rows; y++)
+                for (int y = 0; y < VisibleRows; y++)
                 {
                     for (int x = 0; x < Columns; x++)
                     {
@@ -852,6 +1119,10 @@ namespace Client.Main.Controls.UI.Game
             foreach (var item in _items)
             {
                 if (item == _draggedItem) continue;
+                if (!IsItemOnCurrentPage(item)) continue;
+                if (item.GridPosition.Y < 0 || item.GridPosition.Y >= VisibleRows ||
+                    item.GridPosition.Y + item.Definition.Height > VisibleRows)
+                    continue;
 
                 var rect = new Rectangle(
                     gridOrigin.X + item.GridPosition.X * VAULT_SQUARE_WIDTH,
@@ -1032,6 +1303,23 @@ namespace Client.Main.Controls.UI.Game
 
             Point mousePos = mouse.Position;
 
+            if (IsSeason6 && _draggedItem == null)
+            {
+                if (Translate(_pagePreviousRect).Contains(mousePos))
+                {
+                    SetSeason6Page(_season6Page - 1);
+                    Scene?.SetMouseInputConsumed();
+                    return;
+                }
+
+                if (Translate(_pageNextRect).Contains(mousePos))
+                {
+                    SetSeason6Page(_season6Page + 1);
+                    Scene?.SetMouseInputConsumed();
+                    return;
+                }
+            }
+
             if (_draggedItem == null)
             {
                 if (_hoveredItem != null)
@@ -1049,6 +1337,8 @@ namespace Client.Main.Controls.UI.Game
         private void UpdateHoverState()
         {
             var mouse = MuGame.Instance.UiMouseState.Position;
+            _pagePreviousHovered = IsSeason6 && Translate(_pagePreviousRect).Contains(mouse);
+            _pageNextHovered = IsSeason6 && Translate(_pageNextRect).Contains(mouse);
             var externalDragged = InventoryControl.Instance?.GetDraggedItem();
 
             if (_draggedItem != null)
@@ -1184,7 +1474,7 @@ namespace Client.Main.Controls.UI.Game
         {
             if (_draggedItem == null) return;
 
-            byte fromSlot = (byte)(_draggedOriginalSlot.Y * Columns + _draggedOriginalSlot.X);
+            byte fromSlot = (byte)GetServerSlot(_draggedItem, _draggedOriginalSlot);
             byte toSlot = (byte)(InventoryControl.InventorySlotOffsetConstant +
                                  (targetSlot.Y * InventoryControl.Columns) + targetSlot.X);
 
@@ -1224,13 +1514,17 @@ namespace Client.Main.Controls.UI.Game
             }
 
             _items.Remove(_draggedItem);
+            _serverSlots.Remove(_draggedItem);
             inventory?.BringToFront();
         }
 
         private void SendVaultMove(Point fromSlot, Point toSlot)
         {
-            byte from = (byte)(fromSlot.Y * Columns + fromSlot.X);
-            byte to = (byte)(toSlot.Y * Columns + toSlot.X);
+            byte from = (byte)GetServerSlot(_draggedItem, fromSlot);
+            byte to = (byte)GetServerSlotForVisualSlot(toSlot);
+
+            if (_draggedItem != null)
+                _serverSlots[_draggedItem] = to;
 
             if (_networkManager == null) return;
 
@@ -1279,6 +1573,7 @@ namespace Client.Main.Controls.UI.Game
             foreach (var item in _items)
             {
                 if (item == _draggedItem) continue;
+                if (!IsItemOnCurrentPage(item)) continue;
 
                 var rect = new Rectangle(
                     gridOrigin.X + item.GridPosition.X * VAULT_SQUARE_WIDTH,
@@ -1298,6 +1593,7 @@ namespace Client.Main.Controls.UI.Game
             SendCloseNpcRequest();
             _characterState?.ClearVaultItems();
             _items.Clear();
+            _serverSlots.Clear();
             ClearGrid();
             _itemTextureCache.Clear();
             _bmdPreviewCache.Clear();
@@ -1307,6 +1603,7 @@ namespace Client.Main.Controls.UI.Game
             _isDragging = false;
             _pendingShow = false;
             _warmupComplete = false;
+            _season6Page = 0;
         }
 
         public void SetVaultZen(uint amount)
@@ -1343,6 +1640,7 @@ namespace Client.Main.Controls.UI.Game
             bool wasVisible = Visible;
 
             _items.Clear();
+            _serverSlots.Clear();
             ClearGrid();
 
             var vaultItems = _characterState.GetVaultItems();
@@ -1352,7 +1650,7 @@ namespace Client.Main.Controls.UI.Game
                 byte[] data = kv.Value;
 
                 int gridX = slot % Columns;
-                int gridY = slot / Columns;
+                int gridY = GetVisualRow(slot);
 
                 var def = ItemDatabase.GetItemDefinition(data)
                     ?? new ItemDefinition(0, ItemDatabase.GetItemName(data) ?? "Unknown Item", 1, 1, "Interface/newui_item_box.tga");
@@ -1364,8 +1662,10 @@ namespace Client.Main.Controls.UI.Game
                 }
 
                 _items.Add(item);
-                PlaceItemOnGrid(item, item.GridPosition);
+                _serverSlots[item] = slot;
             }
+
+            RebuildVisibleVaultGrid();
 
             foreach (var item in _items)
             {
@@ -1529,6 +1829,63 @@ namespace Client.Main.Controls.UI.Game
                     }
                 }
             }
+        }
+
+        private int GetVisualRow(byte serverSlot)
+        {
+            int serverRow = serverSlot / Columns;
+            return IsSeason6 ? serverRow % VisibleRows : serverRow;
+        }
+
+        private int GetServerSlotForVisualSlot(Point visualSlot)
+        {
+            int serverRow = IsSeason6 ? _season6Page * VisibleRows + visualSlot.Y : visualSlot.Y;
+            return serverRow * Columns + visualSlot.X;
+        }
+
+        private int GetServerSlot(InventoryItem item, Point visualSlot)
+        {
+            return item != null && _serverSlots.TryGetValue(item, out byte serverSlot)
+                ? serverSlot
+                : GetServerSlotForVisualSlot(visualSlot);
+        }
+
+        private bool IsItemOnCurrentPage(InventoryItem item)
+        {
+            if (!IsSeason6 || item == null || !_serverSlots.TryGetValue(item, out byte serverSlot))
+                return true;
+
+            return serverSlot / Columns / VisibleRows == _season6Page;
+        }
+
+        private void RebuildVisibleVaultGrid()
+        {
+            ClearGrid();
+            foreach (var item in _items)
+            {
+                if (!_serverSlots.TryGetValue(item, out byte serverSlot))
+                    continue;
+
+                item.GridPosition = new Point(serverSlot % Columns, GetVisualRow(serverSlot));
+                if (IsItemOnCurrentPage(item))
+                    PlaceItemOnGrid(item, item.GridPosition);
+            }
+        }
+
+        private void SetSeason6Page(int page)
+        {
+            if (!IsSeason6)
+                return;
+
+            int nextPage = Math.Clamp(page, 0, Season6PageCount - 1);
+            if (_season6Page == nextPage)
+                return;
+
+            _season6Page = nextPage;
+            _hoveredItem = null;
+            _hoveredSlot = new Point(-1, -1);
+            _pendingDropSlot = new Point(-1, -1);
+            RebuildVisibleVaultGrid();
         }
 
         private static bool TryGetDigitKey(Keys key, out char digit)

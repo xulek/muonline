@@ -55,26 +55,26 @@ namespace Client.Main.Controls.UI.Game.Trade
         // ═══════════════════════════════════════════════════════════════
         private static class Theme
         {
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
 
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
 
-            public static readonly Color Secondary = new(90, 140, 200);
+            public static Color Secondary => ModernHudTheme.Secondary;
 
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
 
-            public static readonly Color SlotBg = new(12, 15, 20, 240);
-            public static readonly Color SlotBorder = new(45, 52, 65, 180);
-            public static readonly Color SlotHover = new(70, 85, 110, 150);
-            public static readonly Color SlotSelected = new(212, 175, 85, 100);
+            public static Color SlotBg => ModernHudTheme.SlotBg;
+            public static Color SlotBorder => ModernHudTheme.SlotBorder;
+            public static Color SlotHover => ModernHudTheme.SlotHover;
+            public static Color SlotSelected => ModernHudTheme.SlotSelected;
 
             public static readonly Color GlowNormal = new(150, 150, 150, 25);
             public static readonly Color GlowMagic = new(100, 150, 255, 50);
@@ -82,19 +82,19 @@ namespace Client.Main.Controls.UI.Game.Trade
             public static readonly Color GlowAncient = new(80, 200, 255, 70);
             public static readonly Color GlowLegendary = new(255, 180, 80, 70);
 
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
 
-            public static readonly Color Success = new(80, 200, 120);
-            public static readonly Color Warning = new(240, 180, 60);
-            public static readonly Color Danger = new(220, 80, 80);
+            public static Color Success => ModernHudTheme.Success;
+            public static Color Warning => ModernHudTheme.Warning;
+            public static Color Danger => ModernHudTheme.Danger;
 
             // Level-based partner name colors
-            public static readonly Color LevelRed = new(220, 80, 80);      // 1-49
-            public static readonly Color LevelOrange = new(240, 160, 60);  // 50-99
-            public static readonly Color LevelGreen = new(80, 200, 120);   // 100-199
-            public static readonly Color LevelWhite = new(240, 240, 245);  // 200+
+            public static Color LevelRed => ModernHudTheme.Danger;      // 1-49
+            public static Color LevelOrange => ModernHudTheme.Warning;  // 50-99
+            public static Color LevelGreen => ModernHudTheme.Success;   // 100-199
+            public static Color LevelWhite => ModernHudTheme.TextWhite; // 200+
         }
 
         private static readonly ItemGlowPalette GlowPalette = new(

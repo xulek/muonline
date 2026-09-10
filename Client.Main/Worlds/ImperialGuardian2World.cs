@@ -1,5 +1,6 @@
-﻿using Client.Main.Controls;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.ImperialGuardian;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -12,9 +13,19 @@ namespace Client.Main.Worlds
     [WorldInfo(71, "Imperial Guardian 2")]
     public class ImperialGuardian2World : WalkableWorldControl
     {
+        private GuardianWeatherSystem _weatherSystem;
+
         public ImperialGuardian2World() : base(worldIndex: 72) // IMPERIAL GUARDIAN (GAION)
         {
 
+        }
+
+        public override Task Load()
+        {
+            _weatherSystem = new GuardianWeatherSystem(this);
+            Objects.Add(_weatherSystem);
+
+            return base.Load();
         }
 
         public override void AfterLoad()
@@ -41,5 +52,18 @@ namespace Client.Main.Worlds
 
             base.AfterLoad();
         }
+
+        public override void Dispose()
+        {
+            if (_weatherSystem != null)
+            {
+                Objects.Remove(_weatherSystem);
+                _weatherSystem.Dispose();
+                _weatherSystem = null;
+            }
+
+            base.Dispose();
+        }
     }
 }
+

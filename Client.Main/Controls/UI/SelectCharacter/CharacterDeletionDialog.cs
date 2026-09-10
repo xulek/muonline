@@ -1,4 +1,6 @@
 using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
 using Client.Main.Helpers;
@@ -12,7 +14,7 @@ namespace Client.Main.Controls.UI.SelectCharacter
     /// <summary>
     /// Dialog for confirming character deletion with security code input.
     /// </summary>
-    public class CharacterDeletionDialog : GameControl
+    public class CharacterDeletionDialog : UIControl
     {
         // ═══════════════════════════════════════════════════════════════
         // MODERN DARK THEME - Matching SelectCharacterScene
@@ -20,38 +22,38 @@ namespace Client.Main.Controls.UI.SelectCharacter
         private static class Theme
         {
             // Background layers
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
-            public static readonly Color BgLighter = new(48, 56, 68, 240);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
+            public static Color BgLighter => ModernHudTheme.BgLighter;
 
             // Accent - Warm Gold
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
 
             // Secondary accent - Cool Blue
-            public static readonly Color Secondary = new(90, 140, 200);
-            public static readonly Color SecondaryBright = new(130, 180, 240);
-            public static readonly Color SecondaryDim = new(50, 80, 120);
+            public static Color Secondary => ModernHudTheme.Secondary;
+            public static Color SecondaryBright => ModernHudTheme.SecondaryBright;
+            public static Color SecondaryDim => ModernHudTheme.SecondaryDim;
 
             // Borders
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
 
             // Text
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
-            public static readonly Color TextDark = new(100, 105, 115);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
+            public static Color TextDark => ModernHudTheme.TextDark;
 
             // Status colors
-            public static readonly Color Success = new(80, 200, 120);
-            public static readonly Color Warning = new(240, 180, 60);
-            public static readonly Color Danger = new(220, 80, 80);
+            public static Color Success => ModernHudTheme.Success;
+            public static Color Warning => ModernHudTheme.Warning;
+            public static Color Danger => ModernHudTheme.Danger;
         }
 
         private RenderTarget2D _backgroundSurface;
@@ -79,9 +81,84 @@ namespace Client.Main.Controls.UI.SelectCharacter
             Interactive = true;
 
             InitializeControls();
+            ApplyThemeLayout();
             
             // Ensure dialog appears on top of character cards
             BringToFront();
+        }
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            ApplyThemeLayout();
+            _surfaceNeedsRedraw = true;
+        }
+
+        private void ApplyThemeLayout()
+        {
+            bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
+            if (season6)
+            {
+                AutoViewSize = false;
+                Align = ControlAlign.HorizontalCenter | ControlAlign.VerticalCenter;
+                ViewSize = new Point(460, 320);
+                Place(_titleLabel, 0, 16, 460, 28, HorizontalAlign.Center, 16f);
+                Place(_messageLabel, 28, 58, 404, 82, HorizontalAlign.Center, 11f);
+                Place(_securityCodeLabel, 28, 154, 130, 22, HorizontalAlign.Left, 11f);
+                Place(_securityCodeInput, 28, 180, 404, 34);
+                Place(_confirmButton, 28, 258, 190, 36);
+                Place(_cancelButton, 242, 258, 190, 36);
+                _titleLabel.TextColor = ModernHudTheme.Danger;
+                _messageLabel.TextColor = ModernHudTheme.TextWhite;
+                _securityCodeLabel.TextColor = ModernHudTheme.TextGray;
+                _securityCodeInput.TextColor = ModernHudTheme.TextWhite;
+                _securityCodeInput.BackgroundColor = ModernHudTheme.BgDarkest;
+                _securityCodeInput.BorderColor = ModernHudTheme.BorderInner;
+                _confirmButton.BackgroundColor = ModernHudTheme.Danger;
+                _cancelButton.BackgroundColor = ModernHudTheme.BgLight;
+            }
+            else
+            {
+                ViewSize = new Point(550, 400);
+                _titleLabel.Align = ControlAlign.Top | ControlAlign.HorizontalCenter;
+                _messageLabel.Align = ControlAlign.Top | ControlAlign.HorizontalCenter;
+                _securityCodeLabel.Align = ControlAlign.None;
+                _securityCodeInput.Align = ControlAlign.None;
+                _confirmButton.Align = ControlAlign.None;
+                _cancelButton.Align = ControlAlign.None;
+                _securityCodeLabel.X = 50;
+                _securityCodeLabel.Y = 200;
+                _securityCodeInput.X = 50;
+                _securityCodeInput.Y = 230;
+                _securityCodeInput.ViewSize = new Point(450, 36);
+                _confirmButton.X = 50;
+                _confirmButton.Y = 300;
+                _confirmButton.ViewSize = new Point(220, 40);
+                _cancelButton.X = 280;
+                _cancelButton.Y = 300;
+                _cancelButton.ViewSize = new Point(220, 40);
+            }
+        }
+
+        private static void Place(LabelControl control, int x, int y, int width, int height,
+            HorizontalAlign align, float fontSize)
+        {
+            control.Align = ControlAlign.None;
+            control.X = x;
+            control.Y = y;
+            control.AutoViewSize = false;
+            control.ViewSize = new Point(width, height);
+            control.TextAlign = align;
+            control.FontSize = fontSize;
+        }
+
+        private static void Place(GameControl control, int x, int y, int width, int height)
+        {
+            control.Align = ControlAlign.None;
+            control.X = x;
+            control.Y = y;
+            control.AutoViewSize = false;
+            control.ViewSize = new Point(width, height);
         }
 
         private void InitializeControls()
@@ -249,6 +326,12 @@ namespace Client.Main.Controls.UI.SelectCharacter
 
         public override void Draw(GameTime gameTime)
         {
+            if (UiThemeManager.CurrentId == UiThemeId.Season6)
+            {
+                DrawSeason6SurfaceAndContent();
+                return;
+            }
+
             if (Status == GameControlStatus.Ready)
             {
                 if (_backgroundSurface == null || _surfaceNeedsRedraw ||
@@ -276,6 +359,76 @@ namespace Client.Main.Controls.UI.SelectCharacter
             }
 
             base.Draw(gameTime);
+        }
+
+        private void DrawSeason6SurfaceAndContent()
+        {
+            if (Status != GameControlStatus.Ready)
+                return;
+
+            if (_backgroundSurface == null || _surfaceNeedsRedraw ||
+                _backgroundSurface.Width != ViewSize.X || _backgroundSurface.Height != ViewSize.Y)
+            {
+                RegenerateBackgroundSurface();
+                _surfaceNeedsRedraw = false;
+            }
+
+            SpriteBatch sprite = GraphicsManager.Instance.Sprite;
+            SpriteFont font = GraphicsManager.Instance.Font;
+            Texture2D pixel = GraphicsManager.Instance.Pixel;
+            if (sprite == null || font == null || pixel == null)
+                return;
+
+            using var scope = new SpriteBatchScope(sprite, SpriteSortMode.Deferred,
+                BlendState.AlphaBlend, SamplerState.LinearClamp, DepthStencilState.None,
+                RasterizerState.CullNone, null, UiScaler.SpriteTransform);
+
+            if (_backgroundSurface != null)
+                sprite.Draw(_backgroundSurface,
+                    new Rectangle(DisplayPosition.X, DisplayPosition.Y, ViewSize.X, ViewSize.Y), Color.White);
+
+            Rectangle origin = new(DisplayPosition.X, DisplayPosition.Y, ViewSize.X, ViewSize.Y);
+            DrawCentered(sprite, font, _titleLabel.Text,
+                new Rectangle(origin.X, origin.Y + 16, origin.Width, 28), ModernHudTheme.Danger, 0.54f);
+            DrawCentered(sprite, font, _messageLabel.Text,
+                new Rectangle(origin.X + 28, origin.Y + 58, 404, 82), ModernHudTheme.TextWhite, 0.38f);
+            DrawString(sprite, font, _securityCodeLabel.Text,
+                new Rectangle(origin.X + 28, origin.Y + 154, 130, 22), ModernHudTheme.TextGray, 0.42f);
+            DrawString(sprite, font, _securityCodeInput.Text,
+                new Rectangle(origin.X + 38, origin.Y + 186, 380, 22), ModernHudTheme.TextWhite, 0.44f);
+            DrawSeason6Button(sprite, pixel, font, _confirmButton, ModernHudTheme.Danger);
+            DrawSeason6Button(sprite, pixel, font, _cancelButton, ModernHudTheme.BgLight);
+        }
+
+        private static void DrawSeason6Button(SpriteBatch sprite, Texture2D pixel, SpriteFont font,
+            ButtonControl button, Color fill)
+        {
+            Rectangle rect = button.DisplayRectangle;
+            sprite.Draw(pixel, rect, (button.IsMouseOver ? ModernHudTheme.AccentDim : fill) * 0.92f);
+            sprite.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), ModernHudTheme.BorderInner);
+            sprite.Draw(pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), ModernHudTheme.BorderOuter);
+            DrawCentered(sprite, font, button.Text, rect, ModernHudTheme.TextWhite, 0.42f);
+        }
+
+        private static void DrawCentered(SpriteBatch sprite, SpriteFont font, string text,
+            Rectangle rect, Color color, float scale)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            Vector2 size = font.MeasureString(text) * scale;
+            Vector2 position = new(rect.X + (rect.Width - size.X) / 2f,
+                rect.Y + (rect.Height - size.Y) / 2f);
+            sprite.DrawString(font, text, position, color, 0f, Vector2.Zero, scale,
+                SpriteEffects.None, 0f);
+        }
+
+        private static void DrawString(SpriteBatch sprite, SpriteFont font, string text,
+            Rectangle rect, Color color, float scale)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            sprite.DrawString(font, text, new Vector2(rect.X, rect.Y + 2), color,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
         public override void Dispose()

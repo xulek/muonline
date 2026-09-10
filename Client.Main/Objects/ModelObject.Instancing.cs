@@ -547,6 +547,7 @@ namespace Client.Main.Objects
                     for (int p = 0; p < passCount; p++)
                     {
                         effect.CurrentTechnique.Passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                         _staticMapInstancedDrawCallsThisFrame++;
                         gd.DrawInstancedPrimitives(
                             PrimitiveType.TriangleList,
@@ -779,6 +780,7 @@ namespace Client.Main.Objects
                     for (int p = 0; p < passCount; p++)
                     {
                         effect.CurrentTechnique.Passes[p].Apply();
+                        ApplyQualityModelSampler(gd);
                         gd.DrawInstancedPrimitives(
                             PrimitiveType.TriangleList,
                             0,

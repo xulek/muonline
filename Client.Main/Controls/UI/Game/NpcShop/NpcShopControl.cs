@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Client.Main;
 using Client.Main.Content;
 using Client.Main.Controllers;
@@ -8,6 +9,7 @@ using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Game.Hud;
 using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Controls.UI;
 using Client.Main.Models;
@@ -33,45 +35,47 @@ namespace Client.Main.Controls.UI.Game
         // WINDOW DIMENSIONS
         // ═══════════════════════════════════════════════════════════════
         private const int SHOP_COLUMNS = 8;
-        private const int SHOP_ROWS = 15;
+        private static bool IsSeason6 => UiThemeManager.CurrentId == UiThemeId.Season6;
+        private static int SHOP_ROWS => IsSeason6 ? NpcShopLayout.GridRows : 15;
         private const int SHOP_SQUARE_WIDTH = 32;
         private const int SHOP_SQUARE_HEIGHT = 32;
 
-        private const int HEADER_HEIGHT = 46;
+        private static int HEADER_HEIGHT => IsSeason6 ? NpcShopLayout.DragBarH : 46;
         private const int SECTION_HEADER_HEIGHT = 22;
         private const int GRID_PADDING = 10;
         private const int BUTTON_AREA_HEIGHT = 40;
         private const int FOOTER_HEIGHT = 46;
         private const int WINDOW_MARGIN = 12;
 
-        private static readonly int GRID_WIDTH = SHOP_COLUMNS * SHOP_SQUARE_WIDTH;
-        private static readonly int GRID_HEIGHT = SHOP_ROWS * SHOP_SQUARE_HEIGHT;
-        private static readonly int WINDOW_WIDTH = GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
-        private int WindowHeight => HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + (_isRepairShop ? BUTTON_AREA_HEIGHT : 0) + FOOTER_HEIGHT + WINDOW_MARGIN;
+        private static int GRID_WIDTH => SHOP_COLUMNS * SHOP_SQUARE_WIDTH;
+        private static int GRID_HEIGHT => SHOP_ROWS * SHOP_SQUARE_HEIGHT;
+        private static int WINDOW_WIDTH => IsSeason6
+            ? NpcShopLayout.PanelW
+            : GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
+        private int WindowHeight => IsSeason6
+            ? NpcShopLayout.PanelH
+            : HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + (_isRepairShop ? BUTTON_AREA_HEIGHT : 0) + FOOTER_HEIGHT + WINDOW_MARGIN;
 
         // ═══════════════════════════════════════════════════════════════
         // MODERN DARK THEME
         // ═══════════════════════════════════════════════════════════════
         private static class Theme
         {
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
-
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
-
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
-
-            public static readonly Color SlotBg = new(12, 15, 20, 240);
-            public static readonly Color SlotBorder = new(45, 52, 65, 180);
-            public static readonly Color SlotHover = new(70, 85, 110, 150);
-            public static readonly Color SlotSelected = new(212, 175, 85, 100);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
+            public static Color SlotBg => ModernHudTheme.SlotBg;
+            public static Color SlotBorder => ModernHudTheme.SlotBorder;
+            public static Color SlotHover => ModernHudTheme.SlotHover;
+            public static Color SlotSelected => ModernHudTheme.SlotSelected;
 
             public static readonly Color GlowNormal = new(150, 150, 150, 25);
             public static readonly Color GlowMagic = new(100, 150, 255, 50);
@@ -79,9 +83,9 @@ namespace Client.Main.Controls.UI.Game
             public static readonly Color GlowAncient = new(80, 200, 255, 70);
             public static readonly Color GlowLegendary = new(255, 180, 80, 70);
 
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
         }
 
         private static readonly ItemGlowPalette GlowPalette = new(
@@ -111,6 +115,14 @@ namespace Client.Main.Controls.UI.Game
 
         private RenderTarget2D _staticSurface;
         private bool _staticSurfaceDirty = true;
+
+        private Texture2D _s6Panel;
+        private Texture2D _s6Rect;
+        private Texture2D _s6DarkCard;
+        private Texture2D _s6GridRow;
+        private Texture2D _s6Close;
+        private Texture2D _s6ButtonGold;
+        private Task _season6AssetsTask;
 
         private SpriteFont _font;
         private CharacterState _characterState;
@@ -180,6 +192,31 @@ namespace Client.Main.Controls.UI.Game
 
         private void BuildLayoutMetrics()
         {
+            if (IsSeason6)
+            {
+                _headerRect = new Rectangle(0, 0, NpcShopLayout.PanelW, NpcShopLayout.DragBarH);
+                _gridFrameRect = new Rectangle(NpcShopLayout.CardX, NpcShopLayout.CardY,
+                    NpcShopLayout.CardW, NpcShopLayout.CardH);
+                _gridRect = new Rectangle(NpcShopLayout.GridX, NpcShopLayout.GridY,
+                    NpcShopLayout.GridCols * SHOP_SQUARE_WIDTH,
+                    NpcShopLayout.GridRows * SHOP_SQUARE_HEIGHT);
+                _buttonAreaRect = _isRepairShop
+                    ? new Rectangle(NpcShopLayout.RepairButtonX, NpcShopLayout.RepairButtonY,
+                        NpcShopLayout.RepairButtonW * 2 + NpcShopLayout.RepairButtonGap,
+                        NpcShopLayout.RepairButtonH)
+                    : Rectangle.Empty;
+                _footerRect = new Rectangle(0, NpcShopLayout.FooterY,
+                    NpcShopLayout.PanelW, NpcShopLayout.FooterH);
+                _closeButtonRect = new Rectangle(NpcShopLayout.CloseX, NpcShopLayout.CloseY,
+                    NpcShopLayout.CloseW, NpcShopLayout.CloseH);
+                _repairButtonRect = new Rectangle(NpcShopLayout.RepairButtonX, NpcShopLayout.RepairButtonY,
+                    NpcShopLayout.RepairButtonW, NpcShopLayout.RepairButtonH);
+                _repairAllButtonRect = new Rectangle(
+                    NpcShopLayout.RepairButtonX + NpcShopLayout.RepairButtonW + NpcShopLayout.RepairButtonGap,
+                    NpcShopLayout.RepairButtonY, NpcShopLayout.RepairButtonW, NpcShopLayout.RepairButtonH);
+                return;
+            }
+
             int buttonAreaHeight = _isRepairShop ? BUTTON_AREA_HEIGHT : 0;
 
             _headerRect = new Rectangle(0, 0, WINDOW_WIDTH, HEADER_HEIGHT);
@@ -215,6 +252,32 @@ namespace Client.Main.Controls.UI.Game
         {
             await base.Load();
             _font = GraphicsManager.Instance.Font;
+            if (IsSeason6)
+                await EnsureSeason6AssetsAsync();
+            InvalidateStaticSurface();
+        }
+
+        public Task EnsureSeason6AssetsAsync()
+        {
+            if (!IsSeason6)
+                return Task.CompletedTask;
+            return _season6AssetsTask ??= LoadSeason6AssetsAsync();
+        }
+
+        private async Task LoadSeason6AssetsAsync()
+        {
+            async Task<Texture2D> Load(string path, string fallback = null)
+            {
+                try { return await UiThemeManager.LoadThemeTextureAsync(path, fallback); }
+                catch { return null; }
+            }
+
+            _s6Panel = await Load("Interface/Imprint/imprint_panel.OZP", "Interface/GFx/NpcShop_I3.ozd");
+            _s6Rect = await Load("Interface/Inventory/inv_rect.OZP");
+            _s6DarkCard = await Load("Interface/Imprint/imprint_dark_card.OZP");
+            _s6GridRow = await Load("Interface/Inventory/inv_grid_row.OZP");
+            _s6Close = await Load("Interface/Imprint/imprint_close.OZP", "Interface/newui_exit_00.tga");
+            _s6ButtonGold = await Load("Interface/Inventory/inv_btn_gold.OZP");
             InvalidateStaticSurface();
         }
 
@@ -534,10 +597,42 @@ namespace Client.Main.Controls.UI.Game
 
         private void InvalidateStaticSurface() => _staticSurfaceDirty = true;
 
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            BuildLayoutMetrics();
+            ControlSize = new Point(WINDOW_WIDTH, WindowHeight);
+            ViewSize = ControlSize;
+            if (Visible)
+                ForceAlignNow();
+            if (IsSeason6)
+            {
+                _season6AssetsTask = null;
+                _ = EnsureSeason6AssetsAsync();
+            }
+            else
+            {
+                _s6Panel = null;
+                _s6Rect = null;
+                _s6DarkCard = null;
+                _s6GridRow = null;
+                _s6Close = null;
+                _s6ButtonGold = null;
+                _season6AssetsTask = null;
+            }
+            InvalidateStaticSurface();
+        }
+
         private void DrawStaticElements(SpriteBatch spriteBatch)
         {
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null) return;
+
+            if (IsSeason6)
+            {
+                DrawSeason6StaticElements(spriteBatch);
+                return;
+            }
 
             var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WindowHeight);
             DrawWindowBackground(spriteBatch, fullRect);
@@ -545,6 +640,82 @@ namespace Client.Main.Controls.UI.Game
             DrawModernGridSection(spriteBatch);
             DrawModernButtonArea(spriteBatch);
             DrawModernFooter(spriteBatch);
+        }
+
+        private void DrawSeason6StaticElements(SpriteBatch spriteBatch)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WindowHeight);
+            if (IsUsableTexture(_s6Panel))
+                spriteBatch.Draw(_s6Panel, fullRect, Color.White);
+            else
+                DrawWindowBackground(spriteBatch, fullRect);
+
+            if (_font != null)
+            {
+                string title = "Merchant";
+                float scale = 13f / 25f;
+                Vector2 size = _font.MeasureString(title) * scale;
+                Vector2 pos = new((WINDOW_WIDTH - size.X) / 2f, 65f - size.Y / 2f);
+                spriteBatch.DrawString(_font, title, pos + Vector2.One, Color.Black * 0.6f,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_font, title, pos, Theme.TextWhite,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            }
+
+            if (IsUsableTexture(_s6DarkCard))
+                spriteBatch.Draw(_s6DarkCard, _gridFrameRect, Color.White);
+            if (IsUsableTexture(_s6Rect))
+                DrawNineSlice(spriteBatch, _s6Rect, _gridFrameRect);
+            else if (!IsUsableTexture(_s6DarkCard))
+                DrawPanel(spriteBatch, _gridFrameRect, Theme.BgMid);
+
+            if (IsUsableTexture(_s6GridRow))
+            {
+                for (int row = 0; row < SHOP_ROWS; row++)
+                {
+                    var rowRect = new Rectangle(_gridRect.X, _gridRect.Y + row * SHOP_SQUARE_HEIGHT,
+                        _gridRect.Width, SHOP_SQUARE_HEIGHT);
+                    spriteBatch.Draw(_s6GridRow, rowRect, Color.White);
+                }
+            }
+            else
+            {
+                spriteBatch.Draw(pixel, _gridRect, Theme.SlotBg);
+                for (int x = 1; x < SHOP_COLUMNS; x++)
+                    spriteBatch.Draw(pixel, new Rectangle(_gridRect.X + x * SHOP_SQUARE_WIDTH, _gridRect.Y, 1, _gridRect.Height), Theme.SlotBorder);
+                for (int y = 1; y < SHOP_ROWS; y++)
+                    spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y + y * SHOP_SQUARE_HEIGHT, _gridRect.Width, 1), Theme.SlotBorder);
+            }
+
+            if (IsUsableTexture(_s6ButtonGold))
+                spriteBatch.Draw(_s6ButtonGold, new Rectangle(48, 640, 220, 49), Color.White);
+        }
+
+        private static bool IsUsableTexture(Texture2D texture)
+            => texture != null && !texture.IsDisposed;
+
+        private static void DrawNineSlice(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, int margin = 8)
+        {
+            if (!IsUsableTexture(texture) || destination.Width <= margin * 2 || destination.Height <= margin * 2)
+            {
+                if (IsUsableTexture(texture)) spriteBatch.Draw(texture, destination, Color.White);
+                return;
+            }
+
+            int sw = texture.Width - margin * 2;
+            int sh = texture.Height - margin * 2;
+            int dw = destination.Width - margin * 2;
+            int dh = destination.Height - margin * 2;
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y, margin, margin), new Rectangle(0, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y, margin, margin), new Rectangle(texture.Width - margin, 0, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Bottom - margin, margin, margin), new Rectangle(0, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Bottom - margin, margin, margin), new Rectangle(texture.Width - margin, texture.Height - margin, margin, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y, dw, margin), new Rectangle(margin, 0, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Bottom - margin, dw, margin), new Rectangle(margin, texture.Height - margin, sw, margin), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y + margin, margin, dh), new Rectangle(0, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y + margin, margin, dh), new Rectangle(texture.Width - margin, margin, margin, sh), Color.White);
+            spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y + margin, dw, dh), new Rectangle(margin, margin, sw, sh), Color.White);
         }
 
         private void DrawModernHeader(SpriteBatch spriteBatch)
@@ -705,6 +876,11 @@ namespace Client.Main.Controls.UI.Game
             if (pixel == null) return;
 
             var rect = Translate(_closeButtonRect);
+            if (IsSeason6 && IsUsableTexture(_s6Close))
+            {
+                spriteBatch.Draw(_s6Close, rect, Color.White);
+                return;
+            }
             Color btnColor = _closeHovered ? Theme.Accent : Theme.TextGray;
 
             // Draw X symbol
@@ -730,6 +906,9 @@ namespace Client.Main.Controls.UI.Game
 
             foreach (var item in _items)
             {
+                if (item.GridPosition.Y < 0 || item.GridPosition.Y >= SHOP_ROWS)
+                    continue;
+
                 var rect = new Rectangle(
                     gridOrigin.X + item.GridPosition.X * SHOP_SQUARE_WIDTH,
                     gridOrigin.Y + item.GridPosition.Y * SHOP_SQUARE_HEIGHT,
@@ -955,6 +1134,9 @@ namespace Client.Main.Controls.UI.Game
 
             foreach (var item in _items)
             {
+                if (item.GridPosition.Y < 0 || item.GridPosition.Y >= SHOP_ROWS)
+                    continue;
+
                 var rect = new Rectangle(
                     gridOrigin.X + item.GridPosition.X * SHOP_SQUARE_WIDTH,
                     gridOrigin.Y + item.GridPosition.Y * SHOP_SQUARE_HEIGHT,
@@ -1190,8 +1372,6 @@ namespace Client.Main.Controls.UI.Game
 
             InvalidateStaticSurface();
 
-            // TODO: Notify inventory control of mode change
-            // InventoryControl.Instance?.SetRepairMode(_shopMode == ShopMode.Repair);
         }
 
     }

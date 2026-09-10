@@ -8,6 +8,7 @@ using System;
 using System.Linq;
 using System.Text;
 using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controllers;
 
 namespace Client.Main.Controls.UI
@@ -20,44 +21,44 @@ namespace Client.Main.Controls.UI
         private static class Theme
         {
             // Background layers (5 levels for depth)
-            public static readonly Color BgDarkest = new(8, 10, 14, 252);
-            public static readonly Color BgDark = new(16, 20, 26, 250);
-            public static readonly Color BgMid = new(24, 30, 38, 248);
-            public static readonly Color BgLight = new(35, 42, 52, 245);
-            public static readonly Color BgLighter = new(48, 56, 68, 240);
+            public static Color BgDarkest => ModernHudTheme.BgDarkest;
+            public static Color BgDark => ModernHudTheme.BgDark;
+            public static Color BgMid => ModernHudTheme.BgMid;
+            public static Color BgLight => ModernHudTheme.BgLight;
+            public static Color BgLighter => ModernHudTheme.BgLighter;
 
             // Primary Accent - Warm Gold (MU signature color)
-            public static readonly Color Accent = new(212, 175, 85);
-            public static readonly Color AccentBright = new(255, 215, 120);
-            public static readonly Color AccentDim = new(140, 115, 55);
-            public static readonly Color AccentGlow = new(255, 200, 80, 40);
+            public static Color Accent => ModernHudTheme.Accent;
+            public static Color AccentBright => ModernHudTheme.AccentBright;
+            public static Color AccentDim => ModernHudTheme.AccentDim;
+            public static Color AccentGlow => ModernHudTheme.AccentGlow;
 
             // Secondary accent - Cool Blue (optional)
-            public static readonly Color Secondary = new(90, 140, 200);
-            public static readonly Color SecondaryBright = new(130, 180, 240);
-            public static readonly Color SecondaryDim = new(50, 80, 120);
+            public static Color Secondary => ModernHudTheme.Secondary;
+            public static Color SecondaryBright => ModernHudTheme.SecondaryBright;
+            public static Color SecondaryDim => ModernHudTheme.SecondaryDim;
 
             // Borders (3 levels)
-            public static readonly Color BorderOuter = new(5, 6, 8, 255);
-            public static readonly Color BorderInner = new(60, 70, 85, 200);
-            public static readonly Color BorderHighlight = new(100, 110, 130, 120);
+            public static Color BorderOuter => ModernHudTheme.BorderOuter;
+            public static Color BorderInner => ModernHudTheme.BorderInner;
+            public static Color BorderHighlight => ModernHudTheme.BorderHighlight;
 
             // Interactive Elements
-            public static readonly Color SlotBg = new(12, 15, 20, 240);
-            public static readonly Color SlotBorder = new(45, 52, 65, 180);
-            public static readonly Color SlotHover = new(70, 85, 110, 150);
-            public static readonly Color SlotSelected = new(212, 175, 85, 100);
+            public static Color SlotBg => ModernHudTheme.SlotBg;
+            public static Color SlotBorder => ModernHudTheme.SlotBorder;
+            public static Color SlotHover => ModernHudTheme.SlotHover;
+            public static Color SlotSelected => ModernHudTheme.SlotSelected;
 
             // Text (4 levels)
-            public static readonly Color TextWhite = new(240, 240, 245);
-            public static readonly Color TextGold = new(255, 220, 130);
-            public static readonly Color TextGray = new(160, 165, 175);
-            public static readonly Color TextDark = new(100, 105, 115);
+            public static Color TextWhite => ModernHudTheme.TextWhite;
+            public static Color TextGold => ModernHudTheme.TextGold;
+            public static Color TextGray => ModernHudTheme.TextGray;
+            public static Color TextDark => ModernHudTheme.TextDark;
 
             // Status colors
-            public static readonly Color Success = new(80, 200, 120);
-            public static readonly Color Warning = new(240, 180, 60);
-            public static readonly Color Danger = new(220, 80, 80);
+            public static Color Success => ModernHudTheme.Success;
+            public static Color Warning => ModernHudTheme.Warning;
+            public static Color Danger => ModernHudTheme.Danger;
         }
 
         private const int BASE_BG_WIDTH = 352;
@@ -395,6 +396,29 @@ namespace Client.Main.Controls.UI
         }
 
         private void InvalidateStaticSurface() => _staticSurfaceDirty = true;
+
+        protected override void OnThemeChanged(UiThemeChangedEventArgs e)
+        {
+            base.OnThemeChanged(e);
+            _label.TextColor = Theme.TextWhite;
+            _acceptButton.BackgroundColor = Theme.BgDarkest;
+            _acceptButton.HoverBackgroundColor = Color.Lerp(Theme.BgLight, Theme.AccentDim, 0.35f);
+            _acceptButton.PressedBackgroundColor = Color.Lerp(Theme.BgDarkest, Theme.AccentDim, 0.55f);
+            _acceptButton.BorderColor = Theme.BorderInner;
+            _acceptButton.TextColor = Theme.TextWhite;
+            _acceptButton.HoverTextColor = Theme.TextGold;
+            _acceptButton.DisabledTextColor = Theme.TextDark;
+            _rejectButton.BackgroundColor = Theme.BgDarkest;
+            _rejectButton.HoverBackgroundColor = Color.Lerp(Theme.BgLight, Theme.Danger, 0.25f);
+            _rejectButton.PressedBackgroundColor = Color.Lerp(Theme.BgDarkest, Theme.Danger, 0.45f);
+            _rejectButton.BorderColor = Theme.BorderInner;
+            _rejectButton.TextColor = Theme.TextWhite;
+            _rejectButton.HoverTextColor = Theme.TextGold;
+            _rejectButton.DisabledTextColor = Theme.TextDark;
+            UpdateWrappedText();
+            AdjustSizeAndLayout();
+            InvalidateStaticSurface();
+        }
 
         private void DrawStaticElements(SpriteBatch sb)
         {

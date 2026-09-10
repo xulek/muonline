@@ -9,6 +9,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Client.Main.Worlds
 {
@@ -18,6 +21,10 @@ namespace Client.Main.Worlds
         private readonly Vector3 _characterDisplayAngle = new(0, 0, MathHelper.ToRadians(90));
         private ILogger<SelectWorld> _logger;
         private CharacterSelectionController _controller;
+        private readonly SemaphoreSlim _faceLoadGate = new(1, 1);
+        private CreateRoleFaceObject _faceModel;
+        private int _faceRequestVersion;
+        private bool _showingCreateRoleFace;
 
         public Vector3 CharacterDisplayPosition => _characterDisplayPosition;
         public Vector3 CharacterDisplayAngle => _characterDisplayAngle;
@@ -42,6 +49,104 @@ namespace Client.Main.Worlds
         public void SetController(CharacterSelectionController controller)
         {
             _controller = controller;
+        }
+
+        /// <summary>
+        /// Shows the selected class model in front of the selection-world camera.
+        /// Requests are serialized so rapid class changes cannot rebuild the same object
+        /// concurrently or publish an older class after a newer selection.
+        /// </summary>
+        public async Task ShowCreateRoleFace(string modelName)
+        {
+            if (string.IsNullOrWhiteSpace(modelName))
+            {
+                Interlocked.Increment(ref _faceRequestVersion);
+                _showingCreateRoleFace = true;
+                if (_faceModel != null)
+                    _faceModel.Hidden = true;
+                return;
+            }
+
+            int requestVersion = Interlocked.Increment(ref _faceRequestVersion);
+            await _faceLoadGate.WaitAsync();
+            try
+            {
+                if (requestVersion != Volatile.Read(ref _faceRequestVersion))
+                    return;
+
+                _showingCreateRoleFace = true;
+                Vector3 anchor = GetCreateRoleFaceAnchor();
+
+                if (_faceModel == null)
+                {
+                    var face = new CreateRoleFaceObject
+                    {
+                        World = this,
+                        Hidden = true
+                    };
+
+                    try
+                    {
+                        await face.SetClass(modelName, anchor);
+                        if (requestVersion != Volatile.Read(ref _faceRequestVersion) ||
+                            face.Status != GameControlStatus.Ready)
+                        {
+                            face.Dispose();
+                            return;
+                        }
+
+                        Objects.Add(face);
+                        _faceModel = face;
+                    }
+                    catch (Exception ex)
+                    {
+                        face.Dispose();
+                        _logger.LogWarning(ex, "Unable to load character creation preview {Model}.", modelName);
+                        return;
+                    }
+                }
+                else
+                {
+                    _faceModel.Hidden = true;
+                    await _faceModel.SetClass(modelName, anchor);
+                }
+
+                if (requestVersion != Volatile.Read(ref _faceRequestVersion) ||
+                    _faceModel == null || _faceModel.Status != GameControlStatus.Ready)
+                    return;
+
+                _faceModel.Hidden = false;
+                ActivateObjectForRendering(_faceModel, forceFullVisibilityRebuild: true);
+            }
+            finally
+            {
+                _faceLoadGate.Release();
+            }
+        }
+
+        public void HideCreateRoleFace()
+        {
+            Interlocked.Increment(ref _faceRequestVersion);
+            _showingCreateRoleFace = false;
+            if (_faceModel != null)
+                _faceModel.Hidden = true;
+        }
+
+        public void BeginCreateRoleFace()
+        {
+            _showingCreateRoleFace = true;
+        }
+
+        private Vector3 GetCreateRoleFaceAnchor()
+        {
+            var camera = Camera.Instance;
+            Vector3 forward = camera.Target - camera.Position;
+            if (forward.LengthSquared() < 0.001f)
+                return _characterDisplayPosition;
+
+            forward.Normalize();
+            Vector3 left = Vector3.Normalize(Vector3.Cross(Vector3.UnitZ, forward));
+            return camera.Position + forward * 900f + left * 60f;
         }
 
         protected override void CreateMapTileObjects()
@@ -81,7 +186,7 @@ namespace Client.Main.Worlds
 
             // Keep the selected cinematic actor published even if a body-part model swap
             // or first-frame recovery temporarily invalidated its visibility.
-            if (Status == GameControlStatus.Ready && _controller != null)
+            if (Status == GameControlStatus.Ready && _controller != null && !_showingCreateRoleFace)
             {
                 _controller.EnsureActiveCharacterVisible(this);
 

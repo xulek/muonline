@@ -36,6 +36,15 @@ namespace Client.Main.Objects.Monsters
                 Position = new Vector3(0f, 0f, 55f)
             };
             Children.Add(_torsoFireAura);
+
+            // SourceMain5.2 MoveCharacterVisual MODEL_DEATH_KNIGHT: rand_fps_check(2)
+            // BITMAP_FIRE particle from bone 2 (~12.5 emissions/s at the 25 FPS reference).
+            Children.Add(new MonsterBoneFireEffect
+            {
+                SourceBone = 2,
+                EmissionRate = 12.5f,
+                StopOnDeath = true
+            });
         }
 
         public override async Task Load()
@@ -68,6 +77,11 @@ namespace Client.Main.Objects.Monsters
                 return;
 
             BlendMesh = 3;
+            // SourceMain5.2 MoveCharacterVisual MODEL_DEATH_KNIGHT: flowing texture on mesh 3.
+            TextureCoordinateOffsetMeshIndex = BlendMesh;
+            TextureCoordinateOffset = new Vector2(
+                0f,
+                -((long)gameTime.TotalGameTime.TotalMilliseconds % 1000L) * 0.001f);
         }
 
         // Sound mapping based on C++ SetMonsterSound(MODEL_MONSTER01 + Type, 118, 119, 120, 121, 122);

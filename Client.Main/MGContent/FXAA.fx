@@ -3,26 +3,27 @@
 // - DesktopGL/OpenGL: sampler2D/tex2D + ps_3_0
 
 float2 Resolution;
+float4x4 WorldViewProjection;
 
 #if SM4 || SM6
 // -------------------- DX11 / WindowsDX --------------------
 Texture2D SceneTexture : register(t0);
 SamplerState LinearClamp : register(s0)
 {
-    Filter   = Point;
+    Filter   = Linear;
     AddressU = Clamp;
     AddressV = Clamp;
 };
 
 #define SAMPLE(uv) SceneTexture.Sample(LinearClamp, (uv))
 
-struct VS_IN  { float3 Pos:POSITION0; float2 Tex:TEXCOORD0; };
+struct VS_IN  { float4 Pos:POSITION0; float2 Tex:TEXCOORD0; };
 struct VS_OUT { float4 Pos:SV_POSITION; float2 Tex:TEXCOORD0; };
 
 VS_OUT VS_Pass(VS_IN v)
 {
     VS_OUT o;
-    o.Pos = float4(v.Pos, 1);
+    o.Pos = mul(v.Pos, WorldViewProjection);
     o.Tex = v.Tex;
     return o;
 }
@@ -106,7 +107,7 @@ struct VS_OUT { float4 Pos:POSITION0; float2 Tex:TEXCOORD0; };
 VS_OUT VS_Pass(VS_IN v)
 {
     VS_OUT o;
-    o.Pos = v.Pos;
+    o.Pos = mul(v.Pos, WorldViewProjection);
     o.Tex = v.Tex;
     return o;
 }

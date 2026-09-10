@@ -8,7 +8,8 @@ namespace Client.Main.Objects.Monsters.BloodCastle
     {
         public OrcSoldierOfDoom()
         {
-            Scale = 1.7f;
+            Scale = 1.3f; // SourceMain5.2 CreateMonster: c->Object.Scale = 1.3f
+            HiddenMesh = 2; // SourceMain5.2 CreateMonster: o->HiddenMesh = 2
         }
 
         public override async Task Load()
