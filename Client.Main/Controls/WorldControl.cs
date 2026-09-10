@@ -792,11 +792,12 @@ namespace Client.Main.Controls
                $"WorldObject.RemoveFailed.{obj.GetType().Name}.{obj.NetworkId:X4}");
         }
 
-        public override void Draw(GameTime time)
+        private int _preparedShadowFrame = int.MinValue;
+
+        internal void PrepareShadowMapForDraw()
         {
             if (Status != GameControlStatus.Ready) return;
-
-            OverheadNameplateRenderer.BeginFrame();
+            _preparedShadowFrame = MuGame.FrameIndex;
 
             // Build shadow map before any scene drawing. A newly published modular actor can
             // still expose a bad shader/buffer combination; contain that pass so it cannot
@@ -818,6 +819,19 @@ namespace Client.Main.Controls
                     RenderPassProfiler.AddShadow(shadowStarted);
                 }
             }
+        }
+
+        public override void Draw(GameTime time)
+        {
+            if (Status != GameControlStatus.Ready) return;
+
+            OverheadNameplateRenderer.BeginFrame();
+
+            // GameScene prepares shadows before binding its scaled/MSAA scene target.
+            // Other callers retain the original preparation immediately before drawing.
+            if (_preparedShadowFrame != MuGame.FrameIndex)
+                PrepareShadowMapForDraw();
+            _preparedShadowFrame = int.MinValue;
 
             var worldBaseStarted = RenderPassProfiler.Start();
             try

@@ -210,14 +210,14 @@ namespace Client.Main.Graphics
 
             // Geometry versions are world-local and coalesced per render cycle. Refresh the
             // bounded local selection only when the active world actually changed.
-            if (_forceRender || lightViewChanged || worldGeometryChanged || !_casterSelectionValid)
+            // A changed light view already requires a redraw. Select once, below, after
+            // committing its matrix instead of querying/sorting candidates twice.
+            if (!_forceRender && !lightViewChanged && (worldGeometryChanged || !_casterSelectionValid))
             {
-                // Until the new light matrix is committed, the previous light frustum cannot
-                // safely reject candidates after a camera or sun-direction change.
-                BuildCasterSelection(world, camera, shadowDistance, frustumGuardBand, lightViewChanged);
+                BuildCasterSelection(world, camera, shadowDistance, frustumGuardBand, skipLightFrustum: false);
                 _lastWorldGeometryVersion = worldGeometryVersion;
             }
-            else
+            else if (!_forceRender && !lightViewChanged)
             {
                 // Animation and rotation changes do not necessarily increment the world's
                 // spatial geometry tick. Rehash only the already bounded caster list so
@@ -258,6 +258,7 @@ namespace Client.Main.Graphics
             if (rebuildSelectionForNewLightView)
             {
                 BuildCasterSelection(world, camera, shadowDistance, frustumGuardBand, skipLightFrustum: false);
+                _lastWorldGeometryVersion = worldGeometryVersion;
             }
             _lastCameraPosition = camera.Position;
             _lastCameraTarget = camera.Target;

@@ -27,10 +27,12 @@ namespace Client.Main.Objects
             BoundingBoxColor = Color.Red;
         }
 
-        public override async Task Load()
+        public override async Task LoadContent()
         {
-            await base.Load();
+            await base.LoadContent();
 
+            // Complete the GPU upload before WorldObject.Load publishes Ready. A short
+            // lived sprite must not age/dispose while its first texture is still loading.
             SpriteTexture = await TextureLoader.Instance.PrepareAndGetTexture(TexturePath);
             TextureData = TextureLoader.Instance.Get(TexturePath);
 
@@ -40,7 +42,7 @@ namespace Client.Main.Objects
             }
             else
             {
-                Status = Models.GameControlStatus.Error;
+                throw new InvalidOperationException($"Unable to load sprite texture '{TexturePath}'.");
             }
         }
 

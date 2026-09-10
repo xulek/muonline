@@ -222,47 +222,62 @@ namespace Client.Main.Controllers
                     return;
                 }
 
-                if (ShouldThrottleOneShot(fullPath, scaledVolume))
-                {
-                    return;
-                }
-
-                SoundEffect sfx = GetCachedOrBeginLoad(fullPath);
-                if (sfx == null || sfx.IsDisposed)
-                    return;
-
-                try
-                {
-                    sfx.Play(scaledVolume, 0.0f, 0.0f);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogDebug($"[PlayEffectWithAttenuation] Error playing sound '{relativePath}': {ex.Message}");
-                }
+                PlayOneShot(fullPath, volume, throttle: true);
             }
         }
 
         public void PlayBuffer(string relativePath)
         {
-            if (!Constants.SOUND_EFFECTS) return;
+            if (!Constants.SOUND_EFFECTS || string.IsNullOrEmpty(relativePath)) return;
 
             string fullPath = Path.Combine(Constants.DataPath, relativePath);
-            SoundEffect sfx = GetCachedOrBeginLoad(fullPath);
-            if (sfx == null || sfx.IsDisposed)
-                return;
+            PlayOneShot(fullPath, 1f, throttle: false);
+        }
 
+        private void PlayOneShot(string fullPath, float attenuation, bool throttle)
+        {
+            if (_disposed || Constants.SOUND_EFFECTS_VOLUME <= 0) return;
+            SoundEffect cached = GetCachedSoundEffect(fullPath.ToLowerInvariant());
+            if (cached != null)
+            {
+                PlayLoadedOneShot(cached, fullPath, attenuation, throttle);
+                return;
+            }
+
+            // A cache miss must retain the play request, not just warm the next cast.
+            _ = PlayOneShotAfterLoadAsync(fullPath, attenuation, throttle, Volatile.Read(ref _cacheGeneration));
+        }
+
+        private async Task PlayOneShotAfterLoadAsync(string fullPath, float attenuation, bool throttle, int generation)
+        {
             try
             {
-                var volume = MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
-                if (volume <= 0f)
+                SoundEffect sound = await LoadSoundEffectDataAsync(fullPath).ConfigureAwait(false);
+                if (sound == null) return;
+                MuGame.ScheduleOnMainThread(() =>
                 {
-                    return;
-                }
-                sfx.Play(volume, 0.0f, 0.0f);
+                    if (!_disposed && generation == Volatile.Read(ref _cacheGeneration))
+                        PlayLoadedOneShot(sound, fullPath, attenuation, throttle);
+                }, MainThreadDispatcher.WorkPriority.High, "SoundController.PlayLoadedOneShot");
             }
             catch (Exception ex)
             {
-                _logger?.LogDebug($"[PlayEffect] Error playing sound '{relativePath}': {ex.Message}");
+                _logger?.LogDebug(ex, "Unable to load one-shot sound {Path}", fullPath);
+            }
+        }
+
+        private void PlayLoadedOneShot(SoundEffect sound, string fullPath, float attenuation, bool throttle)
+        {
+            if (_disposed || !Constants.SOUND_EFFECTS || sound.IsDisposed) return;
+            float volume = MathHelper.Clamp(attenuation * Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
+            if (volume <= 0f || (throttle && ShouldThrottleOneShot(fullPath, volume))) return;
+            try
+            {
+                sound.Play(volume, 0f, 0f);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Unable to play one-shot sound {Path}", fullPath);
             }
         }
 

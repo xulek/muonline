@@ -35,6 +35,7 @@ namespace Client.Main.Objects
         private GameControlStatus _status = GameControlStatus.NonInitialized;
         private int _disposeRequested;
         private int _loadInProgress;
+        private Task _loadTask;
 
         private ILogger _logger = ModelObject.AppLoggerFactory?.CreateLogger<WorldObject>();
 
@@ -140,6 +141,7 @@ namespace Client.Main.Objects
 
             Interlocked.Exchange(ref _disposeRequested, 0);
             Interlocked.Exchange(ref _loadInProgress, 0);
+            _loadTask = null;
             Status = GameControlStatus.NonInitialized;
             return true;
         }
@@ -210,14 +212,25 @@ namespace Client.Main.Objects
             OnStatusChanged();
         }
 
-        public virtual async Task Load()
+        public virtual Task Load()
         {
             if (IsDisposeRequested || Status == GameControlStatus.Disposed)
-                return;
+                return Task.CompletedTask;
+
+            // The spawn path and the world's queued initializer can both request Load.
+            // Join the existing operation: returning early while it is still initializing
+            // makes the world mistake a cold-loading skill effect for a failed object.
+            if (_loadTask != null && !_loadTask.IsCompleted)
+                return _loadTask;
 
             if (Status != GameControlStatus.NonInitialized)
-                return;
+                return Task.CompletedTask;
 
+            return _loadTask = LoadCoreAsync();
+        }
+
+        private async Task LoadCoreAsync()
+        {
             Interlocked.Exchange(ref _loadInProgress, 1);
             try
             {

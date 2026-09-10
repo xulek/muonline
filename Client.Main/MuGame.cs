@@ -1658,6 +1658,13 @@ namespace Client.Main
             var world = ActiveScene?.World;
             long renderFailureSequence = world?.FrameMetrics.LastRenderFailureSequence ?? 0;
 
+            // Finish off-screen shadows before touching the (potentially supersampled,
+            // multisampled) scene. Switching away mid-scene resolves MSAA and preserves
+            // the entire color/depth target just to resume it immediately afterward.
+            _currentDrawPhase = "Scene.ShadowMap";
+            if (ActiveScene is GameScene gameScene)
+                gameScene.PrepareShadowMapForDraw();
+
             GraphicsDevice.SetRenderTarget(GraphicsManager.Instance.MainRenderTarget);
 
             // Always start the current image from the canonical scene background. Keeping
@@ -1775,7 +1782,7 @@ namespace Client.Main
         private void DrawFinalImageToScreen(RenderTarget2D sourceTarget)
         {
             GraphicsDevice.SetRenderTarget(null);
-            GraphicsDevice.Clear(FallbackClearColor);
+            // Opaque presentation covers every pixel, including when render scale differs.
 
             Effect gammaEffect = Constants.MSAA_ENABLED ? GraphicsManager.Instance.GammaCorrectionEffect : null;
 

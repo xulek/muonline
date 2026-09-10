@@ -948,6 +948,17 @@ namespace Client.Main.Scenes
         }
 
         // ─────────────────────────── Draw Loop ───────────────────────────
+        private bool IsWorldReadyToDraw => !_initialWorldLoadInProgress &&
+            _mapController?.IsChangingWorld != true && _pendingWorldActivation == null &&
+            !_initialWorldActivationCooldown && World != null && World.Visible &&
+            World.Status == GameControlStatus.Ready;
+
+        internal void PrepareShadowMapForDraw()
+        {
+            if (_sceneShellInitialized && IsWorldReadyToDraw)
+                World.PrepareShadowMapForDraw();
+        }
+
         public override void Draw(GameTime gameTime)
         {
             if (!_sceneShellInitialized)
@@ -966,7 +977,7 @@ namespace Client.Main.Scenes
                 return;
             }
 
-            if (_initialWorldLoadInProgress || _mapController?.IsChangingWorld == true || _pendingWorldActivation != null || _initialWorldActivationCooldown || World == null || !World.Visible || World.Status != GameControlStatus.Ready)
+            if (!IsWorldReadyToDraw)
             {
                 GraphicsDevice.Clear(new Color(12, 12, 20));
                 DrawBackground();
