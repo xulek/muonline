@@ -2694,7 +2694,8 @@ namespace Client.Main.Controls.Terrain
                     requiredVertexCount,
                     InitialTileBatchVerts,
                     MaxTileBatchVerts);
-                buffer = new TerrainVertexPositionColorNormalTexture[capacity];
+                // Growth can happen after tiles have already been queued for this draw.
+                Array.Resize(ref buffer, capacity);
                 batches[texIndex] = buffer;
             }
             return buffer;
@@ -2726,7 +2727,8 @@ namespace Client.Main.Controls.Terrain
             if (buffer == null || buffer.Length < requiredCapacity ||
                 (!_buildingPersistentTerrainIndexCache && buffer.Length != TileBatchIndices))
             {
-                buffer = new ushort[requiredCapacity];
+                // Preserve indices already queued while rebuilding the visible terrain cache.
+                Array.Resize(ref buffer, requiredCapacity);
                 batches[texIndex] = buffer;
             }
 

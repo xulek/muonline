@@ -51,6 +51,7 @@ namespace Client.Main.Graphics
         private static readonly Dictionary<SelectionCacheKey, SelectionCacheEntry> _selectionCache = new(512);
         private static int _selectionCacheListId;
         private static int _selectionCacheVersion;
+        private static int _lastSelectionCachePruneFrame = int.MinValue;
         private static readonly List<SelectionCacheKey> _staleSelectionKeys = new(64);
         private sealed class EffectBindings
         {
@@ -80,6 +81,8 @@ namespace Client.Main.Graphics
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static EffectBindings GetBindings(Effect effect) =>
             _effectBindings.GetValue(effect, static value => new EffectBindings(value));
+
+        internal static long GetAppliedSelectionToken(Effect effect) => GetBindings(effect).LastSelectionToken;
 
         private readonly int _fallbackCapacity;
         private readonly float _minInfluence;
@@ -275,9 +278,13 @@ namespace Client.Main.Graphics
 
         private static void PruneSelectionCache(int frame)
         {
-            if (_selectionCache.Count <= MaxSelectionCacheEntries && frame % 120 != 0)
+            // Every new cell calls this method. Scan idle entries only once on a cleanup
+            // frame, but always enforce the capacity limit, even again in the same frame.
+            if (_selectionCache.Count <= MaxSelectionCacheEntries &&
+                (frame % 120 != 0 || _lastSelectionCachePruneFrame == frame))
                 return;
 
+            _lastSelectionCachePruneFrame = frame;
             _staleSelectionKeys.Clear();
             foreach (var pair in _selectionCache)
             {

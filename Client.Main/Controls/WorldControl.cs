@@ -173,6 +173,7 @@ namespace Client.Main.Controls
         private readonly List<ModelObject> _dedicatedStaticMapObjects = [];
         private readonly List<ModelObject> _queuedDedicatedStaticMapObjects = [];
         private readonly List<ModelObject> _queuedSolidStaticMapObjects = [];
+        private readonly ModelObject.CutoutMapBatch _cutoutMapBatch = new();
         private readonly List<ModelObject> _queuedCrowdSidePasses = [];
         private readonly List<WalkerObject> _walkers = [];
         private readonly List<PlayerObject> _players = [];
@@ -1751,14 +1752,21 @@ namespace Client.Main.Controls
                 SetDepthState(ResolveObjectDepthState(obj, state));
                 try
                 {
+                    if (obj is ModelObject cutout && _cutoutMapBatch.TryQueue(cutout, time))
+                        continue;
+
+                    _cutoutMapBatch.Flush(time);
                     obj.DrawAfter(time);
                     ClearRenderFault(obj, "DrawAfter");
                 }
                 catch (Exception ex)
                 {
+                    _cutoutMapBatch.Flush(time);
                     RecordRenderFailure(obj, "DrawAfter", ex);
                 }
             }
+
+            _cutoutMapBatch.Flush(time);
 
             if (damageCount <= 0)
                 return;
@@ -2686,6 +2694,7 @@ namespace Client.Main.Controls
 
         public override void Dispose()
         {
+            _cutoutMapBatch.Dispose();
             var sw = Stopwatch.StartNew();
 
             // Dispose can occur after objects were queued for a later instanced flush. Clear
