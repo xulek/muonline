@@ -13,7 +13,7 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
 
-    <RuntimeIdentifier>osx-x64</RuntimeIdentifier>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
     <UseAppHost>true</UseAppHost>
 
     <UseSourceGenerators>true</UseSourceGenerators>
@@ -31,8 +31,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
-    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4.1" />
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.5" />
+    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -78,7 +78,12 @@
     <Error Condition="!Exists('$(PrebuiltContentDir)')"
            Text="[MuMac] Prebuilt content folder not found: $(PrebuiltContentDir). Generate DesktopGL .xnb assets first or build with wine available." />
     <ItemGroup>
-      <RequiredPrebuiltContent Include="$(PrebuiltContentDir)/AlphaRGB.xnb;$(PrebuiltContentDir)/Arial.xnb;$(PrebuiltContentDir)/Background.xnb;$(PrebuiltContentDir)/Bubbles.xnb;$(PrebuiltContentDir)/DynamicLighting.xnb;$(PrebuiltContentDir)/FXAA.xnb;$(PrebuiltContentDir)/GammaCorrection.xnb;$(PrebuiltContentDir)/Grass.xnb;$(PrebuiltContentDir)/ItemMaterial.xnb;$(PrebuiltContentDir)/MonsterMaterial.xnb;$(PrebuiltContentDir)/NotoKR.xnb;$(PrebuiltContentDir)/Shadow.xnb;$(PrebuiltContentDir)/WaterSplashParticle.xnb" />
+      <!-- This list must mirror the /build: entries in Client.Main/MGContent/Content.mgcb.
+           Grass.xnb was listed but is not produced by the content project and is not loaded
+           anywhere; in-game grass comes from Object1/Grass*.bmd in the game data folder.
+           ArialSmall.xnb is produced by the content project and is loaded unconditionally by
+           GraphicsManager when the UI font is Arial, so it belongs in the gate. -->
+      <RequiredPrebuiltContent Include="$(PrebuiltContentDir)/AlphaRGB.xnb;$(PrebuiltContentDir)/Arial.xnb;$(PrebuiltContentDir)/ArialSmall.xnb;$(PrebuiltContentDir)/Background.xnb;$(PrebuiltContentDir)/Bubbles.xnb;$(PrebuiltContentDir)/DynamicLighting.xnb;$(PrebuiltContentDir)/FXAA.xnb;$(PrebuiltContentDir)/GammaCorrection.xnb;$(PrebuiltContentDir)/ItemMaterial.xnb;$(PrebuiltContentDir)/MonsterMaterial.xnb;$(PrebuiltContentDir)/NotoKR.xnb;$(PrebuiltContentDir)/Shadow.xnb;$(PrebuiltContentDir)/WaterSplashParticle.xnb" />
       <MissingPrebuiltContent Include="@(RequiredPrebuiltContent)" Condition="!Exists('%(Identity)')" />
     </ItemGroup>
     <Error Condition="'@(MissingPrebuiltContent)' != ''"
