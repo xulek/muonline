@@ -295,6 +295,12 @@ namespace Client.Main.Objects
             return isBlendMesh ? BlendMeshState : BlendState;
         }
 
+        private static float GetAdditiveAlphaCutoff(BlendState blend) =>
+            blend != null && blend.ColorBlendFunction == BlendFunction.Add &&
+            blend.ColorDestinationBlend == Blend.One &&
+            (blend.ColorSourceBlend == Blend.One || blend.ColorSourceBlend == Blend.SourceAlpha)
+                ? 8f / 255f : 0f;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsMeshTwoSided(int mesh, bool isBlendMesh)
         {
@@ -831,10 +837,10 @@ namespace Client.Main.Objects
                     }
 
                     // Draw all meshes in this state group
-                    // When dynamic lighting is disabled and blend state is non-opaque, force per-mesh path
-                    // to ensure proper DepthStencilState handling and BasicEffect usage for alpha blending
-                    bool forcePerMeshTransparency = !Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
-                                                    stateKey.BlendState != BlendState.Opaque;
+                    // Keep alpha-path transparency per mesh so depth handling and additive
+                    // coverage are applied even when only this model opts out of lighting.
+                    bool forcePerMeshTransparency = stateKey.BlendState != BlendState.Opaque &&
+                        (!Constants.ENABLE_DYNAMIC_LIGHTING_SHADER || stateKey.ShaderKind == MeshShaderKind.AlphaTest);
                     if (!forcePerMeshTransparency &&
                         TryDrawGpuSkinnedMeshBatch(stateKey, meshIndices, isAfterDraw))
                     {
@@ -920,6 +926,8 @@ namespace Client.Main.Objects
                 if (effect?.CurrentTechnique == null)
                     return false;
 
+                GetModelEffectBindings(effect)?.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(stateKey.BlendState));
+
                 if (useReadOnlyDepth)
                     gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
 
@@ -946,6 +954,8 @@ namespace Client.Main.Objects
             }
             finally
             {
+                if (stateKey.ShaderKind == MeshShaderKind.DynamicLighting)
+                    GetModelEffectBindings(GraphicsManager.Instance.DynamicLightingEffect)?.AdditiveAlphaCutoff?.SetValue(0f);
                 if (useReadOnlyDepth)
                     gd.DepthStencilState = previousDepth;
             }
@@ -1401,9 +1411,8 @@ namespace Client.Main.Objects
                     // Cache frequently used values
                     bool isBlendMesh = IsBlendMesh(mesh);
                     BlendState blendState = GetMeshBlendState(mesh, isBlendMesh);
-                    // Always use AlphaTestEffect - it has ReferenceAlpha=2 which discards very low alpha
-                    // pixels similar to DynamicLightingEffect's clip(finalAlpha - 0.01), preventing
-                    // black outlines and depth buffer issues with semi-transparent meshes
+                    // Preserve alpha rejection for transparent meshes; additive RGB textures
+                    // also need source-color coverage rejection below.
                     var vertexBuffer = _meshes[mesh].CpuVertexBuffer;
                     var indexBuffer = _meshes[mesh].CpuIndexBuffer;
                     var texture = _meshes[mesh].Texture;
@@ -1451,10 +1460,35 @@ namespace Client.Main.Objects
                     // Draw with optimized primitive count calculation
                     int primitiveCount = indexBuffer.IndexCount / 3;
 
-                    // Always use AlphaTestEffect - it discards very low alpha pixels (ReferenceAlpha=2)
-                    // similar to DynamicLightingEffect's clip(finalAlpha - 0.01), preventing black
-                    // outlines and depth issues while still allowing proper alpha blending
-                    if (alphaEffect != null)
+                    // RGB light textures need a source-color mask: ordinary alpha testing
+                    // cannot remove their dark background because their alpha is always 1.
+                    var additiveEffect = GraphicsManager.Instance.DynamicLightingEffect;
+                    var additiveTechnique = GetAdditiveAlphaCutoff(blendState) > 0f
+                        ? TryGetTechnique(additiveEffect, "AdditiveAlphaTest") : null;
+                    if (additiveTechnique != null)
+                    {
+                        var bindings = GetModelEffectBindings(additiveEffect);
+                        var previousTechnique = additiveEffect.CurrentTechnique;
+                        try
+                        {
+                            additiveEffect.CurrentTechnique = additiveTechnique;
+                            bindings.World?.SetValue(WorldPosition);
+                            bindings.WorldViewProjection?.SetValue(WorldPosition * Camera.Instance.ViewProjection);
+                            bindings.DiffuseTexture?.SetValue(texture);
+                            bindings.Alpha?.SetValue(TotalAlpha);
+                            bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
+                            bindings.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(blendState));
+                            additiveTechnique.Passes[0].Apply();
+                            ApplyQualityModelSampler(gd);
+                            gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
+                        }
+                        finally
+                        {
+                            bindings.AdditiveAlphaCutoff?.SetValue(0f);
+                            additiveEffect.CurrentTechnique = previousTechnique;
+                        }
+                    }
+                    else if (alphaEffect != null)
                     {
                         alphaEffect.Texture = texture;
                         alphaEffect.Alpha = TotalAlpha;
@@ -1833,6 +1867,7 @@ namespace Client.Main.Objects
                         ? TextureCoordinateOffset
                         : Vector2.Zero;
                     bindings.TextureCoordinateOffset?.SetValue(meshTextureOffset);
+                    bindings.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(blendState));
 
                     // Set texture
                     bindings.DiffuseTexture?.SetValue(texture);
@@ -1853,6 +1888,7 @@ namespace Client.Main.Objects
                 {
                     // Never leave a per-mesh UV offset resident in the shared effect.
                     bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
+                    bindings.AdditiveAlphaCutoff?.SetValue(0f);
                     if (depthStateChanged)
                         gd.DepthStencilState = prevDepthState;
                 }

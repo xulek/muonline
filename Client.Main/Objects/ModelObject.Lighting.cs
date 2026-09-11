@@ -32,6 +32,7 @@ namespace Client.Main.Objects
                 SunStrength = effect.Parameters["SunStrength"];
                 ShadowStrength = effect.Parameters["ShadowStrength"];
                 Alpha = effect.Parameters["Alpha"];
+                AdditiveAlphaCutoff = effect.Parameters["AdditiveAlphaCutoff"];
                 TerrainDynamicIntensityScale = effect.Parameters["TerrainDynamicIntensityScale"];
                 AmbientLight = effect.Parameters["AmbientLight"];
                 DebugLightingAreas = effect.Parameters["DebugLightingAreas"];
@@ -76,6 +77,7 @@ namespace Client.Main.Objects
             public EffectParameter SunStrength { get; }
             public EffectParameter ShadowStrength { get; }
             public EffectParameter Alpha { get; }
+            public EffectParameter AdditiveAlphaCutoff { get; }
             public EffectParameter TerrainDynamicIntensityScale { get; }
             public EffectParameter AmbientLight { get; }
             public EffectParameter DebugLightingAreas { get; }
@@ -279,6 +281,7 @@ namespace Client.Main.Objects
             // Keep its default neutral; the selected mesh applies its offset immediately
             // before drawing and resets it afterward.
             bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
+            bindings.AdditiveAlphaCutoff?.SetValue(0f);
             bindings.TerrainDynamicIntensityScale?.SetValue(1.5f);
             bindings.AmbientLight?.SetValue(_ambientLightVector * SunCycleManager.AmbientMultiplier);
             bindings.DebugLightingAreas?.SetValue(Constants.DEBUG_LIGHTING_AREAS ? 1.0f : 0.0f);

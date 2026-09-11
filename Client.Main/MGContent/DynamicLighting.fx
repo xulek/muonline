@@ -46,6 +46,9 @@ sampler SamplerState0 = sampler_state
 // Lighting parameters  
 UNIFORM_DEFAULT(float3, AmbientLight, float3(0.8, 0.8, 0.8));
 UNIFORM_DEFAULT(float, Alpha, 1.0);
+// Additive RGB/JPG light textures have no alpha channel. Reject their near-black
+// background using source coverage, before lighting or per-object flicker/fading.
+UNIFORM_DEFAULT(float, AdditiveAlphaCutoff, 0.0);
 UNIFORM_DEFAULT(float2, TextureCoordinateOffset, float2(0.0, 0.0));
 // Per-material tint multiplier for chrome/bright overlay passes
 // (SourceMain5.2 glColor(BodyLight) on RENDER_CHROME/BRIGHT body passes).
@@ -651,6 +654,7 @@ float4 PS_Highlight(PixelInput input) : SV_Target
 float4 ShadeObjectPixel(PixelInput input, float3 normal, float3 dynamicLight)
 {
     float4 texColor = tex2D(SamplerState0, input.TexCoord);
+    clip(min(texColor.a, max(texColor.r, max(texColor.g, texColor.b))) - AdditiveAlphaCutoff);
     float finalAlpha = texColor.a * Alpha * input.Color.a;
     clip(finalAlpha - 0.01);
 
@@ -682,6 +686,17 @@ float4 PS_Objects(PixelInput input) : SV_Target
 float4 PS_ObjectsVertexLit(PixelInput input) : SV_Target
 {
     return ShadeObjectPixel(input, PrepareNormal(input.Normal), input.DynamicLight);
+}
+
+// Preserve the existing vertex-color/AlphaTest appearance when dynamic lighting
+// is disabled, with the same additive coverage rejection as the lit paths.
+float4 PS_AdditiveAlphaTest(PixelInput input) : SV_Target
+{
+    float4 texColor = tex2D(SamplerState0, input.TexCoord);
+    clip(min(texColor.a, max(texColor.r, max(texColor.g, texColor.b))) - AdditiveAlphaCutoff);
+    float4 color = texColor * input.Color * Alpha;
+    clip(color.a - 0.01);
+    return color;
 }
 
 // ============================================================================
@@ -939,3 +954,12 @@ technique ShadowCaster_SkinnedInstanced
     }
 }
 #endif
+
+technique AdditiveAlphaTest
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL VS_Objects();
+        PixelShader = compile PS_SHADERMODEL PS_AdditiveAlphaTest();
+    }
+}
