@@ -205,11 +205,14 @@ namespace Client.Main
                 IsFixedTimeStep = false;
                 TargetElapsedTime = TimeSpan.FromMilliseconds(16.67);
             }
-            else if (Constants.UNLIMITED_FPS)
+            else
             {
-                _graphics.SynchronizeWithVerticalRetrace = false;
+                bool runUncapped = Constants.UNLIMITED_FPS || Constants.DISABLE_VSYNC;
+                _graphics.SynchronizeWithVerticalRetrace = !runUncapped;
                 IsFixedTimeStep = false;
-                TargetElapsedTime = TimeSpan.FromMilliseconds(1);
+                TargetElapsedTime = runUncapped
+                    ? TimeSpan.FromMilliseconds(1)
+                    : TimeSpan.FromSeconds(1.0 / 60.0);
             }
 
             _graphics.GraphicsProfile = GraphicsProfile.HiDef;
@@ -1442,7 +1445,11 @@ namespace Client.Main
             graphicsDeviceChangeRequired |=
                 _graphics.SynchronizeWithVerticalRetrace != desiredVSync;
             _graphics.SynchronizeWithVerticalRetrace = desiredVSync;
-            IsFixedTimeStep = !runUncapped;
+            // Present already paces VSync frames. A second, fixed 60 Hz update clock
+            // adds waits and catch-up Updates before Draw when presentation drifts or
+            // misses a refresh. Keep one variable-time Update per rendered frame, as
+            // in uncapped mode; movement and animations already use ElapsedGameTime.
+            IsFixedTimeStep = false;
             TargetElapsedTime = runUncapped
                 ? TimeSpan.FromMilliseconds(1)
                 : TimeSpan.FromSeconds(1.0 / 60.0);
