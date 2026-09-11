@@ -51,21 +51,13 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        public override async Task Load()
+        public static Task PreloadAsync() => TextureLoader.Instance.PrepareAndGetTexture(TexturePath);
+
+        public override async Task LoadContent()
         {
-            await base.Load();
-
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            var textureData = await TextureLoader.Instance.Prepare(TexturePath);
-            if (textureData == null)
-            {
-                Status = GameControlStatus.Error;
-                return;
-            }
-
-            _texture = TextureLoader.Instance.GetTexture2D(TexturePath);
+            await base.LoadContent();
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(TexturePath)
+                ?? throw new InvalidOperationException($"Unable to load hit texture '{TexturePath}'.");
         }
 
         public override void Update(GameTime gameTime)

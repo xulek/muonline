@@ -641,10 +641,16 @@ namespace Client.Main.Scenes
                     "GameScene.Load.PrewarmModel");
 
                 await MuGame.YieldToNextFrameAsync(
-                    "GameScene.Load.PreloadSounds",
+                    "GameScene.Load.PreloadCombatAssets",
                     MainThreadDispatcher.WorkPriority.Low);
-                UpdateLoadProgress("Preloading sounds...", 0.96f);
-                await PreloadSoundsAsync();
+                UpdateLoadProgress("Preloading effects and sounds...", 0.96f);
+                await PreloadCombatAssetsAsync();
+                await MonsterHitEffect.PrewarmRenderingAsync(worldInstance);
+
+                await MuGame.YieldToNextFrameAsync(
+                    "GameScene.Load.PrewarmCombatRendering",
+                    MainThreadDispatcher.WorkPriority.Low);
+                DamageTextObject.PrewarmRendering();
 
                 await MuGame.YieldToNextFrameAsync(
                     "GameScene.Load.Finalize",
@@ -1060,12 +1066,17 @@ namespace Client.Main.Scenes
         }
 
 
-        private Task PreloadSoundsAsync()
+        private Task PreloadCombatAssetsAsync()
         {
             // Move reflection-based skill effect discovery out of the first combat packet.
             SkillVisualEffectRegistry.Initialize();
 
             return Task.WhenAll(
+                // Upload common impact textures while the loading screen is active, so
+                // the first hit does not pay for decoding or creating GPU resources.
+                MonsterHitEffect.PreloadAsync(),
+                MonsterHitSparkEffect.PreloadAsync(),
+                BloodStainEffect.PreloadAsync(),
                 SoundController.Instance.PreloadSoundAsync("Sound/pDropItem.wav"),
                 SoundController.Instance.PreloadSoundAsync("Sound/pDropMoney.wav"),
                 SoundController.Instance.PreloadSoundAsync("Sound/eGem.wav"),

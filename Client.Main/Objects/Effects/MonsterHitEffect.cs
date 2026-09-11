@@ -3,6 +3,9 @@ using System;
 using System.Threading.Tasks;
 using Client.Main.Content;
 using Client.Main.Controllers;
+using Client.Main.Controls;
+using Client.Main.Graphics;
+using Client.Main.Helpers;
 using Client.Main.Models;
 using Client.Main.Objects.Effects.Particles;
 using Microsoft.Xna.Framework;
@@ -50,21 +53,49 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        public override async Task Load()
+        public static Task PreloadAsync() => TextureLoader.Instance.PrepareAndGetTexture(TexturePath);
+
+        public static async Task PrewarmRenderingAsync(WorldControl world)
         {
-            await base.Load();
-
-            if (Status != GameControlStatus.Ready)
+            // Exercise the real particle projection/draw path before combat. Position
+            // particles in front of the camera so CPU culling does not skip that work,
+            // then translate the sprite batch off-screen without changing render targets.
+            var camera = Camera.Instance;
+            Vector3 forward = camera.Target - camera.Position;
+            if (forward.LengthSquared() < 0.000001f)
                 return;
+            Vector3 position = camera.Position + Vector3.Normalize(forward) * 500f - Vector3.UnitZ * 100f;
+            using var hit = new MonsterHitEffect(position, Vector3.Zero) { World = world };
+            using var spark = new MonsterHitSparkEffect(position) { World = world };
+            await Task.WhenAll(hit.Load(), spark.Load());
+            await MuGame.YieldToNextFrameAsync(
+                "MonsterHitEffect.PrewarmRendering", MainThreadDispatcher.WorkPriority.Low);
 
-            var textureData = await TextureLoader.Instance.Prepare(TexturePath);
-            if (textureData == null)
+            var graphics = GraphicsManager.Instance;
+            var previousBlend = graphics.GraphicsDevice.BlendState;
+            try
             {
-                Status = GameControlStatus.Error;
-                return;
+                var gameTime = new GameTime();
+                foreach (var effect in new SourceParticleSystem[] { hit, spark })
+                {
+                    using var scope = new SpriteBatchScope(
+                        graphics.Sprite, SpriteSortMode.Deferred, effect.BlendState,
+                        SamplerState.LinearClamp, DepthStencilState.DepthRead, RasterizerState.CullNone,
+                        transform: Matrix.CreateTranslation(-16384f, -16384f, 0f));
+                    effect.Draw(gameTime);
+                }
             }
+            finally
+            {
+                graphics.GraphicsDevice.BlendState = previousBlend;
+            }
+        }
 
-            _texture = TextureLoader.Instance.GetTexture2D(TexturePath);
+        public override async Task LoadContent()
+        {
+            await base.LoadContent();
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(TexturePath)
+                ?? throw new InvalidOperationException($"Unable to load hit texture '{TexturePath}'.");
         }
 
         public override void Update(GameTime gameTime)

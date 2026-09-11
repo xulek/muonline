@@ -96,6 +96,29 @@ namespace Client.Main.Objects.Effects
 
         public static int PoolCount => Volatile.Read(ref _poolCount);
 
+        /// <summary>Run on the graphics thread while the loading screen is active.</summary>
+        public static void PrewarmRendering()
+        {
+            // SpriteFont is already loaded, but the first combat number still pays for
+            // JIT and lazy draw-path setup. Exercise both variants outside the viewport;
+            // do not switch render targets (which could discard the loading frame).
+            using var sample = new DamageTextObject("0123456789!!! Miss", 0, Color.DeepSkyBlue);
+            sample._screenPosition = new Vector2(-16384f, -16384f);
+            var graphicsDevice = GraphicsManager.Instance.GraphicsDevice;
+            var previousBlend = graphicsDevice.BlendState;
+            try
+            {
+                var gameTime = new GameTime();
+                sample.DrawAfter(gameTime);
+                sample._isCritical = false;
+                sample.DrawAfter(gameTime);
+            }
+            finally
+            {
+                graphicsDevice.BlendState = previousBlend;
+            }
+        }
+
         public DamageTextObject(string text, ushort targetId, Color color)
         {
             Reset(text, targetId, color);

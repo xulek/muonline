@@ -88,23 +88,15 @@ namespace Client.Main.Objects.Effects
             Angle = new Vector3(0f, 0f, MathHelper.Lerp(0f, MathHelper.TwoPi, (float)rand.NextDouble()));
         }
 
-        public override async Task Load()
+        public static Task PreloadAsync() => Task.WhenAll(
+            TextureLoader.Instance.PrepareAndGetTexture("Effect/blood.tga"),
+            TextureLoader.Instance.PrepareAndGetTexture("Effect/blood01.tga"));
+
+        public override async Task LoadContent()
         {
-            await base.Load();
-
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            var textureData = await TextureLoader.Instance.Prepare(TexturePath);
-
-            if (textureData != null)
-            {
-                _texture = TextureLoader.Instance.GetTexture2D(TexturePath);
-            }
-            else
-            {
-                Status = GameControlStatus.Error;
-            }
+            await base.LoadContent();
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(TexturePath)
+                ?? throw new InvalidOperationException($"Unable to load blood texture '{TexturePath}'.");
         }
 
         public override void Update(GameTime gameTime)
