@@ -23,6 +23,10 @@ namespace Client.Main.Content
         private readonly ConcurrentDictionary<string, Lazy<Task<TextureData>>> _textureTasks = new();
         private readonly ConcurrentDictionary<string, Lazy<Task<Texture2D>>> _gpuTextureTasks = new();
         private readonly ConcurrentDictionary<string, ClientTexture> _textures = new();
+        private static readonly Lazy<Dictionary<string, string>> _bundledUiResources = new(() =>
+            typeof(TextureLoader).Assembly.GetManifestResourceNames()
+                .Where(name => name.StartsWith("BundledUi/", StringComparison.Ordinal))
+                .ToDictionary(name => NormalizePathKey(name["BundledUi/".Length..]), name => name));
 
         // Cache: Key -> Resolved Full Path (or empty if not found)
         private readonly ConcurrentDictionary<string, string> _pathResolutionCache = new();
@@ -54,15 +58,17 @@ namespace Client.Main.Content
             LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1002, nameof(_logFailedLoadData)), "Failed to load texture data from: {Path}");
         private static readonly Action<ILogger, string, Exception> _logFileNotFound =
             LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1003, nameof(_logFileNotFound)), "Texture file not found: {Path}");
-        private static readonly Action<ILogger, string, Exception> _logFailedAsset =
-            LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1004, nameof(_logFailedAsset)), "Failed to load asset {Path}");
 
         private TextureLoader()
         {
             Task.Run(() => CleanupLoopAsync(_cleanupCts.Token));
         }
 
-        public void SetGraphicsDevice(GraphicsDevice graphicsDevice) => _graphicsDevice = graphicsDevice;
+        public void SetGraphicsDevice(GraphicsDevice graphicsDevice)
+        {
+            _graphicsDevice = graphicsDevice;
+            _logger = MuGame.AppLoggerFactory?.CreateLogger<TextureLoader>();
+        }
 
         public Task<TextureData> Prepare(string path)
         {
@@ -142,6 +148,7 @@ namespace Client.Main.Content
             try
             {
                 // Note: path is relative here (e.g. "Interface/GF_logo.ozj")
+                path = path.Replace('\\', '/');
                 var dataPath = Path.Combine(Constants.DataPath, path);
                 string ext = Path.GetExtension(path)?.ToLowerInvariant();
 
@@ -152,13 +159,34 @@ namespace Client.Main.Content
                 }
 
                 string fullPath = FindTexturePath(dataPath, ext);
-                if (fullPath == null) return null;
+                TextureData data;
+                if (fullPath != null)
+                {
+                    data = await reader.Load(fullPath).ConfigureAwait(false);
+                }
+                else
+                {
+                    string resourcePath = Path.ChangeExtension(path, reader.GetType().Name.Replace("Reader", ""));
+                    if (!_bundledUiResources.Value.TryGetValue(NormalizePathKey(resourcePath), out string resourceName))
+                        return null;
 
-                var data = await reader.Load(fullPath);
+                    using var stream = typeof(TextureLoader).Assembly.GetManifestResourceStream(resourceName);
+                    data = await reader.Load(stream).ConfigureAwait(false);
+                }
                 if (data == null)
                 {
                     if (_logger != null && _logger.IsEnabled(LogLevel.Debug)) _logFailedLoadData(_logger, fullPath, null);
                     return null;
+                }
+
+                // Android needs RGBA uploads for DXT assets. Decode while still on the
+                // bounded loader worker, before publishing the data to the render thread.
+                byte[] preparedRgba = null;
+                if (data.IsCompressed && CustomDecompressFunction is { } decompress)
+                {
+                    preparedRgba = decompress(data);
+                    if (preparedRgba == null || preparedRgba.Length != checked(data.Width * data.Height * 4))
+                        throw new InvalidDataException($"Invalid decompressed texture: {path}");
                 }
 
                 PrepareMipData(data, path);
@@ -166,6 +194,7 @@ namespace Client.Main.Content
                 var clientTexture = new ClientTexture
                 {
                     Info = data,
+                    PreparedRgba = preparedRgba,
                     Script = ParseScript(path),
                     LastAccessUtc = DateTime.UtcNow
                 };
@@ -175,7 +204,7 @@ namespace Client.Main.Content
             }
             catch (Exception ex)
             {
-                if (_logger != null && _logger.IsEnabled(LogLevel.Debug)) _logFailedAsset(_logger, path ?? string.Empty, ex);
+                _logger?.LogWarning(ex, "Failed to decode texture {Path}", path);
                 return null;
             }
         }
@@ -374,7 +403,9 @@ namespace Client.Main.Content
                     {
                         // Custom decompressors return a single RGBA base level. Keep this path
                         // compatible with existing integrations instead of guessing their format.
-                        byte[] data = CustomDecompressFunction(textureInfo);
+                        // Normal loads arrive decoded. The fallback handles a disposed GPU
+                        // resource being recreated from the retained compressed source.
+                        byte[] data = clientTexture.PreparedRgba ?? CustomDecompressFunction(textureInfo);
                         texture = new Texture2D(
                             _graphicsDevice,
                             textureInfo.Width,
@@ -395,6 +426,7 @@ namespace Client.Main.Content
                     }
 
                     clientTexture.Texture = texture;
+                    clientTexture.PreparedRgba = null;
 
                     // Runtime-generated mip levels are only staging data. The GPU owns the full
                     // chain now, so release the extra CPU memory while retaining the base asset.

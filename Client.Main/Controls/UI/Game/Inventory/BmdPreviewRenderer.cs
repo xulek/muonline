@@ -10,6 +10,7 @@ using Client.Main.Models;
 using Client.Data.BMD;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 
 namespace Client.Main.Controls.UI.Game.Inventory
 {
@@ -231,7 +232,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private static readonly Dictionary<string, PreviewCacheEntry> _cache = new();
         private static readonly Dictionary<string, PreviewCacheEntry> _rotatingCache = new();
-        private static readonly HashSet<string> _failedRenders = new();
         private static readonly Dictionary<string, int> _renderFailureRetryFrames = new();
         private static readonly Dictionary<string, BlendState> _previewBlendStateCache = new();
         private static readonly Dictionary<BMD, PreviewModelGeometry> _geometryCache =
@@ -466,7 +466,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     entry?.Dispose();
             }
             _rotatingCache.Clear();
-            _failedRenders.Clear();
             _renderFailureRetryFrames.Clear();
             _itemPreviewEffectBindings = null;
 
@@ -976,9 +975,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
             else
                 RenderPassProfiler.RecordPreviewCacheMiss();
 
-            if (!useCache && _failedRenders.Contains(key) && entry == null)
-                return null;
-
             int frame = MuGame.FrameIndex;
             if (_renderFailureRetryFrames.TryGetValue(key, out int retryFrame))
             {
@@ -997,9 +993,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 if (!requiresAnimation || (updateInterval > 0f && now - entry.LastUpdateTime < updateInterval))
                     return entry.Texture;
             }
-
-            if (entry == null && _failedRenders.Contains(key))
-                return null;
 
             if (!TryReserveRenderBudget(requiresAnimation))
             {
@@ -1041,7 +1034,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 if (!useCache)
                 {
-                    _failedRenders.Remove(key);
                     return rendered;
                 }
 
@@ -1059,22 +1051,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     entry.LastAccessFrame = frame;
                 }
 
-                _failedRenders.Remove(key);
                 _renderFailureRetryFrames.Remove(key);
                 return entry.Texture;
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("UI thread", StringComparison.OrdinalIgnoreCase))
+            catch (Exception ex)
             {
-                if (entry == null)
-                    _failedRenders.Add(key);
                 _renderFailureRetryFrames[key] = unchecked(MuGame.FrameIndex + RenderFailureCooldownFrames);
-                return entry?.Texture;
-            }
-            catch (Exception)
-            {
-                if (entry == null)
-                    _failedRenders.Add(key);
-                _renderFailureRetryFrames[key] = unchecked(MuGame.FrameIndex + RenderFailureCooldownFrames);
+                MuGame.AppLoggerFactory?.CreateLogger("BmdPreviewRenderer").LogWarning(
+                    ex, "Item preview failed for {Path}; retrying after {Frames} frames",
+                    definition.TexturePath, RenderFailureCooldownFrames);
                 return entry?.Texture;
             }
         }
@@ -1118,6 +1103,18 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 PreviewPoseGeometry pose = GetOrCreatePoseGeometry(bmd, def);
                 if (pose == null || !pose.IsValid)
                     return target;
+
+                // Never cache a transparent/partial thumbnail while texture uploads
+                // are unavailable. A failed upload must take the bounded retry path.
+                for (int i = 0; i < pose.MeshOrder.Length; i++)
+                {
+                    int meshIndex = pose.MeshOrder[i];
+                    if (pose.Meshes[meshIndex].Skip)
+                        continue;
+                    string texturePath = BMDLoader.Instance.GetTexturePath(bmd, bmd.Meshes[meshIndex].TexturePath);
+                    if (TextureLoader.Instance.GetTexture2D(texturePath) == null)
+                        throw new InvalidOperationException($"Preview texture unavailable: {texturePath} ({def.TexturePath})");
+                }
 
                 if (rt == null || rt.IsDisposed || rt.Width != width || rt.Height != height)
                 {
@@ -1273,7 +1270,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     rt = null;
                 }
 
-                return target;
+                throw;
             }
             finally
             {

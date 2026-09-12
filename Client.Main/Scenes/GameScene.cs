@@ -1003,28 +1003,8 @@ namespace Client.Main.Scenes
                 return;
             }
 
-            using (new SpriteBatchScope(
-                       GraphicsManager.Instance.Sprite,
-                       SpriteSortMode.Deferred,
-                       BlendState.AlphaBlend,
-                       SamplerState.LinearClamp,
-                       DepthStencilState.None,
-                       transform: UiScaler.SpriteTransform))
-            {
-                var controls = Controls.GetSnapshotArray();
-                for (int i = 0; i < controls.Length; i++)
-                {
-                    var ctrl = controls[i];
-                    if (ctrl == null || ctrl == World || ctrl == _fpsLabel || ctrl == _pingLabel || !ctrl.Visible)
-                    {
-                        continue;
-                    }
-
-                    ctrl.Draw(gameTime);
-                }
-
-            }
-
+            // BaseScene draws the world and then the UI. A preliminary UI pass is
+            // overwritten by the world and repeats all inventory/HUD rendering work.
             base.Draw(gameTime);
 
             // Final top-most pass: draw dragged item previews above all UI windows

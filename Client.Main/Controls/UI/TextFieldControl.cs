@@ -159,10 +159,6 @@ namespace Client.Main.Controls.UI
 
             _logger?.LogDebug("TextFieldControl: OnBlur called. Unsubscribing from TextInput.");
 
-#if ANDROID
-            AndroidKeyboard.TextInput -= OnTextInput;
-            AndroidKeyboard.Hide();
-#endif
         }
 
         public new void Focus() => OnFocus();
@@ -244,47 +240,6 @@ namespace Client.Main.Controls.UI
         {
             ValueChanged?.Invoke(this, EventArgs.Empty);
         }
-
-        /// <summary>
-        /// Handles text input on Android (from soft keyboard or scrcpy).
-        /// </summary>
-#if ANDROID
-        private void OnTextInput(object sender, Platform.Android.TextInputEventArgs e)
-        {
-            bool textChanged = false;
-
-            // Handle control keys by character or key code
-            if (e.Character == '\r' || e.Key == Keys.Enter)
-            {
-                EnterKeyPressed?.Invoke(this, EventArgs.Empty);
-                ValueChanged?.Invoke(this, EventArgs.Empty);
-                return; // Enter usually consumes the event
-            }
-            else if (e.Character == '\b' || e.Key == Keys.Back)
-            {
-                // Backspace - delete last character
-                if (_inputText.Length > 0)
-                {
-                    _inputText.Remove(_inputText.Length - 1, 1);
-                    MarkTextChanged();
-                    textChanged = true;
-                }
-            }
-            else if (e.Character != '\0' && !char.IsControl(e.Character))
-            {
-                // Standard printable character input
-                _inputText.Append(e.Character);
-                MarkTextChanged();
-                textChanged = true;
-            }
-
-            if (textChanged)
-            {
-                MoveCursorToEnd();
-                ValueChanged?.Invoke(this, EventArgs.Empty);
-            }
-        }
-#endif
 
         public override void Update(GameTime gameTime)
         {

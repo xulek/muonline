@@ -84,6 +84,7 @@ namespace Client.Main
         public static Random Random { get; } = new Random();
         public static IConfiguration AppConfiguration { get; private set; }
         public static ILoggerFactory AppLoggerFactory { get; private set; }
+        public static ILoggerProvider PlatformLoggerProvider { get; set; }
         public static MuOnlineSettings AppSettings { get; private set; }
         public static NetworkManager Network { get; private set; }
         public static string ConfigDirectory { get; private set; }
@@ -507,15 +508,18 @@ namespace Client.Main
 
             // --- Logging Setup ---
 #if PERFORMANCE_RELEASE
-            // The maximum-performance build intentionally removes providers and configuration
-            // reload watchers. Error handling remains active, but disabled log calls terminate at
-            // the singleton null logger without console/file I/O or provider fan-out.
-            AppLoggerFactory = NullLoggerFactory.Instance;
+            // Keep platform warnings/errors available in shipping mobile builds.
+            AppLoggerFactory = PlatformLoggerProvider == null
+                ? NullLoggerFactory.Instance
+                : LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Warning)
+                    .AddProvider(PlatformLoggerProvider));
 #else
             AppLoggerFactory = LoggerFactory.Create(builder =>
             {
                 builder.ClearProviders();
                 builder.AddConfiguration(AppConfiguration.GetSection("Logging"));
+                if (PlatformLoggerProvider != null)
+                    builder.AddProvider(PlatformLoggerProvider);
 
                 bool enableSimpleConsole = AppConfiguration.GetValue("Logging:SimpleConsole:Enabled", false);
                 if (enableSimpleConsole)

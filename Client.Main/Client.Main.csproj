@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <ClientMainTargetFramework>net10.0</ClientMainTargetFramework>
+    <ClientMainTargetFramework Condition="'$(ClientMainTargetFramework)' == ''">net10.0</ClientMainTargetFramework>
+    <ClientMainTargetFramework Condition="'$(MonoGameFramework)' == 'MonoGame.Framework.Android'">net10.0-android</ClientMainTargetFramework>
     <ClientMainTargetFramework Condition="'$(MonoGameFramework)' == 'MonoGame.Framework.WindowsDX'">net10.0-windows</ClientMainTargetFramework>
     <TargetFramework>$(ClientMainTargetFramework)</TargetFramework>
     <AssemblyName>Client.Main</AssemblyName>
@@ -72,6 +73,9 @@
     <EmbeddedResource Include="Data\S6\player.bmd" />
     <EmbeddedResource Include="Data\S6\skill_eng.bmd" />
     <EmbeddedResource Include="Data\bmd_blending_config.json" />
+    <EmbeddedResource Include="..\data\patch\files-e.g\Interface\**\*">
+      <LogicalName>BundledUi/Interface/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

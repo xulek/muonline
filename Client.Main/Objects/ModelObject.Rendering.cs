@@ -2015,10 +2015,6 @@ namespace Client.Main.Objects
                 gd.RasterizerState = prevCull;
             }
 
-#if ANDROID
-            DrawBoundingBox2D();
-            DrawHoverName();
-#endif
             DrawChildrenAfterOnly(gameTime);
         }
     }

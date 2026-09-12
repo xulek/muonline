@@ -520,7 +520,6 @@ namespace Client.Main.Scenes
             World.Draw(gameTime);
             World.DrawAfter(gameTime);
 
-#if !ANDROID
             // Iterate only the post-cull visible set for overlay UI (nameplates / bboxes).
             // Avoids touching every WorldObject on the map for off-screen entities.
             var worldObjects = World.VisibleObjects;
@@ -542,7 +541,6 @@ namespace Client.Main.Scenes
                     item.DrawShineEffect(gameTime);
                 }
             }
-#endif
 
             // --- Pass 2: Render 3D-aware UI (Nameplates, 2D BBoxes) ---
             // This batch respects the depth buffer populated by the 3D world.
@@ -553,7 +551,6 @@ namespace Client.Main.Scenes
                        SamplerState.LinearClamp,
                        DepthStencilState.DepthRead))     // Read depth buffer but don't write to it
             {
-#if !ANDROID
                 for (int i = 0; i < worldObjects.Count; i++)
                 {
                     var worldObject = worldObjects[i];
@@ -570,10 +567,8 @@ namespace Client.Main.Scenes
 
                     worldObject.DrawHoverName();
                 }
-#endif
             }
 
-#if !ANDROID
             // --- Pass 2b: Render batched dropped-item labels (always visible) ---
             using (new SpriteBatchScope(
                        GraphicsManager.Instance.Sprite,
@@ -589,7 +584,6 @@ namespace Client.Main.Scenes
                     item.DrawHoverName();
                 }
             }
-#endif
 
             // --- Pass 3: Render standard 2D UI (HUD overlays) ---
             // This batch ignores the depth buffer and draws on top of everything.

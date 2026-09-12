@@ -306,7 +306,7 @@ namespace Client.Main.Controls
             }
             catch (Exception e)
             {
-                _logger?.LogDebug(e, "Exception in GameControl");
+                _logger?.LogError(e, "Failed to initialize control {ControlType}", GetType().FullName);
                 Status = GameControlStatus.Error;
             }
         }

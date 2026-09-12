@@ -198,6 +198,7 @@ namespace MuAndroid
         protected override void OnCreate(Bundle bundle)
         {
             base.OnCreate(bundle);
+            MuGame.PlatformLoggerProvider = new AndroidLogcatLoggerProvider();
             Constants.SETTINGS_PATH = EnsureAndroidConfig();
             TextFieldControl.ControlType = typeof(AndroidTextFieldControl);
 

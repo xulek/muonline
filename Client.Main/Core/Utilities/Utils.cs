@@ -9,13 +9,17 @@ namespace Client.Main.Core.Utilities
     {
         public static string GetActualPath(string path)
         {
-            if (File.Exists(path))
+            path = path.Replace('\\', '/');
+            if (File.Exists(path) || Directory.Exists(path))
                 return path;
             string directory = Path.GetDirectoryName(path);
             string fileName = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(directory))
+                return path;
+            directory = GetActualPath(directory);
             if (Directory.Exists(directory))
             {
-                foreach (var file in Directory.GetFiles(directory))
+                foreach (var file in Directory.EnumerateFileSystemEntries(directory))
                 {
                     if (string.Equals(Path.GetFileName(file), fileName, StringComparison.OrdinalIgnoreCase))
                         return file;

@@ -6,6 +6,8 @@
     <SupportedOSPlatformVersion>29</SupportedOSPlatformVersion>
     <ClientMainTargetFramework>net10.0-android</ClientMainTargetFramework>
     <MonoGameFramework>MonoGame.Framework.Android</MonoGameFramework>
+    <!-- NuGet's legacy project walk drops ProjectReference.AdditionalProperties. -->
+    <RestoreUseStaticGraphEvaluation>true</RestoreUseStaticGraphEvaluation>
     <NoWarn>$(NoWarn);XA0141;XA4211</NoWarn>
 
     <OutputType>Exe</OutputType>
@@ -112,7 +114,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Client.Data\Client.Data.csproj" />
-    <ProjectReference Include="..\Client.Main\Client.Main.csproj" />
+    <ProjectReference Include="..\Client.Main\Client.Main.csproj"
+                      AdditionalProperties="ClientMainTargetFramework=net10.0-android;MonoGameFramework=MonoGame.Framework.Android" />
   </ItemGroup>
 
   <!-- Local-build convenience. CI restores tools once and disables this target. -->

@@ -123,6 +123,8 @@ namespace Client.Main.Controls.UI.Game.Hud
             _texSlot = await L(SlotPath);
             _texClawLeft = await L(ClawLeftPath);
             _texClawRight = await L(ClawRightPath);
+            if (!MuGame.IsMainThread)
+                await MuGame.YieldToNextFrameAsync("BottomBar.MirrorTextures");
             DisposeMirroredTextures();
             _texBarRightA = FlipHorizontal(_texBarRight);
             _texBarRightFullA = FlipHorizontal(_texBarRightFull);

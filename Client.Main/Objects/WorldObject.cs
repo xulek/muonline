@@ -336,12 +336,7 @@ namespace Client.Main.Objects
         {
             if (!Visible) return;
 
-            // Bounding boxes and hover labels are rendered once by BaseScene's batched
-            // overlay pass on desktop. Android keeps the legacy per-object overlay path.
-#if ANDROID
-            DrawBoundingBox2D();
-            DrawHoverName();
-#endif
+            // BaseScene batches bounding boxes and hover labels on every platform.
             DrawChildrenAfterOnly(gameTime);
         }
 
