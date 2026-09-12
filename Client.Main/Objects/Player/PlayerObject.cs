@@ -1541,9 +1541,13 @@ namespace Client.Main.Objects.Player
 
         public PlayerAction GetSkillAction(ushort skillId, bool isInSafeZone)
         {
-            // Fire Burst uses the Dark Lord strike family rather than the generic magic cast.
-            // Strength and Mastery share the same visual/animation path in the original client.
-            if (skillId is 61 or 508 or 514)
+            // Fire Burst (61/508/514) and Fire Scream (78/518) use the Dark Lord strike
+            // family rather than the generic magic cast. SourceMain5.2 sets
+            // PLAYER_ATTACK_STRIKE / PLAYER_ATTACK_RIDE_STRIKE /
+            // PLAYER_FENRIR_ATTACK_DARKLORD_STRIKE for both skills (ZzzCharacter.cpp,
+            // WSclient.cpp), which is why they are not part of the SkillDefinitions
+            // animation table.
+            if (skillId is 61 or 508 or 514 or 78 or 518)
             {
                 if (_isRiding && !isInSafeZone)
                 {

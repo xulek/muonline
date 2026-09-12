@@ -234,7 +234,10 @@ namespace Client.Data.BMD
             Add(218, 166);  // Berserker → PlayerSkillSleep
 
             // DARK LORD SKILLS
-            Add(78, 184);   // Fire Scream → PlayerSkillFlamestrike
+            // Fire Scream (78) does NOT use an animation from this table: the original
+            // client casts it with the Dark Lord strike family (PLAYER_ATTACK_STRIKE and its
+            // riding/Fenrir variants), which PlayerObject.GetSkillAction resolves.
+            Add(236, 184);  // Flame Strike → PlayerSkillFlamestrike
             Add(232, 176);  // Strike of Destruction → PlayerSkillBlowOfDestruction
             Add(64, 71);    // Increase Critical Damage → PlayerSkillVitality
             Add(65, 71);    // Electric Spike → PlayerSkillVitality
