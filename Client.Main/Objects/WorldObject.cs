@@ -372,6 +372,9 @@ namespace Client.Main.Objects
                 if (child.Status != GameControlStatus.Disposed &&
                     ReferenceEquals(child.Parent, this))
                 {
+                    if (World?.TryQueueLateEffectDraw(child) == true)
+                        continue;
+
                     child.Draw(gameTime);
                 }
             }

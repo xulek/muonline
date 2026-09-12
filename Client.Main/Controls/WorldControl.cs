@@ -170,6 +170,10 @@ namespace Client.Main.Controls
         private readonly List<WorldObject> _solidBehind = [];
         private readonly List<WorldObject> _transparentObjects = [];
         private readonly List<SourceParticleSystem> _dedicatedParticleSystems = [];
+        private readonly List<WorldObject> _lateEffectObjects = [];
+        private readonly HashSet<WorldObject> _queuedLateEffectObjects = [];
+        private readonly List<DamageTextObject> _queuedDamageTexts = [];
+        private bool _collectLateEffectDraws;
         private readonly List<ModelObject> _dedicatedStaticMapObjects = [];
         private readonly List<ModelObject> _queuedDedicatedStaticMapObjects = [];
         private readonly List<ModelObject> _queuedSolidStaticMapObjects = [];
@@ -1198,6 +1202,9 @@ namespace Client.Main.Controls
             _solidBehind.Clear();
             _transparentObjects.Clear();
             _dedicatedParticleSystems.Clear();
+            _lateEffectObjects.Clear();
+            _queuedLateEffectObjects.Clear();
+            _queuedDamageTexts.Clear();
             _dedicatedStaticMapObjects.Clear();
             _queuedDedicatedStaticMapObjects.Clear();
 
@@ -1213,7 +1220,7 @@ namespace Client.Main.Controls
                 // Non-transparent additive particle systems do not write depth and their
                 // color accumulation is order-independent. Pull them out of depth buckets so
                 // all opaque models can finish first, then submit the particles through a
-                // small number of texture-sorted SpriteBatch groups before transparent meshes.
+                // small number of texture-sorted SpriteBatch groups after all map meshes.
                 if (obj is SourceParticleSystem sourceParticles)
                 {
                     if (!sourceParticles.HasActiveParticles)
@@ -1225,6 +1232,7 @@ namespace Client.Main.Controls
 
                     if (sourceParticles.CanUseDedicatedWorldBatch)
                     {
+                        _queuedLateEffectObjects.Add(sourceParticles);
                         _dedicatedParticleSystems.Add(sourceParticles);
                         continue;
                     }
@@ -1270,14 +1278,27 @@ namespace Client.Main.Controls
             if (_transparentObjects.Count > 1)
                 _transparentObjects.Sort(WorldObjectDepthDesc.Instance);
 
-            DrawDedicatedStaticMapObjects(time);
-            DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
-            DrawDedicatedParticleSystems(time);
-            DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
+            // Attached fire/glow must wait too: RGBA bridge/grass meshes are submitted
+            // in DrawAfter and would otherwise paint over effects in front of them.
+            _collectLateEffectDraws = true;
+            try
+            {
+                DrawDedicatedStaticMapObjects(time);
+                DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
+                DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
+                DrawAfterPass(_solidBehind, DepthStateDefault, time);
+                DrawAfterPass(_transparentObjects, DepthStateDepthRead, time);
+            }
+            finally
+            {
+                _collectLateEffectDraws = false;
+            }
 
-            // Draw post-pass (DrawAfter)
-            DrawAfterPass(_solidBehind, DepthStateDefault, time);
-            DrawAfterPass(_transparentObjects, DepthStateDepthRead, time);
+            FrameMetrics.DedicatedParticleSystems = _dedicatedParticleSystems.Count;
+            DrawDedicatedParticleSystems(time);
+            DrawListWithSpriteBatchGrouping(_lateEffectObjects, DepthStateDepthRead, time);
+            _lateEffectObjects.Clear();
+            _queuedLateEffectObjects.Clear();
 
             // SourceMain5.2 renders effects after every world-object pass. Keep additive
             // effects depth-tested, but defer them until map meshes (including their
@@ -1301,6 +1322,8 @@ namespace Client.Main.Controls
                 RecordRenderFailure(null, "Draw.LateScrollOfFlame", ex);
             }
 
+            DrawQueuedDamageTexts(time);
+
             try
             {
                 OverheadNameplateRenderer.FlushQueuedNameplates(GraphicsManager.Instance.Sprite);
@@ -1311,6 +1334,29 @@ namespace Client.Main.Controls
             }
 
             LogRenderMetricsIfEnabled();
+        }
+
+        internal bool TryQueueLateEffectDraw(WorldObject obj)
+        {
+            if (!_collectLateEffectDraws || obj == null || !obj.Visible ||
+                !ReferenceEquals(obj.World, this) ||
+                (obj is not SpriteObject && obj is not SourceParticleSystem))
+                return false;
+
+            BlendState blend = obj.BlendState;
+            if (blend == null || blend.ColorBlendFunction != BlendFunction.Add ||
+                blend.ColorDestinationBlend != Blend.One ||
+                (blend.ColorSourceBlend != Blend.One && blend.ColorSourceBlend != Blend.SourceAlpha))
+                return false;
+
+            if (_queuedLateEffectObjects.Add(obj))
+            {
+                if (obj is SourceParticleSystem particles && particles.CanUseDedicatedWorldBatch)
+                    _dedicatedParticleSystems.Add(particles);
+                else
+                    _lateEffectObjects.Add(obj);
+            }
+            return true;
         }
 
         private void DrawDedicatedParticleSystems(GameTime time)
@@ -1516,6 +1562,9 @@ namespace Client.Main.Controls
                     obj.RenderOrder = ++_renderCounter;
                     continue;
                 }
+
+                if (TryQueueLateEffectDraw(obj))
+                    continue;
 
                 bool usesSpriteBatch =
                     obj is SpriteObject ||
@@ -1742,18 +1791,15 @@ namespace Client.Main.Controls
 
             SetDepthState(state);
 
-            // Damage texts share one SpriteBatch, but an individual object is still
-            // contained so a bad newly loaded object cannot abort the entire frame.
-            int damageCount = 0;
             for (int i = 0; i < objCount; i++)
             {
                 WorldObject obj = list[i];
                 if (obj == null || ShouldSkipRender(obj))
                     continue;
 
-                if (obj is DamageTextObject)
+                if (obj is DamageTextObject damageText)
                 {
-                    damageCount++;
+                    _queuedDamageTexts.Add(damageText);
                     continue;
                 }
 
@@ -1781,8 +1827,12 @@ namespace Client.Main.Controls
             }
 
             _cutoutMapBatch.Flush(time);
+        }
 
-            if (damageCount <= 0)
+        private void DrawQueuedDamageTexts(GameTime time)
+        {
+            // Keep screen-space labels above the late world effects, in one batch.
+            if (_queuedDamageTexts.Count == 0)
                 return;
 
             var sb = GraphicsManager.Instance.Sprite;
@@ -1798,9 +1848,10 @@ namespace Client.Main.Controls
                     null,
                     UiScaler.SpriteTransform))
                 {
-                    for (int i = 0; i < objCount; i++)
+                    for (int i = 0; i < _queuedDamageTexts.Count; i++)
                     {
-                        if (list[i] is not DamageTextObject damageText || ShouldSkipRender(damageText))
+                        DamageTextObject damageText = _queuedDamageTexts[i];
+                        if (ShouldSkipRender(damageText))
                             continue;
 
                         try
@@ -1818,6 +1869,10 @@ namespace Client.Main.Controls
             catch (Exception ex)
             {
                 RecordRenderFailure(null, "DrawAfter.DamageBatch", ex);
+            }
+            finally
+            {
+                _queuedDamageTexts.Clear();
             }
         }
 
