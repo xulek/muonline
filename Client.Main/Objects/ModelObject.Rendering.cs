@@ -15,6 +15,7 @@ namespace Client.Main.Objects
 {
     public abstract partial class ModelObject
     {
+        private static int _lastDynamicLightingErrorFrame = -300;
         private enum MeshShaderKind : byte
         {
             AlphaTest = 0,
@@ -1895,7 +1896,11 @@ namespace Client.Main.Objects
             }
             catch (Exception ex)
             {
-                _logger?.LogDebug("Error in DrawMeshWithDynamicLighting: {Message}", ex.Message);
+                if (unchecked(MuGame.FrameIndex - _lastDynamicLightingErrorFrame) >= 300)
+                {
+                    _lastDynamicLightingErrorFrame = MuGame.FrameIndex;
+                    _logger?.LogWarning(ex, "Dynamic lighting draw failed for {ObjectType}, mesh {Mesh}", GetType().Name, mesh);
+                }
             }
         }
 

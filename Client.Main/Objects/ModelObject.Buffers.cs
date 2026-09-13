@@ -268,7 +268,8 @@ namespace Client.Main.Objects
 
             if (!Visible && !allowHidden)
             {
-                _invalidatedBufferFlags = MeshDirtyFlags.None;
+                // Keep pending work for the loading-screen warmup or first visible
+                // update. Clearing it here can leave an offscreen model unprepared.
                 return true;
             }
 

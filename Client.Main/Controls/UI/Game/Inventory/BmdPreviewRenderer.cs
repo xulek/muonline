@@ -957,6 +957,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
             if (definition == null || string.IsNullOrWhiteSpace(definition.TexturePath))
                 return null;
 
+            // A cache hit must also observe device changes (Android may recreate its
+            // GL context when the activity resumes).
+            EnsureDeviceHooks(GraphicsManager.Instance.GraphicsDevice);
+
             string key = BuildCacheKey(definition, width, height, rotationAngle, props, isRotating);
             float now = ResolveEffectTime(gameTime);
             bool requiresAnimation = isRotating ||
@@ -1088,6 +1092,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
             DepthStencilState originalDepthStencilState = null;
             RasterizerState originalRasterizerState = null;
             SamplerState originalSamplerState = null;
+            Viewport originalViewport = default;
+            Rectangle originalScissorRectangle = default;
             bool capturedStates = false;
 
             try
@@ -1098,23 +1104,34 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 var bmd = modelTask.Result;
                 if (bmd == null)
-                    return target;
+                    throw new InvalidOperationException($"Preview model unavailable: {def.TexturePath}");
 
                 PreviewPoseGeometry pose = GetOrCreatePoseGeometry(bmd, def);
                 if (pose == null || !pose.IsValid)
                     return target;
 
-                // Never cache a transparent/partial thumbnail while texture uploads
-                // are unavailable. A failed upload must take the bounded retry path.
+                // A cached BMD can outlive the texture loader's eviction window.
+                // Re-prepare evicted textures before drawing, without blocking the UI.
+                int drawableMeshes = 0;
                 for (int i = 0; i < pose.MeshOrder.Length; i++)
                 {
                     int meshIndex = pose.MeshOrder[i];
                     if (pose.Meshes[meshIndex].Skip)
                         continue;
                     string texturePath = BMDLoader.Instance.GetTexturePath(bmd, bmd.Meshes[meshIndex].TexturePath);
+                    var textureTask = TextureLoader.Instance.Prepare(texturePath);
+                    if (!textureTask.IsCompleted)
+                        return target;
+                    // Missing optional meshes must not hide the rest of the item.
+                    // A decoded texture whose GPU upload failed is a transient error.
+                    if (textureTask.GetAwaiter().GetResult() == null)
+                        continue;
                     if (TextureLoader.Instance.GetTexture2D(texturePath) == null)
                         throw new InvalidOperationException($"Preview texture unavailable: {texturePath} ({def.TexturePath})");
+                    drawableMeshes++;
                 }
+                if (drawableMeshes == 0)
+                    throw new InvalidOperationException($"No drawable preview meshes: {def.TexturePath}");
 
                 if (rt == null || rt.IsDisposed || rt.Width != width || rt.Height != height)
                 {
@@ -1127,6 +1144,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 originalDepthStencilState = gd.DepthStencilState;
                 originalRasterizerState = gd.RasterizerState;
                 originalSamplerState = gd.SamplerStates[0];
+                originalViewport = gd.Viewport;
+                originalScissorRectangle = gd.ScissorRectangle;
                 capturedStates = true;
 
                 gd.SetRenderTarget(rt);
@@ -1202,9 +1221,24 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     Matrix oldV = effect.View;
                     Matrix oldP = effect.Projection;
                     Matrix oldW = effect.World;
+                    float oldAlpha = effect.Alpha;
+                    Vector3 oldDiffuse = effect.DiffuseColor;
+                    bool oldTextureEnabled = effect.TextureEnabled;
+                    bool oldVertexColorEnabled = effect.VertexColorEnabled;
+                    bool oldLightingEnabled = effect.LightingEnabled;
+                    bool oldFogEnabled = effect.FogEnabled;
+                    Texture2D oldTexture = effect.Texture;
 
                     try
                     {
+                        // World effects share this BasicEffect. Their alpha, tint and
+                        // fog must never become part of a cached inventory thumbnail.
+                        effect.Alpha = 1f;
+                        effect.DiffuseColor = Vector3.One;
+                        effect.TextureEnabled = true;
+                        effect.VertexColorEnabled = true;
+                        effect.LightingEnabled = false;
+                        effect.FogEnabled = false;
                         effect.View = view;
                         effect.Projection = projection;
                         effect.World = world;
@@ -1225,6 +1259,13 @@ namespace Client.Main.Controls.UI.Game.Inventory
                         effect.View = oldV;
                         effect.Projection = oldP;
                         effect.World = oldW;
+                        effect.Alpha = oldAlpha;
+                        effect.DiffuseColor = oldDiffuse;
+                        effect.TextureEnabled = oldTextureEnabled;
+                        effect.VertexColorEnabled = oldVertexColorEnabled;
+                        effect.LightingEnabled = oldLightingEnabled;
+                        effect.FogEnabled = oldFogEnabled;
+                        effect.Texture = oldTexture;
                     }
                 }
                 else
@@ -1281,6 +1322,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     else
                         gd.SetRenderTarget(null);
 
+                    gd.Viewport = originalViewport;
+                    gd.ScissorRectangle = originalScissorRectangle;
                     gd.BlendState = originalBlendState;
                     gd.DepthStencilState = originalDepthStencilState;
                     gd.RasterizerState = originalRasterizerState;

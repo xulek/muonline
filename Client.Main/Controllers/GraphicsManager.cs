@@ -1,5 +1,6 @@
 using Client.Main.Content;
 using Client.Main.Graphics;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -350,11 +351,16 @@ namespace Client.Main.Controllers
         {
             try
             {
+#if ANDROID
+                if (effectName is "DynamicLighting" or "ItemMaterial" or "MonsterMaterial")
+                    return AndroidEffectLoader.Load(_contentManager, effectName);
+#endif
                 return _contentManager.Load<Effect>(effectName);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Console.WriteLine($"{effectName} could not be loaded!");
+                MuGame.AppLoggerFactory?.CreateLogger<GraphicsManager>().LogWarning(
+                    ex, "Could not load effect {EffectName}", effectName);
                 return null;
             }
         }

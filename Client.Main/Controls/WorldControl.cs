@@ -624,10 +624,26 @@ namespace Client.Main.Controls
             long sliceStarted = Stopwatch.GetTimestamp();
             int preparedInSlice = 0;
             int preparedTotal = 0;
-            for (int i = 0; i < _visibleObjects.Count; i++)
+#if ANDROID
+            // Map BMD loading decodes CPU assets only. Warm placed models while the
+            // loading screen is still up, including those outside the initial view,
+            // so walking does not trigger their first texture/buffer upload in Draw.
+            IReadOnlyList<WorldObject> modelsToPrepare = Objects.GetSnapshotArray();
+#else
+            var modelsToPrepare = _visibleObjects;
+#endif
+            for (int i = 0; i < modelsToPrepare.Count; i++)
             {
-                if (_visibleObjects[i] is not ModelObject model || !model.Visible)
+                if (modelsToPrepare[i] is not ModelObject model ||
+                    model.Status != GameControlStatus.Ready || model.Hidden)
                     continue;
+#if ANDROID
+                if (!model.Visible && !model.IsMapPlacementObject)
+                    continue;
+#else
+                if (!model.Visible)
+                    continue;
+#endif
 
                 model.PrepareRenderResourcesForFirstFrame();
                 preparedInSlice++;
@@ -640,10 +656,10 @@ namespace Client.Main.Controls
                 }
 
                 preparedInSlice = 0;
-                sliceStarted = Stopwatch.GetTimestamp();
                 await MuGame.YieldToNextFrameAsync(
                     $"{phaseName}.{preparedTotal}",
                     MainThreadDispatcher.WorkPriority.High);
+                sliceStarted = Stopwatch.GetTimestamp();
             }
         }
 

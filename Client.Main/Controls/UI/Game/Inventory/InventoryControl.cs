@@ -203,7 +203,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
         private InventoryTextEntry _zenText;
 
         private readonly Dictionary<string, Texture2D> _itemTextureCache = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<(InventoryItem item, int width, int height, bool animated), Texture2D> _bmdPreviewCache = new();
 
         private readonly List<InventoryItem> _items = new();
         private readonly List<(InventoryItem Item, Rectangle Rect)> _jewelEntries = new();
@@ -1512,7 +1511,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
             _items.Clear();
             _itemGrid = new InventoryItem[Columns, Rows];
             _equippedItems.Clear();
-            _bmdPreviewCache.Clear();
 
             var characterItems = _network_manager_getitems();
             const string defaultItemIconTexturePath = "Interface/newui_item_box.tga";
@@ -2605,21 +2603,11 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 }
             }
 
-            // Use cached static preview
-            var cacheKey = (item, width, height, false);
-            if (_bmdPreviewCache.TryGetValue(cacheKey, out var previewTexture) && previewTexture != null)
-            {
-                return previewTexture;
-            }
-
             try
             {
-                previewTexture = BmdPreviewRenderer.GetPreview(item, width, height);
-                if (previewTexture != null)
-                {
-                    _bmdPreviewCache[cacheKey] = previewTexture;
-                }
-                return previewTexture;
+                // The renderer owns the targets and invalidates them on device loss
+                // and cache eviction. A second cache can retain a freed/reused target.
+                return BmdPreviewRenderer.GetPreview(item, width, height);
             }
             catch
             {
