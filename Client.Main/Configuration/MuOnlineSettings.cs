@@ -120,11 +120,19 @@ namespace Client.Main.Configuration
         }
     }
 
+    public class DeviasGroundSnowSettings
+    {
+        public bool Enabled { get; set; } = true;
+        public float Depth { get; set; } = 24f;
+        public float TrackLifetime { get; set; } = 90f;
+    }
+
     public class EnvironmentSettings
     {
         public LorenciaLeafEffectSettings LorenciaLeaf { get; set; } = new();
         public NoriaLeafEffectSettings NoriaLeaf { get; set; } = new();
         public DeviasSnowEffectSettings DeviasSnow { get; set; } = new();
+        public DeviasGroundSnowSettings DeviasGroundSnow { get; set; } = new();
     }
 
     public class MuOnlineSettings

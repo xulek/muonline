@@ -1,6 +1,7 @@
 using Client.Data.ATT;
 using Client.Data.MAP;
 using Client.Main.Controls.Terrain;
+using Client.Main.Configuration;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
 using Client.Main.Objects;
@@ -143,6 +144,24 @@ namespace Client.Main.Controls
         }
         public TerrainFrameMetrics FrameMetrics { get; } = new TerrainFrameMetrics();
 
+        public void ConfigureDeviasSnow(DeviasGroundSnowSettings settings)
+        {
+            if (WorldIndex != 3 || _renderer == null) return;
+            _renderer.Snow?.Dispose();
+            _renderer.Snow = settings.Enabled
+                ? new DeviasSnowRenderer(GraphicsDevice, _data, _physics, _visibility, settings)
+                : null;
+            // Coarse base triangles must not cut through a deeply compressed snow mesh.
+            for (int i = 0; i < _visibility.LodSteps.Length; i++)
+                _visibility.LodSteps[i] = settings.Enabled ? 1 : 1 << i;
+        }
+
+        public void UpdateDeviasSnow(GameTime time, WalkableWorldControl world)
+        {
+            _renderer?.Snow?.ResetMetrics();
+            _renderer?.Snow?.Update(time, world);
+        }
+
         public TerrainControl()
         {
             AutoViewSize = false;
@@ -254,6 +273,13 @@ namespace Client.Main.Controls
             FrameMetrics.UploadedIndices = _renderer.UploadedIndices;
             FrameMetrics.UploadedVertices = _renderer.UploadedVertices;
             FrameMetrics.UsedIndexBatching = _renderer.UsedIndexBatching;
+            if (_renderer.Snow is { } snow)
+            {
+                FrameMetrics.DrawCalls += snow.DrawCalls;
+                FrameMetrics.DrawnTriangles += snow.DrawnTriangles;
+                FrameMetrics.VertexUploads += snow.VertexUploads;
+                FrameMetrics.UploadedVertices += snow.UploadedVertices;
+            }
 
             base.Draw(time);
         }

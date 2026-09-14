@@ -58,6 +58,7 @@ namespace Client.Main.Worlds
             Walker.Position = Walker.TargetPosition;
 
             Terrain.ConfigureGrass();
+            Terrain.ConfigureDeviasSnow(MuGame.AppSettings?.Environment?.DeviasGroundSnow ?? new DeviasGroundSnowSettings());
 
             base.AfterLoad();
         }
@@ -102,6 +103,13 @@ namespace Client.Main.Worlds
 
             MapTileObjects[98] = typeof(HouseWallObject); // Roof
             MapTileObjects[99] = typeof(HouseWallObject); // Roof
+        }
+
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            if (Status == Models.GameControlStatus.Ready)
+                Terrain.UpdateDeviasSnow(time, this);
         }
 
         public override void Dispose()

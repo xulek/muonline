@@ -221,6 +221,7 @@ namespace Client.Main.Controls.Terrain
         public float DistortionFrequency { get; set; } = 0f;
         public float AmbientLight { get; set; } = 0.25f;
         public short WorldIndex { get; set; }
+        internal DeviasSnowRenderer Snow { get; set; }
         public bool PreferIndexBatching { get; set; }
 
         public int DrawCalls { get; private set; }
@@ -605,6 +606,11 @@ namespace Client.Main.Controls.Terrain
                 }
 
                 FlushWaterCaustics();
+                if (Snow != null)
+                {
+                    Snow.AmbientLight = AmbientLight;
+                    Snow.Draw(_useDynamicLightingShader ? GraphicsManager.Instance.DynamicLightingEffect : null);
+                }
 
                 // The original Atlans terrain pass does not render standard grass.
                 if (!IsAnimatedWaterWorld)
@@ -1144,6 +1150,11 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.DepthStencilState = prevDepth;
                 _graphicsDevice.RasterizerState = prevRaster;
                 shadowEffect.CurrentTechnique = prevTechnique;
+            }
+            if (Snow != null)
+            {
+                Snow.AmbientLight = AmbientLight;
+                Snow.Draw(shadowEffect, shadow: true);
             }
         }
 
@@ -2736,6 +2747,8 @@ namespace Client.Main.Controls.Terrain
         }
         public void Dispose()
         {
+            Snow?.Dispose();
+            Snow = null;
             _terrainStreamBufferOpaque?.Dispose();
             _terrainStreamBufferOpaque = null;
             _terrainStreamBufferAlpha?.Dispose();
@@ -2769,4 +2782,3 @@ namespace Client.Main.Controls.Terrain
 
     }
 }
-

@@ -43,6 +43,21 @@ sampler SamplerState0 = sampler_state
     MipFilter = Linear;
 };
 
+Texture2D SnowOverlayTexture;
+float2 SnowBaseUvScale;
+float2 SnowOverlayUvScale;
+float SnowOverlayEnabled;
+float SnowAmbientLight;
+sampler SnowOverlaySampler = sampler_state
+{
+    Texture = <SnowOverlayTexture>;
+    AddressU = Wrap;
+    AddressV = Wrap;
+    MinFilter = Linear;
+    MagFilter = Linear;
+    MipFilter = Linear;
+};
+
 // Lighting parameters  
 UNIFORM_DEFAULT(float3, AmbientLight, float3(0.8, 0.8, 0.8));
 UNIFORM_DEFAULT(float, Alpha, 1.0);
@@ -78,6 +93,7 @@ sampler ShadowSampler = sampler_state
 #if SM6
 float4 SampleSamplerState0(float2 uv) { return DiffuseTexture.Sample(SamplerState0, uv); }
 float4 SampleShadowSampler(float2 uv) { return ShadowMap.Sample(ShadowSampler, uv); }
+float4 SampleSnowOverlaySampler(float2 uv) { return SnowOverlayTexture.Sample(SnowOverlaySampler, uv); }
 #define tex2D(s, uv) Sample##s(uv)
 #endif
 
@@ -193,6 +209,26 @@ struct PixelInput
     float3 Normal       : TEXCOORD2;
     float4 Color        : COLOR0;
     float3 DynamicLight : TEXCOORD3; 
+};
+
+struct SnowVertexInput
+{
+    float3 Position : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 TexCoord : TEXCOORD0;
+    float4 Color : COLOR0;
+    float4 TerrainLight : COLOR1;
+};
+
+struct SnowPixelInput
+{
+    float4 Position : SV_POSITION;
+    float2 TexCoord : TEXCOORD0;
+    float3 WorldPos : TEXCOORD1;
+    float3 Normal : TEXCOORD2;
+    float4 Color : COLOR0;
+    float3 DynamicLight : TEXCOORD3;
+    float4 TerrainLight : COLOR1;
 };
 
 // ============================================================================
@@ -351,6 +387,19 @@ PixelInput VS_Terrain(VertexInput input)
     output.Normal = normalize(mul(input.Normal, (float3x3)World));
     output.TexCoord = CalculateProceduralUV(worldPos.xyz, input.TexCoord);
     output.Color = input.Color;
+    output.DynamicLight = CalculateTerrainLighting(output.WorldPos, output.Normal);
+    return output;
+}
+
+SnowPixelInput VS_Snow(SnowVertexInput input)
+{
+    SnowPixelInput output;
+    output.Position = mul(float4(input.Position, 1.0), WorldViewProjection);
+    output.WorldPos = mul(float4(input.Position, 1.0), World).xyz;
+    output.Normal = normalize(mul(input.Normal, (float3x3)World));
+    output.TexCoord = input.TexCoord;
+    output.Color = input.Color;
+    output.TerrainLight = input.TerrainLight;
     output.DynamicLight = CalculateTerrainLighting(output.WorldPos, output.Normal);
     return output;
 }
@@ -649,6 +698,78 @@ float4 PS_Highlight(PixelInput input) : SV_Target
     float textureAlpha = tex2D(SamplerState0, input.TexCoord).a;
     clip(textureAlpha - 0.01);
     return float4(HighlightColor * textureAlpha, textureAlpha * Alpha);
+}
+
+// Real snow geometry supplies the groove normals and compaction in TexCoord.x.
+// Lighting is evaluated on those normals so the banks read as volume in motion.
+float SnowHash(float2 p)
+{
+    float3 q = frac(float3(p.x, p.y, p.x) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return frac((q.x + q.y) * q.z);
+}
+
+// Value and analytic derivatives. World coordinates keep the material continuous
+// across mesh patches; smooth interpolation avoids square texels or tile seams.
+float3 SnowNoise(float2 p)
+{
+    float2 cell = floor(p), f = frac(p);
+    float2 u = f * f * (3.0 - 2.0 * f);
+    float2 du = 6.0 * f * (1.0 - f);
+    float a = SnowHash(cell), b = SnowHash(cell + float2(1, 0));
+    float c = SnowHash(cell + float2(0, 1)), d = SnowHash(cell + float2(1, 1));
+    return float3(lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y),
+        du.x * lerp(b - a, d - c, u.y), du.y * lerp(c - a, d - b, u.x));
+}
+
+float4 PS_Snow(SnowPixelInput input) : SV_Target
+{
+    clip(input.Color.a - 0.015);
+    float compacted = saturate(input.TexCoord.x);
+    float2 materialUv = input.WorldPos.xy;
+    float3 powder = SnowNoise(materialUv * 0.073);
+    float3 grain = SnowNoise(materialUv * 0.23 + float2(17.3, 9.1));
+    float drift = SnowNoise(materialUv * 0.014 + float2(3.7, 21.5)).x;
+    // The edge has already tapered geometrically into the terrain. Feather its
+    // remaining colour with world-space powder breakup rather than a polygon cut.
+    float coverage = smoothstep(0.035, 0.65, input.Color.a + (powder.x - 0.5) * 0.16);
+    clip(coverage - 0.01);
+    float pixelWidth = max(length(ddx(materialUv)), length(ddy(materialUv)));
+    float grainFade = 1.0 - smoothstep(0.3, 1.0, pixelWidth * 0.23);
+    float materialDepth = smoothstep(0.2, 0.9, input.Color.a);
+    float roughness = (1.0 - compacted * 0.55) * materialDepth;
+    float2 microSlope = (powder.yz * 0.22 + grain.yz * (0.19 * grainFade)) * roughness;
+    float3 normal = PrepareNormal(input.Normal + float3(-microSlope, 0));
+    // Reuse the actual terrain material pair and its original 64-texel-per-tile
+    // UVs. No replacement white/blue tint at the join with the original ground.
+    float4 baseTexel = tex2D(SamplerState0, materialUv * SnowBaseUvScale);
+    float4 overlayTexel = tex2D(SnowOverlaySampler, materialUv * SnowOverlayUvScale);
+    float3 albedo = lerp(baseTexel.rgb, overlayTexel.rgb,
+        overlayTexel.a * input.TerrainLight.a * SnowOverlayEnabled);
+    albedo *= 1.0 + ((powder.x - 0.5) * 0.10 + (drift - 0.5) * 0.04 +
+        (grain.x - 0.5) * 0.05 * grainFade) * roughness;
+    float sunFacing = saturate(dot(normal, -normalize(SunDirection)));
+    float shadow = lerp(1.0, lerp(1.0 - ShadowStrength, 1.0, SampleShadow(input.WorldPos, normal)), ShadowsEnabled);
+    float3 terrainLight = input.TerrainLight.rgb * GlobalLightMultiplier;
+    float3 smoothLight = saturate(input.Color.rgb + SnowAmbientLight) * GlobalLightMultiplier;
+    float3 light = lerp(terrainLight, smoothLight, materialDepth);
+    light += input.DynamicLight * TerrainDynamicIntensityScale;
+    light *= shadow;
+    // Relief changes illumination around banks, without adding another sun term
+    // that made the entire snow sheet brighter and colder than Devias textures.
+    float upFacing = saturate(-normalize(SunDirection).z);
+    light *= 1.0 + (sunFacing - upFacing) * SunStrength * 0.5 * materialDepth;
+    float cavity = 1.0 - compacted * 0.24;
+    return float4(ApplyWorldFog(albedo * light * cavity, input.WorldPos), coverage);
+}
+
+technique DynamicLighting_Snow
+{
+    pass P0
+    {
+        VertexShader = compile VS_SHADERMODEL VS_Snow();
+        PixelShader = compile PS_SHADERMODEL PS_Snow();
+    }
 }
 
 float4 ShadeObjectPixel(PixelInput input, float3 normal, float3 dynamicLight)
