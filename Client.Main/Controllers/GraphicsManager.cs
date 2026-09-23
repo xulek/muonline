@@ -110,6 +110,7 @@ namespace Client.Main.Controllers
             ItemMaterialEffect?.Parameters["GlowColor"]?.SetValue(new Vector3(0.6f, 0.5f, 0.0f));
             MonsterMaterialEffect = LoadEffect("MonsterMaterial");
             DynamicLightingEffect = LoadEffect("DynamicLighting");
+            DynamicLightingEffect?.Parameters["MaterialTint"]?.SetValue(Vector3.One);
             ShadowMapRenderer = new ShadowMapRenderer(_graphicsDevice);
 
             InitializeFXAAEffect();
