@@ -300,6 +300,15 @@ namespace Client.Main.Controls
         public int GetHeroTile(float xf, float yf) => _data.Mapping.Layer1[TerrainPhysics.GetTerrainIndex(xf, yf)];
         public TWFlags RequestTerrainFlag(int x, int y) => _physics?.RequestTerrainFlag(x, y) ?? 0f;
         public float RequestTerrainHeight(float xf, float yf) => _physics?.RequestTerrainHeight(xf, yf) ?? 0f;
+        internal bool HasSnowShadowSurface => _renderer?.Snow != null;
+        internal DeviasSnowRenderer SnowShadowSurface => _renderer?.Snow;
+        internal float RequestShadowSurfaceHeight(float x, float y)
+        {
+            float ground = RequestTerrainHeight(x, y);
+            return _renderer?.Snow is { } snow && snow.TryGetSurfaceHeight(x, y, out float height)
+                ? MathF.Max(ground, height)
+                : ground;
+        }
         public Vector3 EvaluateTerrainLight(float xf, float yf) => _physics?.RequestTerrainLight(xf, yf, AmbientLight) ?? Vector3.Zero;
         public Vector3 EvaluateDynamicLight(Vector2 position) => _lightManager.EvaluateDynamicLight(position);
         public byte GetBaseTextureIndexAt(int x, int y) => _physics.GetBaseTextureIndexAt(x, y);

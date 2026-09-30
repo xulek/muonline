@@ -566,6 +566,16 @@ namespace Client.Main.Controls.Terrain
 
                 _activeWaterCausticsTexture = ResolveWaterCausticsTexture();
 
+                if (Snow != null)
+                {
+                    // Fully opaque snow fills depth first, rejecting the terrain hidden
+                    // underneath. Tapered edges and footprints retain the later snow pass.
+                    Snow.AmbientLight = AmbientLight;
+                    Snow.Draw(_useDynamicLightingShader ? GraphicsManager.Instance.DynamicLightingEffect : null, opaqueOnly: true);
+                    _lastBoundTexture = null;
+                    ApplyTerrainTextureSampler();
+                }
+
                 if (_useTerrainIndexBatching && _usingPersistentTerrainIndexCache)
                 {
                     RenderPersistentDynamicTerrainTiles();

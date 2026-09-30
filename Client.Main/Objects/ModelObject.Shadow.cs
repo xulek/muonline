@@ -121,6 +121,8 @@ namespace Client.Main.Objects
             public uint LastPoseVersion = uint.MaxValue;
             public Matrix LastShadowWorld;
             public bool HasLastShadowWorld;
+            public object LastSnowSurface;
+            public long LastSnowSurfaceVersion;
             public bool IsValid;
 
             public void Dispose()
@@ -146,6 +148,8 @@ namespace Client.Main.Objects
         private Matrix _terrainBlobLastWorld;
         private bool _terrainBlobHasLastWorld;
         private bool _terrainBlobCacheValid;
+        private object _terrainBlobLastSnowSurface;
+        private long _terrainBlobLastSnowSurfaceVersion;
 
         private ModelObject GetShadowActorRoot()
         {
@@ -789,8 +793,11 @@ namespace Client.Main.Objects
             bool transformChanged = !cache.HasLastShadowWorld ||
                                     HasTerrainShadowMatrixChanged(cache.LastShadowWorld, shadowWorld);
             IVertexDeformer vertexDeformer = GetVertexDeformer();
+            var snowSurface = terrain.SnowShadowSurface;
+            long snowVersion = snowSurface?.SurfaceVersion ?? 0;
 
-            if (cache.IsValid && !poseChanged && !transformChanged && vertexDeformer == null)
+            if (cache.IsValid && !poseChanged && !transformChanged && vertexDeformer == null &&
+                ReferenceEquals(cache.LastSnowSurface, snowSurface) && cache.LastSnowSurfaceVersion == snowVersion)
                 return true;
 
             TerrainShadowTopology topology = cache.Topology;
@@ -857,6 +864,8 @@ namespace Client.Main.Objects
                 if (!float.IsFinite(terrainHeight))
                     return cache.IsValid;
 
+                if (terrain.HasSnowShadowSurface)
+                    terrainHeight = terrain.RequestShadowSurfaceHeight(position.X, position.Y);
                 position.Z = terrainHeight + TerrainShadowSurfaceBias;
                 cache.ProjectedPositions[i] = position;
             }
@@ -885,6 +894,8 @@ namespace Client.Main.Objects
             cache.LastPoseVersion = poseVersion;
             cache.LastShadowWorld = shadowWorld;
             cache.HasLastShadowWorld = true;
+            cache.LastSnowSurface = snowSurface;
+            cache.LastSnowSurfaceVersion = snowVersion;
             cache.IsValid = true;
             return true;
         }
@@ -1087,8 +1098,11 @@ namespace Client.Main.Objects
             _terrainBlobShadowVertices ??= new VertexPositionTexture[BlobShadowGridTemplate.Length];
             bool transformChanged = !_terrainBlobHasLastWorld ||
                                     HasTerrainShadowMatrixChanged(_terrainBlobLastWorld, blobWorld);
+            var snowSurface = terrain.SnowShadowSurface;
+            long snowVersion = snowSurface?.SurfaceVersion ?? 0;
 
-            if (_terrainBlobCacheValid && !transformChanged)
+            if (_terrainBlobCacheValid && !transformChanged && ReferenceEquals(_terrainBlobLastSnowSurface, snowSurface) &&
+                _terrainBlobLastSnowSurfaceVersion == snowVersion)
             {
                 outputVertices = _terrainBlobShadowVertices;
                 return true;
@@ -1101,7 +1115,7 @@ namespace Client.Main.Objects
                 if (!float.IsFinite(position.X) || !float.IsFinite(position.Y))
                     return _terrainBlobCacheValid;
 
-                float terrainHeight = terrain.RequestTerrainHeight(position.X, position.Y);
+                float terrainHeight = terrain.RequestShadowSurfaceHeight(position.X, position.Y);
                 if (!float.IsFinite(terrainHeight))
                     return _terrainBlobCacheValid;
 
@@ -1113,6 +1127,8 @@ namespace Client.Main.Objects
 
             _terrainBlobLastWorld = blobWorld;
             _terrainBlobHasLastWorld = true;
+            _terrainBlobLastSnowSurface = snowSurface;
+            _terrainBlobLastSnowSurfaceVersion = snowVersion;
             _terrainBlobCacheValid = true;
             outputVertices = _terrainBlobShadowVertices;
             return true;
