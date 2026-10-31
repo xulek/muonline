@@ -25,6 +25,19 @@ namespace Client.Main.Objects.Player
             }
         }
 
+        public override void Update(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            ApplyScriptBlendLight(gameTime.TotalGameTime.TotalMilliseconds);
+            base.Update(gameTime);
+        }
+
+        public override void Draw(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            DrawArmorSetChromeUnderlay();
+            base.Draw(gameTime);
+            DrawPcRoomPasses();
+        }
+
         public PlayerBootObject()
         {
             RenderShadow = true;

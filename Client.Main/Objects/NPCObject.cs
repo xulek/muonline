@@ -13,7 +13,7 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Objects
 {
-    public abstract class NPCObject : WalkerObject
+    public abstract class NPCObject : WalkerObject, IEquippedCharacter
     {
         protected new ILogger _logger;
         private DateTime _lastClickTime = DateTime.MinValue;

@@ -48,6 +48,13 @@ namespace Client.Main.Objects
                 IsAncient = effect.Parameters["IsAncient"];
                 IsExcellent = effect.Parameters["IsExcellent"];
                 GlowColor = effect.Parameters["GlowColor"];
+                ItemChromeColor = effect.Parameters["ItemChromeColor"];
+                ItemChrome2Tint = effect.Parameters["ItemChrome2Tint"];
+                ItemAncientColor = effect.Parameters["ItemAncientColor"];
+                ChromeOverlayMode = effect.Parameters["ChromeOverlayMode"];
+                ChromeOverlayColor = effect.Parameters["ChromeOverlayColor"];
+                ChromeOverlayUvOffset = effect.Parameters["ChromeOverlayUvOffset"];
+                ChromeOverlayAlpha = effect.Parameters["ChromeOverlayAlpha"];
                 GlowIntensity = effect.Parameters["GlowIntensity"];
                 EnableGlow = effect.Parameters["EnableGlow"];
                 SimpleColorMode = effect.Parameters["SimpleColorMode"];
@@ -93,6 +100,13 @@ namespace Client.Main.Objects
             public EffectParameter IsAncient { get; }
             public EffectParameter IsExcellent { get; }
             public EffectParameter GlowColor { get; }
+            public EffectParameter ItemChromeColor { get; }
+            public EffectParameter ItemChrome2Tint { get; }
+            public EffectParameter ItemAncientColor { get; }
+            public EffectParameter ChromeOverlayMode { get; }
+            public EffectParameter ChromeOverlayColor { get; }
+            public EffectParameter ChromeOverlayUvOffset { get; }
+            public EffectParameter ChromeOverlayAlpha { get; }
             public EffectParameter GlowIntensity { get; }
             public EffectParameter EnableGlow { get; }
             public EffectParameter SimpleColorMode { get; }

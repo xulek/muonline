@@ -38,7 +38,7 @@ namespace Client.Main.Objects.Player
         Swim
     }
 
-    public class PlayerObject : WalkerObject
+    public class PlayerObject : WalkerObject, IEquippedCharacter
     {
         protected override bool RequiresPerFrameAnimation => IsMainWalker;
         private CharacterClassNumber _characterClass;
@@ -90,6 +90,10 @@ namespace Client.Main.Objects.Player
 
         private int _lastEquipmentAnimationStride = -1;
         private float _lastWingAnimationSpeed = -1f;
+        private float _extendStateTime;
+
+        /// <summary>Complete ancient set flag received with the last equipment change.</summary>
+        public bool AncientSetCompleteFromEquipment { get; private set; }
 
         // Timer for footstep sound playback
         private float _footstepTimer;
@@ -209,6 +213,16 @@ namespace Client.Main.Objects.Player
             Vehicle = new VehicleObject { Hidden = true };
 
             FullSetAura = new FullSetAuraEffect();
+            // SourceMain5.2 NextGradeObjectRender: glow of +15 weapons and armor ornaments.
+            var nextGradeEffect = new ItemLinkEffect();
+            nextGradeEffect.CustomEmitter = effect =>
+            {
+                ItemLinkEffectEmitter.EmitNextGrade(effect, this);
+                ItemLinkEffectEmitter.EmitAncientSet(effect, this, ref _extendStateTime);
+            };
+            Children.Add(nextGradeEffect);
+            foreach (var ornament in NextGradeOrnamentObject.CreateAll(this))
+                Children.Add(ornament);
 
             Children.Add(HelmMask);
             Children.Add(Helm);
@@ -895,6 +909,8 @@ namespace Client.Main.Objects.Player
 
                     // Apply item properties for shader effects
                     Weapon1.ItemLevel = Appearance.LeftHandItemLevel;
+                    Weapon1.MaterialItemGroup = Appearance.LeftHandItemGroup;
+                    Weapon1.MaterialItemIndex = leftHandNumber;
                     Weapon1.IsExcellentItem = Appearance.LeftHandExcellent;
                     Weapon1.IsAncientItem = Appearance.LeftHandAncient;
                     RefreshWeaponAttachment(Weapon1, isLeftHand: true);
@@ -923,6 +939,8 @@ namespace Client.Main.Objects.Player
 
                     // Apply item properties for shader effects
                     Weapon2.ItemLevel = Appearance.RightHandItemLevel;
+                    Weapon2.MaterialItemGroup = Appearance.RightHandItemGroup;
+                    Weapon2.MaterialItemIndex = rightHandNumber;
                     Weapon2.IsExcellentItem = Appearance.RightHandExcellent;
                     Weapon2.IsAncientItem = Appearance.RightHandAncient;
                     RefreshWeaponAttachment(Weapon2, isLeftHand: false);
@@ -1121,6 +1139,8 @@ namespace Client.Main.Objects.Player
 
                     // Apply item properties for shader effects
                     Weapon1.ItemLevel = appearanceConfig.LeftHandItemLevel;
+                    Weapon1.MaterialItemGroup = appearanceConfig.LeftHandItemGroup;
+                    Weapon1.MaterialItemIndex = appearanceConfig.LeftHandItemIndex;
                     Weapon1.IsExcellentItem = appearanceConfig.LeftHandExcellent;
                     Weapon1.IsAncientItem = appearanceConfig.LeftHandAncient;
                     RefreshWeaponAttachment(Weapon1, isLeftHand: true);
@@ -1148,6 +1168,8 @@ namespace Client.Main.Objects.Player
 
                     // Apply item properties for shader effects
                     Weapon2.ItemLevel = appearanceConfig.RightHandItemLevel;
+                    Weapon2.MaterialItemGroup = appearanceConfig.RightHandItemGroup;
+                    Weapon2.MaterialItemIndex = appearanceConfig.RightHandItemIndex;
                     Weapon2.IsExcellentItem = appearanceConfig.RightHandExcellent;
                     Weapon2.IsAncientItem = appearanceConfig.RightHandAncient;
                     RefreshWeaponAttachment(Weapon2, isLeftHand: false);
@@ -1508,17 +1530,17 @@ namespace Client.Main.Objects.Player
                 // or 1.0 frame/tick while flying, on the 25 Hz reference clock.
                 desiredSpeed = isFlyingAction ? 25f : 6.25f;
             }
+            else if (wingIndex == WingOfRuinIndex)
+            {
+                // RenderLinkObject forces f->PlaySpeed = 0.15f for Wing of Ruin.
+                desiredSpeed = 0.15f * 25f;
+            }
             else
             {
-                desiredSpeed = 7f;
-                if (wingIndex == WingOfRuinIndex)
-                {
-                    desiredSpeed *= 1.15f;
-                }
-                else if (isFlyingAction)
-                {
-                    desiredSpeed *= wingIndex == WingOfStormIndex ? 1.5f : 2.5f;
-                }
+                // RenderCharacter: 0.25 frame/tick standing, 1.0 while flying (0.5 for Wing of Storm).
+                desiredSpeed = !isFlyingAction ? 0.25f * 25f
+                    : wingIndex == WingOfStormIndex ? 0.5f * 25f
+                    : 25f;
             }
 
             if (Math.Abs(desiredSpeed - _lastWingAnimationSpeed) > 0.0001f)
@@ -4116,9 +4138,13 @@ namespace Client.Main.Objects.Player
             if (equipmentData == null)
             {
                 // Item is being unequipped
+                AncientSetCompleteFromEquipment = false;
                 await UnequipSlotAsync(itemSlot);
                 return;
             }
+
+            // ExtendState: the equipment change packets carry the "set complete" flag.
+            AncientSetCompleteFromEquipment = equipmentData.IsAncientSetComplete;
 
             _logger?.LogDebug($"[PlayerObject] UpdateEquipmentSlotAsync: slot={itemSlot}, data group={equipmentData?.ItemGroup}, data number={equipmentData?.ItemNumber}");
 
@@ -4463,7 +4489,7 @@ namespace Client.Main.Objects.Player
             part.ItemLevel = equipmentData.ItemLevel;
             part.MaterialItemGroup = equipmentData.ItemGroup;
             part.MaterialItemIndex = equipmentData.ItemNumber;
-            part.IsExcellentItem = equipmentData.ExcellentFlags > 0;
+            part.IsExcellentItem = (equipmentData.ExcellentFlags & 0x3F) > 0; // SourceMain: ExcellentFlags & 63
             part.IsAncientItem = equipmentData.AncientDiscriminator > 0;
         }
 

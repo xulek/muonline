@@ -44,8 +44,16 @@ namespace Client.Main.Controls.UI.Game.Inventory
             public int ItemIndex { get; }
 
             public bool RequiresDistinctKey => Level != 0 || IsExcellent || IsAncient;
-            public bool ShouldUseItemMaterial => Level >= 7 || IsExcellent || IsAncient;
-            public int ItemOptions => (Level & 0x0F) | (IsExcellent ? 0x10 : 0);
+
+            // SourceMain5.2 RenderPartObjectEffect level remapping and excellent exclusions.
+            public int EffectiveLevel => ItemGroup >= 0
+                ? Client.Main.Core.Utilities.ItemVisualRules.GetRenderLevel(ItemGroup, ItemIndex, Level)
+                : Level;
+            public bool HasExcellentGlow => IsExcellent &&
+                (ItemGroup < 0 || Client.Main.Core.Utilities.ItemVisualRules.AllowsExcellentGlow(ItemGroup, ItemIndex));
+            public int LowLevelChromeMode => Client.Main.Core.Utilities.ItemVisualRules.GetLowLevelChromeMode(ItemGroup, ItemIndex);
+            public bool ShouldUseItemMaterial => EffectiveLevel >= 3 || HasExcellentGlow || IsAncient || LowLevelChromeMode != 0;
+            public int ItemOptions => (EffectiveLevel & 0x0F) | (HasExcellentGlow ? 0x10 : 0) | (LowLevelChromeMode << 5);
         }
 
         private sealed class PreviewCacheEntry : IDisposable
@@ -191,6 +199,12 @@ namespace Client.Main.Controls.UI.Game.Inventory
             public EffectParameter HighLevelTexturesAvailable;
             public EffectParameter IsExcellent;
             public EffectParameter IsAncient;
+            public EffectParameter ItemChromeColor;
+            public EffectParameter ItemChrome2Tint;
+            public EffectParameter ItemAncientColor;
+            public EffectParameter AmbientLight;
+            public EffectParameter SunStrength;
+            public EffectParameter ShadowStrength;
             public EffectParameter Time;
             public EffectParameter Alpha;
             public EffectParameter ShadowsEnabled;
@@ -579,6 +593,12 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 HighLevelTexturesAvailable = effect.Parameters["HighLevelTexturesAvailable"],
                 IsExcellent = effect.Parameters["IsExcellent"],
                 IsAncient = effect.Parameters["IsAncient"],
+                ItemChromeColor = effect.Parameters["ItemChromeColor"],
+                ItemChrome2Tint = effect.Parameters["ItemChrome2Tint"],
+                ItemAncientColor = effect.Parameters["ItemAncientColor"],
+                AmbientLight = effect.Parameters["AmbientLight"],
+                SunStrength = effect.Parameters["SunStrength"],
+                ShadowStrength = effect.Parameters["ShadowStrength"],
                 Time = effect.Parameters["Time"],
                 Alpha = effect.Parameters["Alpha"],
                 ShadowsEnabled = effect.Parameters["ShadowsEnabled"],
@@ -1452,19 +1472,22 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 GraphicsManager graphics = GraphicsManager.Instance;
                 if (!fastShader)
-                {
                     bindings.EyePosition?.SetValue(eyePosition);
-                    Texture2D fallback = graphics.BlackPixel ?? graphics.Pixel;
-                    bindings.Chrome02Texture?.SetValue(graphics.ItemChrome02Texture ?? fallback);
-                    bindings.Shiny01Texture?.SetValue(graphics.ItemShiny01Texture ?? fallback);
-                    bindings.Chrome01Texture?.SetValue(graphics.ItemChrome01Texture ?? fallback);
-                    bindings.ItemMaterialGroup?.SetValue(props.ItemGroup);
-                    bindings.ItemMaterialIndex?.SetValue(props.ItemIndex);
-                    bindings.HighLevelTexturesAvailable?.SetValue(
-                        graphics.HasItemUpgradeTextures ? 1f : 0f);
-                    bindings.IsExcellent?.SetValue(props.IsExcellent);
-                    bindings.IsAncient?.SetValue(props.IsAncient);
-                }
+                Texture2D fallback = graphics.BlackPixel ?? graphics.Pixel;
+                bindings.Chrome02Texture?.SetValue(graphics.ItemChrome02Texture ?? fallback);
+                bindings.Shiny01Texture?.SetValue(graphics.ItemShiny01Texture ?? fallback);
+                bindings.Chrome01Texture?.SetValue(graphics.ItemChrome01Texture ?? fallback);
+                bindings.IsExcellent?.SetValue(props.HasExcellentGlow);
+                bindings.IsAncient?.SetValue(props.IsAncient);
+                bindings.ItemChromeColor?.SetValue(Client.Main.Core.Utilities.ItemVisualRules.GetChromeColor(props.ItemGroup, props.ItemIndex));
+                bindings.ItemChrome2Tint?.SetValue(Client.Main.Core.Utilities.ItemVisualRules.GetChrome2Tint(props.ItemGroup, props.ItemIndex));
+                bindings.ItemAncientColor?.SetValue(Client.Main.Core.Utilities.ItemVisualRules.GetAncientColor(props.ItemGroup, props.ItemIndex));
+
+                // Inventory items are drawn with a neutral white light (as the unlit BasicEffect
+                // path used for ordinary items), so upgrades only add their chrome passes.
+                bindings.AmbientLight?.SetValue(Vector3.One);
+                bindings.SunStrength?.SetValue(0f);
+                bindings.ShadowStrength?.SetValue(0f);
                 bindings.ItemOptions?.SetValue(props.ItemOptions);
                 bindings.Time?.SetValue(shaderTime);
                 bindings.Alpha?.SetValue(1f);

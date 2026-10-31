@@ -431,8 +431,47 @@ namespace Client.Main.Objects
                 InvalidateMeshRenderPlan();
             }
         }
-        public int MaterialItemGroup { get; set; } = -1;
-        public int MaterialItemIndex { get; set; } = -1;
+        private int _materialItemGroup = -1;
+        /// <summary>Item group of the rendered item (0 = swords ... 15 = scrolls), -1 when unknown.</summary>
+        public int MaterialItemGroup
+        {
+            get => _materialItemGroup;
+            set
+            {
+                if (_materialItemGroup == value)
+                    return;
+
+                _materialItemGroup = value;
+                InvalidateMeshRenderPlan();
+            }
+        }
+
+        private int _materialItemIndex = -1;
+        public int MaterialItemIndex
+        {
+            get => _materialItemIndex;
+            set
+            {
+                if (_materialItemIndex == value)
+                    return;
+
+                _materialItemIndex = value;
+                InvalidateMeshRenderPlan();
+            }
+        }
+
+        /// <summary>Upgrade level used for the item glow after SourceMain's per-item remapping.</summary>
+        public int EffectiveItemLevel => MaterialItemGroup >= 0
+            ? ItemVisualRules.GetRenderLevel(MaterialItemGroup, MaterialItemIndex, ItemLevel)
+            : ItemLevel;
+
+        /// <summary>Excellent pulse is suppressed for wings and capes.</summary>
+        public bool HasExcellentGlow => IsExcellentItem &&
+            (MaterialItemGroup < 0 || ItemVisualRules.AllowsExcellentGlow(MaterialItemGroup, MaterialItemIndex));
+
+        /// <summary>True when the item needs the item material shader (+3 and higher, excellent or ancient).</summary>
+        public bool HasItemMaterialEffect => EffectiveItemLevel >= 3 || HasExcellentGlow || IsAncientItem ||
+            ItemVisualRules.GetLowLevelChromeMode(MaterialItemGroup, MaterialItemIndex) != 0;
 
         private bool _isExcellentItem;
         public bool IsExcellentItem
@@ -853,8 +892,7 @@ namespace Client.Main.Objects
 
         private bool HasRealtimeMaterialAnimation()
         {
-            return Constants.ENABLE_ITEM_MATERIAL_SHADER &&
-                   (ItemLevel >= 7 || IsExcellentItem || IsAncientItem);
+            return Constants.ENABLE_ITEM_MATERIAL_SHADER && HasItemMaterialEffect;
         }
 
         private void SetDrawShaderTimeSeconds(float timeSeconds)

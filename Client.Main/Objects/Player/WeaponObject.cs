@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using Client.Data.BMD;
 using System;
 using System.Threading.Tasks;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Objects.Player
 {
@@ -18,8 +19,7 @@ namespace Client.Main.Objects.Player
         private Vector3 _trailTipLocal;
         private int _trailTipBone = -1;
         private int _trailLevelCache = -1;
-        private bool _trailExcellentCache;
-        private bool _trailAncientCache;
+        private (int Group, int Index) _trailItemCache = (-1, -1);
 
         public new int Type
         {
@@ -43,6 +43,9 @@ namespace Client.Main.Objects.Player
             RenderShadow = true;
             LinkParentAnimation = true;
 
+            // SourceMain5.2 RenderLinkObject sprite/particle effects of special items.
+            Children.Add(new ItemLinkEffect());
+
             if (Constants.ENABLE_WEAPON_TRAIL)
             {
                 _trail = new WeaponTrailEffect
@@ -52,6 +55,70 @@ namespace Client.Main.Objects.Player
                 _trail.SamplePoint = SampleWeaponTip;
                 Children.Add(_trail);
             }
+        }
+
+        // ───────────── SourceMain RenderPartObjectBody passes of special weapons ─────────────
+
+        // Chromatic Staff: CreateEffect(MODEL_MOONHARVEST_MOON, Zx08, ..., 2, ..., 0.12f) every tick,
+        // i.e. the small "chysukmoon" model is always shown at bone 8.
+        private ModelObject _chromaticMoon;
+        private bool _chromaticMoonLoading;
+
+        private void UpdateChromaticMoon()
+        {
+            bool wanted = MaterialItemGroup == 5 && MaterialItemIndex == 33 && Model != null;
+            if (!wanted)
+            {
+                if (_chromaticMoon != null)
+                    _chromaticMoon.Hidden = true;
+                return;
+            }
+
+            if (_chromaticMoon != null)
+            {
+                _chromaticMoon.Hidden = Hidden;
+                return;
+            }
+
+            if (_chromaticMoonLoading)
+                return;
+            _chromaticMoonLoading = true;
+            _ = LoadChromaticMoonAsync();
+        }
+
+        private async Task LoadChromaticMoonAsync()
+        {
+            var bmd = await BMDLoader.Instance.Prepare("Effect/chysukmoon.bmd");
+            if (bmd == null)
+                return;
+            var moon = new EffectModelObject
+            {
+                Model = bmd,
+                ParentBoneLink = 8,
+                LinkParentAnimation = false,
+                Scale = 0.12f,
+            };
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                Children.Add(moon);
+                _chromaticMoon = moon;
+            });
+        }
+
+        private sealed class EffectModelObject : ModelObject
+        {
+            public EffectModelObject()
+            {
+                RenderShadow = false;
+            }
+        }
+
+        protected override bool IsOverlayOnlyMesh(int mesh) => IsSpecialItemOverlayOnlyMesh(mesh);
+
+        public override void Draw(GameTime gameTime)
+        {
+            base.Draw(gameTime);
+            DrawSpecialItemPasses(gameTime);
         }
 
         private async Task OnChangeTypeAsync()
@@ -98,11 +165,13 @@ namespace Client.Main.Objects.Player
         public override void Update(GameTime gameTime)
         {
             if (_trail != null &&
-                (_trailLevelCache != ItemLevel || _trailExcellentCache != IsExcellentItem || _trailAncientCache != IsAncientItem))
+                (_trailLevelCache != ItemLevel || _trailItemCache != (MaterialItemGroup, MaterialItemIndex)))
             {
                 RefreshTrailColor();
             }
 
+            UpdateChromaticMoon();
+            ApplyItemObjectAttribute(gameTime.TotalGameTime.TotalMilliseconds);
             base.Update(gameTime);
             // Force invalidation is now handled at parent level in ModelObject.Update()
         }
@@ -131,16 +200,21 @@ namespace Client.Main.Objects.Player
             _trail.SetTrailColor(GetTrailColor());
 
             _trailLevelCache = ItemLevel;
-            _trailExcellentCache = IsExcellentItem;
-            _trailAncientCache = IsAncientItem;
+            _trailItemCache = (MaterialItemGroup, MaterialItemIndex);
         }
 
+        // SourceMain5.2 weapon blur colour (ZzzCharacter.cpp, BlurMapping 0). Excellent and
+        // ancient options do not change it; a few weapons always use red.
         private Color GetTrailColor()
         {
-            if (IsAncientItem) return new Color(0.45f, 0.9f, 1f);
-            if (IsExcellentItem) return new Color(0.5f, 1f, 0.6f);
-            if (ItemLevel >= 7) return new Color(1f, 0.82f, 0.55f);
-            return new Color(0.8f, 0.9f, 1f);
+            bool alwaysRed = (MaterialItemGroup == 0 && MaterialItemIndex == 13) ||  // Double Blade
+                             (MaterialItemGroup == 2 && MaterialItemIndex == 6) ||   // Chaos Dragon Axe
+                             (MaterialItemGroup == 3 && MaterialItemIndex == 9);     // Bill of Balrog
+            if (alwaysRed) return new Color(1f, 0.2f, 0.2f);
+            if (ItemLevel >= 7) return new Color(1f, 0.6f, 0.2f);
+            if (ItemLevel >= 5) return new Color(0.2f, 0.4f, 1f);
+            if (ItemLevel >= 3) return new Color(1f, 0.2f, 0.2f);
+            return new Color(0.8f, 0.8f, 0.8f);
         }
 
         private Vector3 SampleWeaponTip()

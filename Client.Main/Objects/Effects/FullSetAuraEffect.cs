@@ -21,13 +21,15 @@ namespace Client.Main.Objects.Effects
     {
         private const string LightTexturePath = "Effect/flare01.jpg";
         private const string FlareTexturePath = "Effect/flare.jpg";
+        // BITMAP_LIGHT + 2: texture of the WATERFALL_2 subtype 3 torso particles.
+        private const string TorsoTexturePath = "Effect/cra_04.jpg";
 
         private const float LegacyStepSeconds = 1f / 25f;
         private const int MaxLegacyStepsPerFrame = 5;
 
         private const int MaxTorsoParticles = 96;
         private const int MaxOrbitParticles = 20;
-        private const int MaxTrails = 10;
+        private const int MaxTrails = 16;
         private const int MaxTailPoints = 20;
         private const int MaxTrailRenderPoints = MaxTailPoints + 1;
         private const int MaxBillboardQuads = 6 + MaxTorsoParticles + MaxOrbitParticles + 12;
@@ -62,6 +64,7 @@ namespace Client.Main.Objects.Effects
         private BasicEffect _effect;
         private Texture2D _lightTexture;
         private Texture2D _flareTexture;
+        private Texture2D _torsoTexture;
         private bool _ownsLightTexture;
         private bool _ownsFlareTexture;
         private Task _texturePreparationTask;
@@ -70,6 +73,15 @@ namespace Client.Main.Objects.Effects
         private int _activeSetIndex = -1;
         private int _auraTier;
         private Vector3 _auraColor = new(0.72f, 0.78f, 0.90f);
+
+        // EnableAlphaBlend2: glBlendFunc(GL_ONE_MINUS_SRC_COLOR, GL_ONE), used by BITMAP_FLARE subtype 18.
+        private static readonly BlendState InverseSourceAdditive = new()
+        {
+            ColorSourceBlend = Blend.InverseSourceColor,
+            AlphaSourceBlend = Blend.InverseSourceColor,
+            ColorDestinationBlend = Blend.One,
+            AlphaDestinationBlend = Blend.One,
+        };
         private Vector3 _torsoColor;
         private bool _hasTorsoParticles;
         private bool _primeAuraPending;
@@ -131,7 +143,8 @@ namespace Client.Main.Objects.Effects
 
         private bool RefreshSetState()
         {
-            if (Parent is not PlayerObject player ||
+            if (Parent is not WalkerObject player ||
+                player is not IEquippedCharacter gear ||
                 player.Hidden ||
                 player.Model == null ||
                 GraphicsQualityManager.ActivePreset == GraphicsQualityPreset.Low ||
@@ -145,19 +158,19 @@ namespace Client.Main.Objects.Effects
             int setIndex = -1;
             int minimumLevel = int.MaxValue;
 
-            bool requireHelm = !IsMagicGladiatorClass(player.CharacterClass);
-            bool requireGloves = !IsRageFighterClass(player.CharacterClass);
+            bool requireHelm = player is not PlayerObject classed || !IsMagicGladiatorClass(classed.CharacterClass);
+            bool requireGloves = player is not PlayerObject gloved || !IsRageFighterClass(gloved.CharacterClass);
 
-            if (requireHelm && !AcceptPart(player.Helm, ref setIndex, ref minimumLevel))
+            if (requireHelm && !AcceptPart(gear.Helm, ref setIndex, ref minimumLevel))
             {
                 ResetSetState();
                 return false;
             }
 
-            if (!AcceptPart(player.Armor, ref setIndex, ref minimumLevel) ||
-                !AcceptPart(player.Pants, ref setIndex, ref minimumLevel) ||
-                (requireGloves && !AcceptPart(player.Gloves, ref setIndex, ref minimumLevel)) ||
-                !AcceptPart(player.Boots, ref setIndex, ref minimumLevel))
+            if (!AcceptPart(gear.Armor, ref setIndex, ref minimumLevel) ||
+                !AcceptPart(gear.Pants, ref setIndex, ref minimumLevel) ||
+                (requireGloves && !AcceptPart(gear.Gloves, ref setIndex, ref minimumLevel)) ||
+                !AcceptPart(gear.Boots, ref setIndex, ref minimumLevel))
             {
                 ResetSetState();
                 return false;
@@ -172,7 +185,8 @@ namespace Client.Main.Objects.Effects
             EnsureTransientBuffers();
             EnsureTexturePreparationStarted();
 
-            int tier = minimumLevel >= 13 ? 13 : minimumLevel >= 11 ? 11 : 9;
+            // EquipmentLevelSet: the lowest level of the set (Level & 0xF), every level 10-15 differs.
+            int tier = Math.Min(minimumLevel, 15);
             if (_activeSetIndex != setIndex || _auraTier != tier)
             {
                 ClearTransientEffects();
@@ -199,13 +213,15 @@ namespace Client.Main.Objects.Effects
         {
             Task<Texture2D> lightTask = PrepareTexture(LightTexturePath);
             Task<Texture2D> flareTask = PrepareTexture(FlareTexturePath);
-            await Task.WhenAll(lightTask, flareTask).ConfigureAwait(false);
+            Task<Texture2D> torsoTask = PrepareTexture(TorsoTexturePath);
+            await Task.WhenAll(lightTask, flareTask, torsoTask).ConfigureAwait(false);
 
             if (_disposed)
                 return;
 
             _lightTexture = lightTask.Result;
             _flareTexture = flareTask.Result;
+            _torsoTexture = torsoTask.Result;
         }
 
         private void EnsureFallbackTextures()
@@ -277,11 +293,11 @@ namespace Client.Main.Objects.Effects
 
         private void TickLegacy()
         {
-            if (Parent is not PlayerObject player)
+            if (Parent is not WalkerObject player)
                 return;
 
             UpdateTorsoParticles();
-            UpdateOrbitParticles(player.IsMoving);
+            UpdateOrbitParticles(player.IsMoving || player.MovementIntent);
             UpdateTrails(player);
 
             // Distant/throttled players retain their six skeletal lights but do not emit
@@ -289,64 +305,65 @@ namespace Client.Main.Objects.Effects
             if (player.LowQuality)
                 return;
 
-            if (_primeAuraPending)
-            {
-                PrimeAura(player);
-                _primeAuraPending = false;
-            }
+            _primeAuraPending = false;
 
-            if (_hasTorsoParticles && _auraTier >= 11)
+            // BITMAP_WATERFALL_2 at the torso for the Dragon Knight - Sunlight / Aura boots:
+            // +10 1/4, +11 1/3, +12 1/2, +13 and higher every tick.
+            if (_hasTorsoParticles && _auraTier >= 10)
             {
-                bool emit = _auraTier >= 13 || MuGame.Random.Next(3) == 0;
-                if (emit)
+                int chance = _auraTier switch { 10 => 4, 11 => 3, 12 => 2, _ => 1 };
+                if (chance == 1 || MuGame.Random.Next(chance) == 0)
                     SpawnTorsoBurst(player, _auraTier >= 13 ? TorsoOffsets13 : TorsoOffsets11);
             }
 
-            // Keep the original stochastic character, but make the aura easier to read in
-            // the wider/high-resolution MonoGame camera.
-            if (_auraTier <= 9 || MuGame.Random.Next(14) != 0)
+            // SourceMain: EquipmentLevelSet > 9 && rand_fps_check(20).
+            if (_auraTier <= 9 || MuGame.Random.Next(20) != 0)
                 return;
 
-            if (_auraTier == 11)
+            switch (_auraTier)
             {
-                if (MuGame.Random.Next(6) == 0)
-                    SpawnClassicTrail(player);
-                else
-                    SpawnOrbitParticle();
-            }
-            else
-            {
-                // +13 layer A: two counter-rotating expanding spirals.
-                if (MuGame.Random.Next(5) == 0)
-                {
-                    SpawnExpandingTrail(player, direction: 1);
-                    SpawnExpandingTrail(player, direction: -1);
-                }
+                case 10:
+                    SpawnOrbitParticle(player);
+                    break;
 
-                // +13 layer B: keep the small orbiting flare. The large blue
-                // spatial orb was intentionally removed because it dominated the aura.
-                if (MuGame.Random.Next(3) == 0)
-                    SpawnOrbitParticle();
+                case 11:
+                    if (MuGame.Random.Next(8) == 0)
+                        SpawnClassicTrail(player);
+                    else
+                        SpawnOrbitParticle(player);
+                    break;
+
+                case 12:
+                    // CreateJoint(BITMAP_FLARE, ..., 18, o, 20, -1, 0 / 1): two counter-rotating spirals.
+                    if (MuGame.Random.Next(6) == 0)
+                    {
+                        SpawnExpandingTrail(player, direction: 1);
+                        SpawnExpandingTrail(player, direction: -1);
+                    }
+                    else if (MuGame.Random.Next(3) == 0)
+                    {
+                        SpawnOrbitParticle(player);
+                    }
+                    break;
+
+                default: // 13 - 15
+                    if (MuGame.Random.Next(6) == 0)
+                    {
+                        SpawnExpandingTrail(player, direction: 1);
+                        SpawnExpandingTrail(player, direction: -1);
+                    }
+
+                    if (MuGame.Random.Next(4) == 0)
+                    {
+                        SpawnOrbitParticle(player);
+                        SpawnRisingTrail(player);
+                    }
+                    break;
             }
         }
 
 
-        private void PrimeAura(PlayerObject player)
-        {
-            // Avoid an empty-looking aura immediately after equipment/scene changes. This is
-            // a one-shot visual seed; steady-state emission still follows the legacy 25 Hz rolls.
-            SpawnOrbitParticle();
-            if (_hasTorsoParticles)
-                SpawnTorsoBurst(player, _auraTier >= 13 ? TorsoOffsets13 : TorsoOffsets11);
-
-            if (_auraTier >= 13)
-            {
-                SpawnExpandingTrail(player, direction: 1);
-                SpawnExpandingTrail(player, direction: -1);
-            }
-        }
-
-        private void SpawnTorsoBurst(PlayerObject player, Vector3[] offsets)
+        private void SpawnTorsoBurst(WalkerObject player, Vector3[] offsets)
         {
             Matrix[] bones = player.GetBoneTransforms();
             if (bones == null || bones.Length == 0)
@@ -360,23 +377,21 @@ namespace Client.Main.Objects.Effects
                 int slot = FindTorsoParticleSlot();
                 ref TorsoParticle particle = ref _torsoParticles[slot];
 
+                // CreateParticle applies the (+-10, +-10, +-20) jitter twice: once for every
+                // BITMAP_WATERFALL_2 and again in the subtype 3 branch.
                 Vector3 local = offsets[i] + new Vector3(
-                    RandomRange(-10f, 10f),
-                    RandomRange(-10f, 10f),
-                    RandomRange(-20f, 20f));
+                    RandomRange(-10f, 10f) + RandomRange(-10f, 10f),
+                    RandomRange(-10f, 10f) + RandomRange(-10f, 10f),
+                    RandomRange(-20f, 20f) + RandomRange(-20f, 20f));
                 Vector3 modelPosition = Vector3.Transform(local, rootBone);
 
                 particle.Position = Vector3.Transform(modelPosition, playerWorld);
-                particle.VelocityPerTick = Vector3.TransformNormal(
-                    new Vector3(
-                        RandomRange(-0.55f, 0.55f),
-                        RandomRange(-0.55f, 0.55f),
-                        2f + RandomRange(-0.25f, 0.45f)),
-                    playerWorld);
-                particle.DriftXPerTick = RandomRange(-0.055f, 0.055f);
-                particle.DriftYPerTick = RandomRange(-0.055f, 0.055f);
+                // CreateParticle: Velocity[2] = 2, Scale = (rand() % 3 + 3) * 0.18.
+                particle.VelocityPerTick = new Vector3(0f, 0f, 2f);
+                particle.DriftXPerTick = 0f;
+                particle.DriftYPerTick = 0f;
                 particle.Color = _torsoColor;
-                particle.Scale = TorsoScales[i] * RandomRange(0.9f, 1.08f);
+                particle.Scale = (MuGame.Random.Next(3) + 3) * 0.18f;
                 particle.Rotation = MathHelper.ToRadians(MuGame.Random.Next(360));
                 particle.LifeTicks = 12;
                 particle.MaxLifeTicks = 12;
@@ -395,25 +410,33 @@ namespace Client.Main.Objects.Effects
                 if (particle.LifeTicks <= 0)
                     continue;
 
+                // MoveParticles: x/y velocity re-rolled every tick, z += 0.1 - 0.02,
+                // scale += 0.03 - 0.038, light /= 1.1 during the last ten ticks.
+                particle.VelocityPerTick.X = (MuGame.Random.Next(20) - 10) * 0.1f;
+                particle.VelocityPerTick.Y = (MuGame.Random.Next(20) - 10) * 0.1f;
+                particle.VelocityPerTick.Z += 0.08f;
                 particle.Position += particle.VelocityPerTick;
-                particle.VelocityPerTick.X += particle.DriftXPerTick;
-                particle.VelocityPerTick.Y += particle.DriftYPerTick;
-                particle.Scale *= 0.965f;
-                particle.Rotation += 0.045f;
+                particle.Scale = MathF.Max(0f, particle.Scale - 0.008f);
+                if (particle.LifeTicks < 10)
+                    particle.Color /= 1.1f;
+                particle.Color /= 1.02f;
             }
         }
 
-        private void SpawnOrbitParticle()
+        private void SpawnOrbitParticle(WalkerObject player)
         {
             int slot = FindOrbitParticleSlot();
             ref OrbitParticle particle = ref _orbitParticles[slot];
-            particle.Phase = RandomRange(0f, MathHelper.TwoPi);
-            particle.Direction = MuGame.Random.Next(2) == 0 ? -1f : 1f;
+            // count = (Velocity[0] + LifeTime) * 0.1: the phase always decreases, around the
+            // position where the particle was created (StartPosition), starting at the feet.
+            particle.Phase = (MuGame.Random.Next(300) - 150 + 60) * 0.1f;
+            particle.Direction = -1f;
             particle.Radius = 40f;
-            particle.Height = RandomRange(24f, 62f);
-            particle.VerticalSpeedPerTick = RandomRange(1f, 4.96f);
-            particle.Scale = RandomRange(0.19f, 0.24f);
-            particle.Color = Vector3.Lerp(_auraColor, Vector3.One, 0.28f);
+            particle.Center = player.WorldPosition.Translation;
+            particle.Height = 0f;
+            particle.VerticalSpeedPerTick = MuGame.Random.Next(100) / 100f * 4f + 1f;
+            particle.Scale = 0.19f + MuGame.Random.Next(6) * 0.01f;
+            particle.Color = Vector3.One;
             particle.LifeTicks = 60;
             particle.MaxLifeTicks = 60;
         }
@@ -426,54 +449,81 @@ namespace Client.Main.Objects.Effects
                 if (particle.LifeTicks <= 0)
                     continue;
 
-                if (ownerMoving && particle.LifeTicks > 20)
-                    particle.LifeTicks = 20;
+                // A walking owner turns the particle into subtype 1: it stops where it is and
+                // LifeTime = min(20, LifeTime).
+                if (ownerMoving && particle.Direction != 0f)
+                {
+                    particle.Direction = 0f;
+                    particle.VerticalSpeedPerTick = 0f;
+                    particle.LifeTicks = Math.Min(20, particle.LifeTicks);
+                }
+
+                if (particle.Direction != 0f)
+                {
+                    particle.Phase += particle.Direction * 0.1f;
+                    particle.Height += particle.VerticalSpeedPerTick;
+                    particle.Scale = MathF.Max(0.04f, particle.Scale - 0.002f);
+                }
+
+                // Light /= 1.1 per tick during the last 20 ticks.
+                if (particle.LifeTicks <= 20)
+                    particle.Color /= 1.1f;
 
                 particle.LifeTicks--;
-                if (particle.LifeTicks <= 0)
-                    continue;
-
-                particle.Phase += particle.Direction * 0.1f;
-                particle.Height += particle.VerticalSpeedPerTick;
-                particle.Scale = MathF.Max(0.04f, particle.Scale - 0.002f);
             }
         }
 
-        private void SpawnClassicTrail(PlayerObject player)
+        private void SpawnClassicTrail(WalkerObject player)
         {
             OrbitTrail trail = GetTrailSlot();
+            // CreateJoint(BITMAP_FLARE, ..., 0, o): Scale 10, Velocity 40, Direction[2] 0..1.5,
+            // count = (Direction[1] + LifeTime) * 0.1, Light = character light.
             trail.Activate(
                 TrailKind.Classic,
                 player,
-                _auraColor,
-                direction: MuGame.Random.Next(2) == 0 ? -1 : 1,
+                Vector3.One,
+                direction: -1,
                 lifeTicks: 100,
                 tailLimit: 20,
-                phase: RandomRange(0f, MathHelper.TwoPi),
+                phase: (MuGame.Random.Next(500) - 250 + 100) * 0.1f,
                 radius: 40f,
-                width: 5.5f,
-                verticalSpeed: RandomRange(0.45f, 1.4f),
+                width: 10f,
+                verticalSpeed: MuGame.Random.Next(150) / 100f,
                 seed: NextSeed());
         }
 
-        private void SpawnExpandingTrail(PlayerObject player, int direction)
+        private void SpawnRisingTrail(WalkerObject player)
         {
             OrbitTrail trail = GetTrailSlot();
+            // CreateJoint(BITMAP_FLARE + 1, ..., 7, o, 20, 40, 1): LifeTime 40, Scale 20, MaxTails 16,
+            // white, starts on a random point of a 40 unit circle and climbs with Velocity 10.
+            float angle = MuGame.Random.Next(360);
+            trail.ActivateRising(
+                player,
+                player.WorldPosition.Translation + new Vector3(MathF.Cos(angle) * 40f, -MathF.Sin(angle) * 40f, 0f),
+                seed: NextSeed());
+        }
+
+        private void SpawnExpandingTrail(WalkerObject player, int direction)
+        {
+            OrbitTrail trail = GetTrailSlot();
+            // CreateJoint(BITMAP_FLARE, ..., 18, o, 20): Scale 20 (> 10) -> LifeTime 50,
+            // Direction[2] = (rand() % 250 + 200) / 100, count = (Direction[1] + LifeTime * 2) * 0.1.
             trail.Activate(
                 TrailKind.Expanding,
                 player,
-                Vector3.Lerp(_auraColor, Vector3.One, 0.2f),
+                Vector3.One,
                 direction,
                 lifeTicks: 50,
                 tailLimit: 20,
-                phase: RandomRange(0f, MathHelper.TwoPi),
+                phase: (MuGame.Random.Next(500) - 250 + 100) * 0.1f,
                 radius: 40f,
-                width: 7.5f,
-                verticalSpeed: RandomRange(0.8f, 1.7f),
+                width: 20f,
+                verticalSpeed: (MuGame.Random.Next(250) + 200) / 100f,
                 seed: NextSeed());
         }
 
-        private void UpdateTrails(PlayerObject player)
+        private void UpdateTrails(WalkerObject player)
         {
             for (int i = 0; i < _trails.Length; i++)
             {
@@ -481,7 +531,7 @@ namespace Client.Main.Objects.Effects
                 if (!trail.Active)
                     continue;
 
-                trail.Tick(player);
+                trail.Tick(player, player.IsMoving || player.MovementIntent);
             }
         }
 
@@ -489,7 +539,7 @@ namespace Client.Main.Objects.Effects
         {
             base.DrawAfter(gameTime);
 
-            if (!Visible || _activeSetIndex < 0 || Parent is not PlayerObject player)
+            if (!Visible || _activeSetIndex < 0 || Parent is not WalkerObject player)
                 return;
 
             EnsureTransientBuffers();
@@ -522,7 +572,9 @@ namespace Client.Main.Objects.Effects
 
                 DrawSoftLights(player, parentAlpha, _renderInterpolation);
                 DrawOrbitFlares(player, parentAlpha, _renderInterpolation);
-                DrawTrails(parentAlpha, player, _renderInterpolation);
+                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: false);
+                GraphicsDevice.BlendState = InverseSourceAdditive;
+                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: true);
             }
             finally
             {
@@ -533,7 +585,7 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        private void DrawSoftLights(PlayerObject player, float parentAlpha, float interpolation)
+        private void DrawSoftLights(WalkerObject player, float parentAlpha, float interpolation)
         {
             if (_lightTexture == null || _lightTexture.IsDisposed)
                 return;
@@ -549,13 +601,14 @@ namespace Client.Main.Objects.Effects
                 Matrix[] bones = player.GetBoneTransforms();
                 if (bones != null)
                 {
-                    float bonePulse = 0.88f + MathF.Sin(_auraTime * 2.15f) * 0.12f;
-                    Vector3 boneLightColor = _auraColor * (0.72f * bonePulse * parentAlpha);
-                    int leftLinkBone = player.Weapon1 != null && player.Weapon1.ParentBoneLink >= 0
-                        ? player.Weapon1.ParentBoneLink
+                    // SourceMain draws these BITMAP_LIGHT sprites every frame at constant brightness.
+                    Vector3 boneLightColor = _auraColor * (0.5f * parentAlpha);
+                    var gear = player as IEquippedCharacter;
+                    int leftLinkBone = gear?.Weapon1 != null && gear.Weapon1.ParentBoneLink >= 0
+                        ? gear.Weapon1.ParentBoneLink
                         : PlayerObject.LeftHandBoneIndex;
-                    int rightLinkBone = player.Weapon2 != null && player.Weapon2.ParentBoneLink >= 0
-                        ? player.Weapon2.ParentBoneLink
+                    int rightLinkBone = gear?.Weapon2 != null && gear.Weapon2.ParentBoneLink >= 0
+                        ? gear.Weapon2.ParentBoneLink
                         : PlayerObject.RightHandBoneIndex;
 
                     AppendBoneLightGroup(
@@ -577,25 +630,10 @@ namespace Client.Main.Objects.Effects
                 }
             }
 
-            // A subtle persistent core makes the full-set state readable between random
-            // orbit emissions without turning it into a detached full-body billboard aura.
-            if (_auraTier >= 11 && quadCount + 1 < MaxBillboardQuads)
-            {
-                Vector3 center = player.WorldPosition.Translation + new Vector3(0f, 0f, 62f);
-                float corePulse = 0.82f + MathF.Sin(_auraTime * 1.7f) * 0.18f;
-                Vector3 coreColor = Vector3.Lerp(_auraColor, Vector3.One, 0.18f);
-                float tierScale = _auraTier >= 13 ? 1.18f : 1f;
-                WriteBillboardQuad(
-                    quadCount++, center,
-                    cameraRight * (20f * tierScale),
-                    cameraUp * (27f * tierScale),
-                    ToColor(coreColor * (0.18f * corePulse * parentAlpha)));
-                WriteBillboardQuad(
-                    quadCount++, center + new Vector3(0f, 0f, 5f),
-                    cameraRight * (34f * tierScale),
-                    cameraUp * (43f * tierScale),
-                    ToColor(coreColor * (0.07f * corePulse * parentAlpha)));
-            }
+            // Bone lights first; the torso particles use a different texture (cra_04).
+            DrawBillboardBatch(_lightTexture, quadCount);
+            quadCount = 0;
+            Texture2D torsoTexture = _torsoTexture != null && !_torsoTexture.IsDisposed ? _torsoTexture : _lightTexture;
 
             for (int i = 0; i < _torsoParticles.Length && quadCount < MaxBillboardQuads; i++)
             {
@@ -603,21 +641,12 @@ namespace Client.Main.Objects.Effects
                 if (particle.LifeTicks <= 0)
                     continue;
 
-                float remaining = MathF.Max(0f, particle.LifeTicks - interpolation);
-                float age = particle.MaxLifeTicks - remaining;
-                float fadeIn = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(age / 1.5f, 0f, 1f));
-                float fadeOut = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(remaining / 4f, 0f, 1f));
-                float shimmer = 0.90f + MathF.Sin(_auraTime * 7f + i * 1.73f) * 0.10f;
-                float intensity = fadeIn * fadeOut * shimmer * 1.28f * parentAlpha;
-                Vector3 predictedPosition = particle.Position +
-                    particle.VelocityPerTick * interpolation +
-                    new Vector3(
-                        particle.DriftXPerTick * interpolation * interpolation * 0.5f,
-                        particle.DriftYPerTick * interpolation * interpolation * 0.5f,
-                        0f);
-                float predictedScale = particle.Scale * MathF.Pow(0.965f, interpolation);
-                float predictedRotation = particle.Rotation + 0.045f * interpolation;
-                float halfSize = 11.25f * predictedScale;
+                float intensity = parentAlpha;
+                Vector3 predictedPosition = particle.Position + particle.VelocityPerTick * interpolation;
+                float predictedScale = MathF.Max(0f, particle.Scale - 0.008f * interpolation);
+                float predictedRotation = particle.Rotation;
+                // RenderSprite: width = Bitmap->Width * Scale.
+                float halfSize = torsoTexture.Width * 0.5f * predictedScale;
                 float cosine = MathF.Cos(predictedRotation);
                 float sine = MathF.Sin(predictedRotation);
                 Vector3 rotatedRight = cameraRight * cosine + cameraUp * sine;
@@ -630,11 +659,11 @@ namespace Client.Main.Objects.Effects
                     ToColor(particle.Color * intensity));
             }
 
-            DrawBillboardBatch(_lightTexture, quadCount);
+            DrawBillboardBatch(torsoTexture, quadCount);
         }
 
         private void AppendBoneLightGroup(
-            PlayerObject player,
+            WalkerObject player,
             Matrix[] bones,
             int linkBone,
             Vector3 color,
@@ -657,7 +686,8 @@ namespace Client.Main.Objects.Effects
                 Vector3 worldPosition = Vector3.Transform(
                     bones[boneIndex].Translation,
                     player.WorldPosition);
-                float halfSize = 13.0f;
+                // CreateSprite(BITMAP_LIGHT, Position, 1.3f, ...): width = 64 * 1.3.
+                float halfSize = (_lightTexture?.Width ?? 64) * 1.3f * 0.5f;
                 WriteBillboardQuad(
                     quadCount++,
                     worldPosition,
@@ -667,14 +697,13 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        private void DrawOrbitFlares(PlayerObject player, float parentAlpha, float interpolation)
+        private void DrawOrbitFlares(WalkerObject player, float parentAlpha, float interpolation)
         {
             if (_flareTexture == null || _flareTexture.IsDisposed)
                 return;
 
             Vector3 cameraRight = Camera.Instance.Right;
             Vector3 cameraUp = Camera.Instance.Up;
-            Vector3 center = player.WorldPosition.Translation;
             int quadCount = 0;
 
             for (int i = 0; i < _orbitParticles.Length && quadCount < MaxBillboardQuads; i++)
@@ -685,17 +714,16 @@ namespace Client.Main.Objects.Effects
 
                 float predictedPhase = particle.Phase + particle.Direction * 0.1f * interpolation;
                 float predictedHeight = particle.Height + particle.VerticalSpeedPerTick * interpolation;
-                Vector3 position = center + new Vector3(
+                Vector3 position = particle.Center + new Vector3(
                     MathF.Sin(predictedPhase) * particle.Radius,
                     -MathF.Cos(predictedPhase) * particle.Radius,
                     predictedHeight);
-                float remaining = MathF.Max(0f, particle.LifeTicks - interpolation);
-                float age = particle.MaxLifeTicks - remaining;
-                float fadeIn = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(age / 2f, 0f, 1f));
-                float fadeOut = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(remaining / 8f, 0f, 1f));
-                float intensity = fadeIn * fadeOut * 1.22f * parentAlpha;
-                float predictedScale = MathF.Max(0.04f, particle.Scale - 0.002f * interpolation);
-                float halfSize = 34f * predictedScale;
+                float intensity = parentAlpha;
+                float predictedScale = particle.Direction != 0f
+                    ? MathF.Max(0f, particle.Scale - 0.002f * interpolation)
+                    : particle.Scale;
+                // RenderSprite: width = Bitmap->Width * Scale.
+                float halfSize = _flareTexture.Width * 0.5f * predictedScale;
                 WriteBillboardQuad(
                     quadCount++,
                     position,
@@ -707,7 +735,7 @@ namespace Client.Main.Objects.Effects
             DrawBillboardBatch(_flareTexture, quadCount);
         }
 
-        private void DrawTrails(float parentAlpha, PlayerObject player, float interpolation)
+        private void DrawTrails(float parentAlpha, WalkerObject player, float interpolation, bool expanding)
         {
             if (_flareTexture == null || _flareTexture.IsDisposed)
                 return;
@@ -720,12 +748,12 @@ namespace Client.Main.Objects.Effects
             for (int trailIndex = 0; trailIndex < _trails.Length; trailIndex++)
             {
                 OrbitTrail trail = _trails[trailIndex];
-                if (!trail.Active || trail.TailCount < 2)
+                if (!trail.Active || trail.TailCount < 2 || (trail.Kind != TrailKind.Classic) != expanding)
                     continue;
 
                 int renderPointCount = Math.Min(
                     MaxTrailRenderPoints,
-                    trail.TailCount + (interpolation > 0.001f ? 1 : 0));
+                    trail.TailCount + (interpolation > 0.001f && !trail.Frozen ? 1 : 0));
                 if (renderPointCount < 2)
                     continue;
 
@@ -750,21 +778,17 @@ namespace Client.Main.Objects.Effects
                         side.Normalize();
 
                     float progress = pointIndex / (float)(renderPointCount - 1);
-                    float tailFade = MathF.Pow(1f - progress, 0.72f);
-                    float widthPulse = 0.94f + MathF.Sin(_auraTime * 5f + trailIndex) * 0.06f;
-                    float width = trail.Width * widthPulse * MathHelper.Lerp(1.12f, 0.12f, progress);
-                    Vector3 offset = side * (width * 0.5f);
-                    float lifeRatio = trail.GetRenderLifeRatio(interpolation);
-                    Color color = ToColor(trail.Color * (lifeRatio * tailFade * 1.32f * parentAlpha));
+                    Vector3 offset = side * (trail.Width * 0.5f);
+                    Color color = ToColor(trail.GetRenderColor(interpolation) * parentAlpha);
 
                     _trailVertices[vertexCount++] = new VertexPositionColorTexture(
                         current - offset,
                         color,
-                        new Vector2(0f, progress));
+                        new Vector2(progress, 0f));
                     _trailVertices[vertexCount++] = new VertexPositionColorTexture(
                         current + offset,
                         color,
-                        new Vector2(1f, progress));
+                        new Vector2(progress, 1f));
                 }
 
                 for (int segment = 0; segment < renderPointCount - 1; segment++)
@@ -920,25 +944,9 @@ namespace Client.Main.Objects.Effects
             _renderInterpolation = 0f;
         }
 
-        private static Vector3 GetSetAuraColor(int setIndex)
-        {
-            if (setIndex == 4 || setIndex == 14 || setIndex == 15 || setIndex == 17 ||
-                (setIndex >= 39 && setIndex <= 42))
-            {
-                return new Vector3(1f, 0.5f, 0f);
-            }
-
-            if (setIndex == 18 || setIndex == 43)
-                return new Vector3(0f, 0.5f, 1f);
-
-            if (setIndex == 21 || setIndex == 44)
-                return Vector3.One;
-
-            if (TryGetTorsoParticleColor(setIndex, out Vector3 specialColor))
-                return Vector3.Lerp(specialColor, Vector3.One, 0.2f);
-
-            return new Vector3(0.72f, 0.78f, 0.90f);
-        }
+        // ZzzCharacter.cpp: PartObjectColor(c->BodyPart[BODYPART_BOOTS].Type, Alpha, 0.5f, Light).
+        // The 0.5 brightness is applied where the six bone lights are drawn.
+        private static Vector3 GetSetAuraColor(int bootsIndex) => ItemVisualRules.GetChromeColor(11, bootsIndex);
 
         private static bool TryGetTorsoParticleColor(int bootsIndex, out Vector3 color)
         {
@@ -1089,6 +1097,7 @@ namespace Client.Main.Objects.Effects
 
         private struct OrbitParticle
         {
+            public Vector3 Center;
             public Vector3 Color;
             public float Phase;
             public float Direction;
@@ -1102,8 +1111,9 @@ namespace Client.Main.Objects.Effects
 
         private enum TrailKind : byte
         {
-            Classic,
-            Expanding
+            Classic,   // BITMAP_FLARE subtype 0
+            Expanding, // BITMAP_FLARE subtype 18
+            Rising     // BITMAP_FLARE + 1 subtype 7
         }
 
         private sealed class OrbitTrail
@@ -1112,22 +1122,26 @@ namespace Client.Main.Objects.Effects
             private int _tailStart;
             private int _tailLimit;
             private float _phase;
+            private Vector3 _anchor;
             private float _radius;
             private float _height;
             private float _verticalSpeed;
             private int _direction;
             private uint _seed;
+            private float _velocity;
+            private float _wiggle;
 
             public bool Active { get; private set; }
             public TrailKind Kind { get; private set; }
             public Vector3 Color { get; private set; }
+            public bool Frozen { get; private set; }
             public float Width { get; private set; }
             public int LifeTicks { get; private set; }
             public int MaxLifeTicks { get; private set; }
             public int TailCount { get; private set; }
             public void Activate(
                 TrailKind kind,
-                PlayerObject player,
+                WalkerObject player,
                 Vector3 color,
                 int direction,
                 int lifeTicks,
@@ -1148,43 +1162,102 @@ namespace Client.Main.Objects.Effects
                 _radius = radius;
                 Width = width;
                 _verticalSpeed = verticalSpeed;
-                _height = RandomHeight(seed);
+                _height = 0f;
+                _anchor = player.WorldPosition.Translation;
                 _seed = seed == 0 ? 1u : seed;
                 _tailStart = 0;
                 TailCount = 0;
+                Frozen = false;
                 Active = true;
 
                 Vector3 first = CalculatePosition(player);
                 PushTail(first);
             }
 
-            public bool Tick(PlayerObject player)
+            public void ActivateRising(WalkerObject player, Vector3 start, uint seed)
             {
-                if (!Active)
-                    return false;
+                Kind = TrailKind.Rising;
+                Color = Vector3.One;
+                _direction = 1;
+                LifeTicks = 40;
+                MaxLifeTicks = 40;
+                _tailLimit = Math.Min(16, MaxTailPoints);
+                _phase = 0f;
+                _radius = 0f;
+                Width = 20f;
+                _verticalSpeed = 0f;
+                _velocity = 10f;
+                _wiggle = 15f;
+                _height = 0f;
+                _anchor = start;
+                _seed = seed == 0 ? 1u : seed;
+                _tailStart = 0;
+                TailCount = 0;
+                Frozen = false;
+                Active = true;
+                PushTail(CalculatePosition(player));
+            }
 
-                if (Kind == TrailKind.Classic && player.IsMoving && LifeTicks > 20)
-                    LifeTicks = 20;
-
+            private bool TickRising(WalkerObject player)
+            {
+                // Position.x = Start.x + sin(LifeTime / 2.5) * Direction[0]; z += Velocity;
+                // Velocity -= 0.1; Direction[0] -= 0.1; Light /= 1.2 below 15 ticks.
+                _height += _velocity;
+                _velocity -= 0.1f;
+                _wiggle -= 0.1f;
+                if (LifeTicks < 15)
+                    Color /= 1.2f;
+                PushTail(CalculatePosition(player));
                 LifeTicks--;
-                if (LifeTicks <= 0)
+                if (LifeTicks < 0)
                 {
                     Active = false;
                     return true;
                 }
+                return false;
+            }
+
+            public bool Tick(WalkerObject player, bool ownerMoving)
+            {
+                if (!Active)
+                    return false;
+
+                if (Kind == TrailKind.Rising)
+                    return TickRising(player);
+
+                // MoveJoint: a moving owner turns the joint into subtype 1 - no new tails,
+                // LifeTime = min(10, LifeTime), so the ribbon stops where it is and fades out.
+                if (!Frozen && ownerMoving && Width < 40f)
+                {
+                    Frozen = true;
+                    LifeTicks = Math.Min(10, LifeTicks);
+                }
+
+                // Light /= 1.3 per tick during the last 10 ticks.
+                if (LifeTicks < 10)
+                    Color /= 1.3f;
+
+                LifeTicks--;
+                if (LifeTicks < 0)
+                {
+                    Active = false;
+                    return true;
+                }
+
+                if (Frozen)
+                    return false;
 
                 switch (Kind)
                 {
                     case TrailKind.Classic:
                         _phase += _direction * 0.1f;
                         _height += _verticalSpeed;
-                        Width = MathF.Max(1.6f, Width - 0.025f);
                         break;
 
                     case TrailKind.Expanding:
                         _phase += _direction * 0.2f;
                         _radius += 0.1f;
-                        Width += 0.08f;
+                        Width += 0.2f;
                         _height += _verticalSpeed * 1.1f;
                         break;
                 }
@@ -1193,9 +1266,20 @@ namespace Client.Main.Objects.Effects
                 return false;
             }
 
-            private Vector3 CalculatePosition(PlayerObject player, float tickFraction = 0f)
+            private Vector3 CalculatePosition(WalkerObject player, float tickFraction = 0f)
             {
-                Vector3 center = player.WorldPosition.Translation;
+                if (Kind == TrailKind.Rising)
+                {
+                    // The last tail was pushed with LifeTime + 1 (before the decrement).
+                    float life = LifeTicks + 1 - tickFraction;
+                    return _anchor + new Vector3(
+                        MathF.Sin(life / 2.5f) * (_wiggle - 0.1f * tickFraction),
+                        0f,
+                        _height + _velocity * tickFraction);
+                }
+
+                // TargetPosition is copied once at creation: the spiral stays where it started.
+                Vector3 center = _anchor;
                 float phaseSpeed = Kind == TrailKind.Expanding ? 0.2f : 0.1f;
                 float phase = _phase + _direction * phaseSpeed * tickFraction;
                 float radius = _radius + (Kind == TrailKind.Expanding ? 0.1f * tickFraction : 0f);
@@ -1207,9 +1291,10 @@ namespace Client.Main.Objects.Effects
                     height);
             }
 
-            public Vector3 GetRenderPoint(PlayerObject player, int index, float interpolation)
+            public Vector3 GetRenderPoint(WalkerObject player, int index, float interpolation)
             {
-                if (interpolation > 0.001f)
+                // A frozen ribbon gets no predicted head point (DrawTrails does not count one).
+                if (interpolation > 0.001f && !Frozen)
                 {
                     if (index == 0)
                         return CalculatePosition(player, interpolation);
@@ -1219,31 +1304,40 @@ namespace Client.Main.Objects.Effects
                 return GetTailPoint(Math.Clamp(index, 0, TailCount - 1));
             }
 
+            /// <summary>Light interpolated toward the next tick's value (smooth fade between ticks).</summary>
+            public Vector3 GetRenderColor(float interpolation) =>
+                Kind == TrailKind.Rising
+                    ? (LifeTicks < 15 ? Color * MathHelper.Lerp(1f, 1f / 1.2f, MathHelper.Clamp(interpolation, 0f, 1f)) : Color)
+                    : LifeTicks < 10 ? Color * MathHelper.Lerp(1f, 1f / 1.3f, MathHelper.Clamp(interpolation, 0f, 1f)) : Color;
+
             public float GetRenderLifeRatio(float interpolation) =>
                 MaxLifeTicks > 0
                     ? MathHelper.Clamp((LifeTicks - interpolation) / MaxLifeTicks, 0f, 1f)
                     : 0f;
 
+            // Ring buffer of _tailLimit points. The modulus must be the limit, not the array size:
+            // with a smaller limit (Rising: 16) wrapping by 20 left stale (0,0,0) points in the
+            // window and stretched the ribbon to the world origin.
             private void PushTail(Vector3 position)
             {
                 if (TailCount < _tailLimit)
                 {
-                    int index = (_tailStart + TailCount) % MaxTailPoints;
+                    int index = (_tailStart + TailCount) % _tailLimit;
                     _tails[index] = position;
                     TailCount++;
                     return;
                 }
 
                 _tails[_tailStart] = position;
-                _tailStart = (_tailStart + 1) % MaxTailPoints;
+                _tailStart = (_tailStart + 1) % _tailLimit;
             }
 
             public Vector3 GetTailPoint(int index)
             {
                 int newestToOldest = TailCount - 1 - index;
-                int actual = (_tailStart + newestToOldest) % MaxTailPoints;
+                int actual = (_tailStart + newestToOldest) % _tailLimit;
                 if (actual < 0)
-                    actual += MaxTailPoints;
+                    actual += _tailLimit;
                 return _tails[actual];
             }
 

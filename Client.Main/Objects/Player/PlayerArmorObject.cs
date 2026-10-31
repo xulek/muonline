@@ -25,6 +25,13 @@ namespace Client.Main.Objects.Player
             }
         }
 
+        public override void Draw(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            DrawArmorSetChromeUnderlay();
+            base.Draw(gameTime);
+            DrawPcRoomPasses();
+        }
+
         public PlayerArmorObject()
         {
             RenderShadow = true;

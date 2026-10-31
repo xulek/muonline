@@ -53,6 +53,7 @@ namespace Client.Main.Objects
         private bool _pickedUp;
         private ModelObject _modelObj; // Optional 3D model when available
         private ItemDefinition _definition;
+        private ItemDatabase.ItemDetails _itemDetails;
         private bool _isMoney;
         private bool _isFreshDrop;
         private Color _labelColor;
@@ -193,6 +194,7 @@ namespace Client.Main.Objects
                 _isMoney = true;
             }
 
+            _itemDetails = itemDetails;
             DisplayName = FormatItemDisplayName(baseName, itemDetails);
             _labelColor = GetLabelColor(scope, itemDetails);
         }
@@ -280,6 +282,14 @@ var model = new DroppedItemModel();
 
                         model.Scale = 0.6f;
                         model.LightEnabled = true;
+
+                        // SourceMain5.2 RenderItem draws drops through RenderPartObject, so they
+                        // show the same upgrade, excellent and ancient effects as equipped items.
+                        model.MaterialItemGroup = _definition.Group;
+                        model.MaterialItemIndex = _definition.Id;
+                        model.ItemLevel = _itemDetails.Level;
+                        model.IsExcellentItem = _itemDetails.IsExcellent;
+                        model.IsAncientItem = _itemDetails.IsAncient;
 
 if (!await TryLoadChildModel(model, world, loadGeneration))
 return;
@@ -812,6 +822,22 @@ _modelObj = model;
         public DroppedItemModel()
         {
             RenderShadow = false;
+            // RenderPartObjectEffect sprites of special items (Devil's Key, potions, weapons, wings).
+            Children.Add(new ItemLinkEffect { StandaloneItem = true });
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            ApplyItemObjectAttribute(gameTime.TotalGameTime.TotalMilliseconds);
+            base.Update(gameTime);
+        }
+
+        protected override bool IsOverlayOnlyMesh(int mesh) => IsSpecialItemOverlayOnlyMesh(mesh);
+
+        public override void Draw(GameTime gameTime)
+        {
+            base.Draw(gameTime);
+            DrawSpecialItemPasses(gameTime);
         }
     }
 

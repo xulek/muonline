@@ -338,8 +338,24 @@ namespace Client.Main.Objects
             return true;
         }
 
+        /// <summary>
+        /// Meshes drawn only by additional passes (e.g. SourceMain RENDER_BRIGHT wing layers).
+        /// They are skipped by the base pass but keep their buffers up to date.
+        /// </summary>
+        protected virtual bool IsOverlayOnlyMesh(int mesh) => PcRoomEffect && mesh != 0;
+
+        /// <summary>
+        /// Per-mesh BodyLight multiplier of the base pass (SourceMain sets b->BodyLight before
+        /// RenderMesh calls of single meshes). Must stay constant, or the buffers must be invalidated.
+        /// </summary>
+        protected virtual Vector3 GetMeshBodyLight(int mesh) =>
+            PcRoomEffect && mesh == 0 ? new Vector3(0.9f, 0.7f, 1f) : Vector3.One;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool IsHiddenMesh(int mesh)
+        private bool IsHiddenMesh(int mesh) => IsMeshExcludedFromBuffers(mesh) || IsOverlayOnlyMesh(mesh);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool IsMeshExcludedFromBuffers(int mesh)
         {
             if (_meshes == null || (uint)mesh >= (uint)_meshes.Length)
                 return false;
@@ -399,7 +415,7 @@ namespace Client.Main.Objects
         {
             // Item material shader (for excellent/ancient/high level items)
             bool useItemMaterial = Constants.ENABLE_ITEM_MATERIAL_SHADER &&
-                                   (ItemLevel >= 7 || IsExcellentItem || IsAncientItem) &&
+                                   HasItemMaterialEffect &&
                                    GraphicsManager.Instance.ItemMaterialEffect != null &&
                                    ShouldApplyItemMaterial(mesh);
 
@@ -1007,22 +1023,59 @@ namespace Client.Main.Objects
             bindings.Chrome02Texture?.SetValue(graphics.ItemChrome02Texture ?? fallback);
             bindings.Shiny01Texture?.SetValue(graphics.ItemShiny01Texture ?? fallback);
             bindings.Chrome01Texture?.SetValue(graphics.ItemChrome01Texture ?? fallback);
-            bindings.ItemMaterialGroup?.SetValue(MaterialItemGroup);
-            bindings.ItemMaterialIndex?.SetValue(MaterialItemIndex);
-            bindings.HighLevelTexturesAvailable?.SetValue(
-                graphics.HasItemUpgradeTextures ? 1f : 0f);
+
+            // SourceMain5.2 PartObjectColor / PartObjectColor2 / PartObjectColor3.
+            int group = MaterialItemGroup, index = MaterialItemIndex;
+            bindings.ItemChromeColor?.SetValue(Core.Utilities.ItemVisualRules.GetChromeColor(group, index));
+            bindings.ItemChrome2Tint?.SetValue(Core.Utilities.ItemVisualRules.GetChrome2Tint(group, index));
+            bindings.ItemAncientColor?.SetValue(Core.Utilities.ItemVisualRules.GetAncientColor(group, index));
+
+            // Same body lighting inputs as the DynamicLighting shader used for the rest of the model.
+            bool worldAllowsSun = World is WorldControl wc ? wc.IsSunWorld : true;
+            bool sunEnabled = Constants.SUN_ENABLED && worldAllowsSun && UseSunLight && !HasWalkerAncestor();
+            bindings.AmbientLight?.SetValue(_ambientLightVector * SunCycleManager.AmbientMultiplier);
+            bindings.SunColor?.SetValue(_sunColor);
+            bindings.SunStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
+
+            int itemOptions = EffectiveItemLevel & 0x0F;
+            if (HasExcellentGlow)
+                itemOptions |= 0x10;
+            itemOptions |= Core.Utilities.ItemVisualRules.GetLowLevelChromeMode(group, index) << 5;
+            bindings.ItemOptions?.SetValue(itemOptions);
+            bindings.IsAncient?.SetValue(IsAncientItem);
+            bindings.IsExcellent?.SetValue(HasExcellentGlow);
+
+            bindings.ChromeOverlayMode?.SetValue((int)_activeOverlayMode);
+            if (_activeOverlayMode != ItemOverlayMode.None)
+            {
+                bindings.ChromeOverlayColor?.SetValue(_activeOverlayColor);
+                bindings.ChromeOverlayUvOffset?.SetValue(_activeOverlayUvOffset);
+                bindings.ChromeOverlayAlpha?.SetValue(_activeOverlayAlpha);
+                if (_activeOverlayTexture != null)
+                {
+                    switch (_activeOverlayMode)
+                    {
+                        case ItemOverlayMode.Chrome:
+                            bindings.Chrome01Texture?.SetValue(_activeOverlayTexture);
+                            break;
+                        case ItemOverlayMode.Metal:
+                            bindings.Shiny01Texture?.SetValue(_activeOverlayTexture);
+                            break;
+                        case ItemOverlayMode.Chrome6:
+                        case ItemOverlayMode.ClampedTexture:
+                            bindings.Chrome02Texture?.SetValue(_activeOverlayTexture);
+                            break;
+                        case ItemOverlayMode.Texture:
+                            bindings.DiffuseTexture?.SetValue(_activeOverlayTexture);
+                            break;
+                    }
+                }
+            }
         }
 
-        private bool CanUseFastItemUpgradeShader()
-        {
-            if (!Constants.ENABLE_FAST_MATERIAL_SHADERS || IsAncientItem || IsExcellentItem)
-                return false;
-
-            bool highLevelArmor = GraphicsManager.Instance.HasItemUpgradeTextures &&
-                                  MaterialItemGroup >= 7 && MaterialItemGroup <= 11 &&
-                                  ItemLevel >= 11;
-            return ItemLevel >= 7 && !highLevelArmor;
-        }
+        // Both item techniques run the same SourceMain-faithful pixel shader; the fast
+        // variant only skips the unused view-direction interpolator.
+        private bool CanUseFastItemUpgradeShader() => Constants.ENABLE_FAST_MATERIAL_SHADERS;
 
         private bool CanUseFastMonsterMaterialShader() =>
             Constants.ENABLE_FAST_MATERIAL_SHADERS &&
@@ -1089,19 +1142,8 @@ namespace Client.Main.Objects
             bindings.LightDirection?.SetValue(sunDir);
             bindings.ShadowStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
             bindings.DiffuseTexture?.SetValue(texture);
-            if (!fastItemShader)
-                ApplyItemMaterialUpgradeBindings(bindings);
-
-            int itemOptions = ItemLevel & 0x0F;
-            if (IsExcellentItem)
-                itemOptions |= 0x10;
-            bindings.ItemOptions?.SetValue(itemOptions);
+            ApplyItemMaterialUpgradeBindings(bindings);
             bindings.Time?.SetValue(GetShaderTimeSeconds());
-            if (!fastItemShader)
-            {
-                bindings.IsAncient?.SetValue(IsAncientItem);
-                bindings.IsExcellent?.SetValue(IsExcellentItem);
-            }
             bindings.Alpha?.SetValue(TotalAlpha);
             return effect;
         }
@@ -1523,11 +1565,80 @@ namespace Client.Main.Objects
             }
         }
 
+        /// <summary>
+        /// Additive RENDER_BRIGHT pass kinds used by SourceMain's RenderPartObjectBody for
+        /// special models (third-level wings etc.).
+        /// </summary>
+        protected enum ItemOverlayMode
+        {
+            None = 0,
+            Chrome = 1,
+            Chrome6 = 2,
+            Texture = 3,
+            ClampedTexture = 4,
+            Metal = 5,
+            Chrome4 = 6,
+            Chrome5 = 7,
+        }
+
+        /// <summary>Blending of an item overlay pass.</summary>
+        protected enum ItemOverlayBlend
+        {
+            Additive,   // RENDER_BRIGHT: glBlendFunc(GL_ONE, GL_ONE)
+            Opaque,     // no blending, depth writes
+            Alpha,      // EnableAlphaTest: glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        }
+
+        private ItemOverlayMode _activeOverlayMode;
+        private ItemOverlayBlend _activeOverlayBlend;
+        private float _activeOverlayAlpha = 1f;
+        private Vector3 _activeOverlayColor;
+        private Texture2D _activeOverlayTexture;
+        private Vector2 _activeOverlayUvOffset;
+
+        /// <summary>
+        /// Draws one mesh again with glBlendFunc(GL_ONE, GL_ONE) semantics: a chrome texture with
+        /// normal-derived coordinates (Chrome/Chrome6) or the mesh texture shifted by
+        /// <paramref name="uvOffset"/> (Texture), modulated by <paramref name="color"/>.
+        /// </summary>
+        protected void DrawMeshItemOverlay(int mesh, ItemOverlayMode mode, Vector3 color,
+            Texture2D texture = null, Vector2 uvOffset = default, ItemOverlayBlend blend = ItemOverlayBlend.Additive,
+            float alpha = 1f)
+        {
+            if (mode == ItemOverlayMode.None || GraphicsManager.Instance.ItemMaterialEffect == null)
+                return;
+
+            _activeOverlayMode = mode;
+            _activeOverlayBlend = blend;
+            _activeOverlayAlpha = alpha;
+            _activeOverlayColor = color;
+            _activeOverlayTexture = texture;
+            _activeOverlayUvOffset = uvOffset;
+            try
+            {
+                DrawMeshWithItemMaterial(mesh);
+            }
+            finally
+            {
+                _activeOverlayMode = ItemOverlayMode.None;
+                _activeOverlayBlend = ItemOverlayBlend.Additive;
+                _activeOverlayAlpha = 1f;
+                _activeOverlayTexture = null;
+                // The effect is shared with item previews; never leave it in overlay mode.
+                GetModelEffectBindings(GraphicsManager.Instance.ItemMaterialEffect)?.ChromeOverlayMode?.SetValue(0);
+            }
+        }
+
         public virtual void DrawMeshWithItemMaterial(int mesh)
         {
             if (Model?.Meshes == null || mesh < 0 || mesh >= Model.Meshes.Length)
                 return;
-            if (_meshes?[mesh]?.Texture == null || IsHiddenMesh(mesh))
+            // Overlay passes may target overlay-only meshes that the base pass skips;
+            // explicit hiding still applies.
+            bool hidden = _activeOverlayMode != ItemOverlayMode.None
+                ? IsMeshExcludedFromBuffers(mesh)
+                : IsHiddenMesh(mesh);
+            if (_meshes?[mesh]?.Texture == null || hidden)
                 return;
 
             try
@@ -1586,6 +1697,29 @@ namespace Client.Main.Objects
                         depthStateChanged = true;
                     }
 
+                    if (_activeOverlayMode != ItemOverlayMode.None && _activeOverlayBlend == ItemOverlayBlend.Alpha)
+                    {
+                        blendState = BlendState.NonPremultiplied;
+                        gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                        depthStateChanged = true;
+                        gd.RasterizerState = _cullNone;
+                    }
+                    else if (_activeOverlayMode != ItemOverlayMode.None && _activeOverlayBlend == ItemOverlayBlend.Opaque)
+                    {
+                        // Chrome without RENDER_BRIGHT: opaque, depth-writing pass.
+                        blendState = BlendState.Opaque;
+                        gd.DepthStencilState = DepthStencilState.Default;
+                        depthStateChanged = true;
+                    }
+                    else if (_activeOverlayMode != ItemOverlayMode.None)
+                    {
+                        // RENDER_BRIGHT: additive, no depth writes, both faces.
+                        blendState = Blendings.OneOneAdditive;
+                        gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                        depthStateChanged = true;
+                        gd.RasterizerState = _cullNone;
+                    }
+
                     gd.BlendState = blendState;
 
                     Vector3 sunDir = GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
@@ -1606,21 +1740,8 @@ namespace Client.Main.Objects
 
                     // Set texture
                     bindings.DiffuseTexture?.SetValue(texture);
-                    if (!fastItemShader)
-                        ApplyItemMaterialUpgradeBindings(bindings);
-
-                    // Set item properties
-                    int itemOptions = ItemLevel & 0x0F;
-                    if (IsExcellentItem)
-                        itemOptions |= 0x10;
-
-                    bindings.ItemOptions?.SetValue(itemOptions);
+                    ApplyItemMaterialUpgradeBindings(bindings);
                     bindings.Time?.SetValue(GetShaderTimeSeconds());
-                    if (!fastItemShader)
-                    {
-                        bindings.IsAncient?.SetValue(IsAncientItem);
-                        bindings.IsExcellent?.SetValue(IsExcellentItem);
-                    }
                     bindings.Alpha?.SetValue(TotalAlpha);
 
                     gd.SetVertexBuffer(vertexBuffer);

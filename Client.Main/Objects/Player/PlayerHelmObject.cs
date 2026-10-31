@@ -44,6 +44,19 @@ namespace Client.Main.Objects.Player
             return meshIndex == shellMesh;
         }
 
+        public override void Update(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            ApplyScriptBlendLight(gameTime.TotalGameTime.TotalMilliseconds,
+                PlayerClass is PlayerClass.DarkLord or PlayerClass.LordEmperor or PlayerClass.EmpireLord);
+            base.Update(gameTime);
+        }
+
+        public override void Draw(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            base.Draw(gameTime);
+            DrawPcRoomPasses();
+        }
+
         // Now returns Task, not void
         private async Task OnChangePlayerClass()
         {

@@ -336,3 +336,5 @@ OpenMU/
 
 # MonoGame content pipeline statistics, regenerated on every build
 .mgstats
+graphify*/
+.graphify*/

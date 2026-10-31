@@ -14,19 +14,18 @@ namespace Client.Main.Objects.NPCS
             Model = await BMDLoader.Instance.Prepare("Player/Player.bmd");
             await SetBodyPartsAsync("Player/", "HelmMale", "ArmorMale", "PantMale", "GloveMale", "BootMale", 10);
 
-            // Set item levels +7 or higher to see effects
-            Helm.ItemLevel = 7;
-            Armor.ItemLevel = 7;
-            Pants.ItemLevel = 7;
-            Gloves.ItemLevel = 7;
-            Boots.ItemLevel = 7;
+            // ZzzCharacter.cpp (MONSTER_LEO_THE_HELPER): plain Plate set, no weapon, level 0, and the
+            // PC-room (m_bpcroom) glow on every plate part; the root-bone sprites come from the armor.
+            Helm.PcRoomEffect = true;
+            Armor.PcRoomEffect = true;
+            Pants.PcRoomEffect = true;
+            Gloves.PcRoomEffect = true;
+            Boots.PcRoomEffect = true;
 
-            // Set item properties for testing
-            Armor.IsAncientItem = true;
-            Helm.IsAncientItem = true;
-            Pants.IsAncientItem = true;
-            Gloves.IsAncientItem = true;
-            Boots.IsAncientItem = true;
+            Children.Add(new Client.Main.Objects.Effects.ItemLinkEffect
+            {
+                CustomEmitter = effect => Client.Main.Objects.Effects.ItemLinkEffectEmitter.EmitPcRoomPlate(effect),
+            });
 
             await base.Load();
             AnimationSpeed = 25f;

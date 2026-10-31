@@ -32,6 +32,13 @@ namespace Client.Main.Objects.Player
             }
         }
 
+        public override void Update(Microsoft.Xna.Framework.GameTime gameTime)
+        {
+            ApplyScriptBlendLight(gameTime.TotalGameTime.TotalMilliseconds,
+                PlayerClass is PlayerClass.DarkLord or PlayerClass.LordEmperor or PlayerClass.EmpireLord);
+            base.Update(gameTime);
+        }
+
         public PlayerMaskHelmObject()
         {
             RenderShadow = true; // Or false if it shouldn't cast shadows

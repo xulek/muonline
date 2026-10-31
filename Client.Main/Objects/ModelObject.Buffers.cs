@@ -101,7 +101,7 @@ namespace Client.Main.Objects
                         ref var cache = ref _meshes[meshIndex].BufferCache;
                         var mesh = Model.Meshes[meshIndex];
 
-                        if (IsHiddenMesh(meshIndex) && (_invalidatedBufferFlags & MeshDirtyFlags.Texture) == 0)
+                        if (IsMeshExcludedFromBuffers(meshIndex) && (_invalidatedBufferFlags & MeshDirtyFlags.Texture) == 0)
                             continue;
 
                         // Main-pass GPU skinning and projected mesh shadows are independent concerns.
@@ -147,7 +147,7 @@ namespace Client.Main.Objects
                         // Calculate mesh-specific lighting
                         bool isBlend = IsBlendMesh(meshIndex);
                         Vector3 meshLight = needLightCalculation
-                            ? (isBlend ? baseLight * blendMeshLight : baseLight * totalAlpha)
+                            ? (isBlend ? baseLight * blendMeshLight : baseLight * totalAlpha) * GetMeshBodyLight(meshIndex)
                             : cache.CachedLight;
 
                         // Check if this specific mesh needs update - only on real changes

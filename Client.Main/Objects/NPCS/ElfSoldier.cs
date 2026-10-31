@@ -15,6 +15,15 @@ namespace Client.Main.Objects.NPCS
     {
         private new readonly ILogger<ElfSoldier> _logger;
 
+        private float _orbitAngle;
+
+        private static void ConfigureSetPart(ModelObject part, int group)
+        {
+            part.ItemLevel = 13;
+            part.MaterialItemGroup = group;
+            part.MaterialItemIndex = 24;
+        }
+
         public ElfSoldier()
         {
             _logger = AppLoggerFactory?.CreateLogger<ElfSoldier>();
@@ -32,12 +41,21 @@ namespace Client.Main.Objects.NPCS
 
             await SetBodyPartsAsync("Player/", "HelmMale", "ArmorMale", "PantMale", "GloveMale", "BootMale", 25);
 
-            // Set item enhancement level +11 for all equipment parts
-            Helm.ItemLevel = 11;
-            Armor.ItemLevel = 11;
-            Pants.ItemLevel = 11;
-            Gloves.ItemLevel = 11;
-            Boots.ItemLevel = 11;
+            // MakeElfHelper: Red Spirit set at +13 (item index 24) and Wings of Spirits.
+            ConfigureSetPart(Helm, 7);
+            ConfigureSetPart(Armor, 8);
+            ConfigureSetPart(Pants, 9);
+            ConfigureSetPart(Gloves, 10);
+            ConfigureSetPart(Boots, 11);
+
+            // The soldier uses MODEL_PLAYER, so CheckFullSet gives it the +13 full-set aura too.
+            Children.Add(new FullSetAuraEffect());
+
+            // CreateJoint(BITMAP_FLARE, ..., 42, o, 15): flare ribbons orbiting the soldier.
+            Children.Add(new ItemLinkEffect
+            {
+                CustomEmitter = effect => ItemLinkEffectEmitter.EmitElfOrbit(effect, ref _orbitAngle),
+            });
 
             await ConfigureNpcWingsAsync(
                 "Item/Wing04.bmd",
