@@ -1263,7 +1263,8 @@ namespace Client.Main.Controls.Terrain
                 maxLights,
                 focusRadius,
                 _lightManager.VisibleLightsVersion,
-                cacheCellSize: 128f);
+                cacheCellSize: 128f,
+                lightsLayoutVersion: _lightManager.VisibleLightsLayoutVersion);
         }
 
         private static float ResolveTerrainDynamicLightFocusRadius()

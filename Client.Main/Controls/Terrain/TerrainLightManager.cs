@@ -37,6 +37,33 @@ namespace Client.Main.Controls.Terrain
         public IReadOnlyList<DynamicLightSnapshot> VisibleLights => _visibleLights;
         public int ActiveLightsVersion => _activeLightsVersion;
         public int VisibleLightsVersion => _visibleLightsVersion;
+
+        /// <summary>
+        /// Changes only when the visible lights' order, positions or radii change, not when their intensity
+        /// or colour flickers. Spatial light selection caches key on it.
+        /// </summary>
+        public int VisibleLightsLayoutVersion => _visibleLightsLayoutVersion;
+        private int _visibleLightsLayoutVersion = 1;
+        private long _visibleLightsLayoutHash;
+
+        private void UpdateVisibleLightsLayoutVersion()
+        {
+            long hash = _visibleLights.Count;
+            for (int i = 0; i < _visibleLights.Count; i++)
+            {
+                var light = _visibleLights[i];
+                hash = hash * 31 + light.Position.X.GetHashCode();
+                hash = hash * 31 + light.Position.Y.GetHashCode();
+                hash = hash * 31 + light.Position.Z.GetHashCode();
+                hash = hash * 31 + light.Radius.GetHashCode();
+            }
+
+            if (hash != _visibleLightsLayoutHash)
+            {
+                _visibleLightsLayoutHash = hash;
+                _visibleLightsLayoutVersion++;
+            }
+        }
         public int OrphanLightsPrunedCount { get; private set; }
         public int DuplicateAddsRejectedCount { get; private set; }
         public int LastFrameRegisteredCount { get; private set; }
@@ -229,7 +256,10 @@ namespace Client.Main.Controls.Terrain
 
             LastFrameActiveCount = _activeLights.Count;
             if (_activeLights.Count == 0)
+            {
+                UpdateVisibleLightsLayoutVersion();
                 return;
+            }
 
             var camera = Camera.Instance;
             var frustum = camera?.Frustum;
@@ -237,6 +267,7 @@ namespace Client.Main.Controls.Terrain
             {
                 _visibleLights.AddRange(_activeLights);
                 LastFrameVisibleCount = _visibleLights.Count;
+                UpdateVisibleLightsLayoutVersion();
                 return;
             }
 
@@ -248,6 +279,7 @@ namespace Client.Main.Controls.Terrain
             }
 
             LastFrameVisibleCount = _visibleLights.Count;
+            UpdateVisibleLightsLayoutVersion();
         }
 
         public Vector3 EvaluateDynamicLight(Vector2 position)
@@ -371,6 +403,7 @@ namespace Client.Main.Controls.Terrain
             _visibleLights.Clear();
             LastFrameActiveCount = 0;
             LastFrameVisibleCount = 0;
+            UpdateVisibleLightsLayoutVersion();
         }
 
         private static bool IsLightValid(DynamicLight light, WorldControl world)

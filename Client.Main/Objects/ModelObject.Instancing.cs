@@ -1752,7 +1752,8 @@ namespace Client.Main.Objects
                 maxLights,
                 focusRadius,
                 terrain.VisibleLightsVersion,
-                cacheCellSize: 192f);
+                cacheCellSize: 192f,
+                lightsLayoutVersion: terrain.VisibleLightsLayoutVersion);
         }
 
         private static float ResolveStaticMapInstancingLightCoverageRadius()

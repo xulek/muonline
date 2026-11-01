@@ -334,7 +334,8 @@ namespace Client.Main.Objects
                 maxLights,
                 focusRadius,
                 terrain.VisibleLightsVersion,
-                cacheCellSize: 96f);
+                cacheCellSize: 96f,
+                lightsLayoutVersion: terrain.VisibleLightsLayoutVersion);
             if (uploadedLightCount == 0)
             {
                 SelectSunOnlyTechnique(

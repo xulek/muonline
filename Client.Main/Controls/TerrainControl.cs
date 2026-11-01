@@ -38,6 +38,7 @@ namespace Client.Main.Controls
         public IReadOnlyList<DynamicLightSnapshot> VisibleLights => _lightManager.VisibleLights;
         public int ActiveLightsVersion => _lightManager.ActiveLightsVersion;
         public int VisibleLightsVersion => _lightManager.VisibleLightsVersion;
+        public int VisibleLightsLayoutVersion => _lightManager.VisibleLightsLayoutVersion;
         public int DynamicLightsOrphansPruned => _lightManager?.OrphanLightsPrunedCount ?? 0;
         public int DynamicLightsDuplicateAddsRejected => _lightManager?.DuplicateAddsRejectedCount ?? 0;
         public int LastFrameRegisteredDynamicLights => _lightManager?.LastFrameRegisteredCount ?? 0;

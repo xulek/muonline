@@ -105,7 +105,8 @@ namespace Client.Main.Graphics
             int maxLights,
             float focusRadius = 0f,
             int lightsVersion = 0,
-            float cacheCellSize = 0f)
+            float cacheCellSize = 0f,
+            int lightsLayoutVersion = 0)
         {
             if (effect == null)
                 return 0;
@@ -128,9 +129,11 @@ namespace Client.Main.Graphics
             // call instead of paying a monitor enter for every rendered model.
             if (MuGame.IsMainThread && lightsVersion > 0 && cacheCellSize > 0f && float.IsFinite(cacheCellSize))
             {
+                // Candidates depend only on light positions and radii; a layout version that ignores
+                // flickering intensities keeps the spatial cache alive between light snapshots.
                 SelectionCacheEntry cached = GetOrCreateCachedSelection(
                     lights,
-                    lightsVersion,
+                    lightsLayoutVersion > 0 ? lightsLayoutVersion : lightsVersion,
                     focus,
                     Math.Max(0f, focusRadius),
                     cacheCellSize);

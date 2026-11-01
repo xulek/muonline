@@ -524,8 +524,7 @@ namespace Client.Main.Objects
                     return false;
                 }
 
-                if (!BMDLoader.Instance.TryGetGpuSkinnedMeshBuffers(
-                    Model,
+                if (!TryGetMeshGpuSkinBuffers(
                     meshIndex,
                     out _,
                     out _,
@@ -577,8 +576,7 @@ namespace Client.Main.Objects
                 if (!ShouldQueueWalkerCrowdMesh(meshIndex))
                     continue;
 
-                if (!BMDLoader.Instance.TryGetGpuSkinnedMeshBuffers(
-                    Model,
+                if (!TryGetMeshGpuSkinBuffers(
                     meshIndex,
                     out VertexBuffer geometryVB,
                     out IndexBuffer geometryIB,

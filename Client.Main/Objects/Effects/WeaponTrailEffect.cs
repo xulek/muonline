@@ -241,7 +241,7 @@ namespace Client.Main.Objects.Effects
 
         public override void DrawAfter(GameTime gameTime)
         {
-            if (_samples.Count < 2 || Hidden)
+            if (_samples.Count < 2 || Hidden || !HasVisibleContribution())
             {
                 base.DrawAfter(gameTime);
                 return;
@@ -299,6 +299,24 @@ namespace Client.Main.Objects.Effects
             gd.RasterizerState = prevRasterizer;
 
             base.DrawAfter(gameTime);
+        }
+
+        /// <summary>
+        /// The trail is additive; a weapon at rest keeps sampling at a very low alpha scale, which adds less
+        /// than one colour level. Skip those draws (one per weapon, every frame, in crowds).
+        /// </summary>
+        private bool HasVisibleContribution()
+        {
+            float maxScale = 0f;
+            for (int i = 0; i < _samples.Count; i++)
+            {
+                var sample = _samples[i];
+                float life = MathHelper.Clamp(1f - (sample.Age / _trailDuration), 0f, 1f);
+                maxScale = MathF.Max(maxScale, life * sample.AlphaScale);
+            }
+
+            float maxChannel = MathF.Max(_startColor.X, MathF.Max(_startColor.Y, _startColor.Z));
+            return maxScale * TotalAlpha * _startColor.W * maxChannel * 255f >= 1f;
         }
 
         private int BuildVertices(Camera camera)

@@ -347,8 +347,7 @@ namespace Client.Main.Objects
                 if (!CanUseWalkerCrowdMeshForInstancing(meshIndex))
                     return false;
 
-                if (!BMDLoader.Instance.TryGetGpuSkinnedMeshBuffers(
-                    Model,
+                if (!TryGetMeshGpuSkinBuffers(
                     meshIndex,
                     out _,
                     out _,
@@ -447,6 +446,42 @@ namespace Client.Main.Objects
                     ms.CpuIndexBuffer = null;
                 }
             }
+        }
+
+        /// <summary>
+        /// GPU skinned geometry of a mesh for the instancing paths: the buffers attached to this object by GPU
+        /// skinning, without the loader's lock and dictionary lookups (called several times per mesh and frame
+        /// in crowds). The loader entry is still touched periodically for its LRU eviction.
+        /// </summary>
+        private bool TryGetMeshGpuSkinBuffers(
+            int meshIndex,
+            out VertexBuffer vertexBuffer,
+            out IndexBuffer indexBuffer,
+            out int boneCount)
+        {
+            if (_meshes != null && (uint)meshIndex < (uint)_meshes.Length)
+            {
+                var ms = _meshes[meshIndex];
+                if (ms != null && ms.GpuSkinEnabled && ms.GpuBoneCount > 0 &&
+                    ms.GpuVertexBuffer is { IsDisposed: false } attachedVertices &&
+                    ms.GpuIndexBuffer is { IsDisposed: false } attachedIndices)
+                {
+                    int frame = MuGame.FrameIndex;
+                    int age = frame - ms.LastGpuCacheTouchFrame;
+                    if (age < 0 || age >= 300)
+                    {
+                        BMDLoader.Instance.TouchGpuSkinnedMeshBuffers(Model, meshIndex);
+                        ms.LastGpuCacheTouchFrame = frame;
+                    }
+
+                    vertexBuffer = attachedVertices;
+                    indexBuffer = attachedIndices;
+                    boneCount = ms.GpuBoneCount;
+                    return true;
+                }
+            }
+
+            return BMDLoader.Instance.TryGetGpuSkinnedMeshBuffers(Model, meshIndex, out vertexBuffer, out indexBuffer, out boneCount);
         }
 
         /// <summary>
