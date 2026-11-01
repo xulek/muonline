@@ -454,6 +454,16 @@ namespace Client.Main.Core.Client
 
         // ─────────────── Daily gameplay state (vault lock, pets, summons, key configuration) ───────────────
 
+        /// <summary>
+        /// Event ticket used from the inventory while waiting for MiniGameOpeningState (0x91):
+        /// (mini game type, item level, inventory slot). Original: g_pMyInventory->SetStandbyItemKey.
+        /// </summary>
+        public (byte Type, byte Level, byte Slot)? PendingEventTicket { get; set; }
+
+        /// <summary>MiniGameOpeningState (0x91): (mini game type, minutes until opening, participants).</summary>
+        public event Action<byte, int, byte>? MiniGameOpeningStateReceived;
+        public void RaiseMiniGameOpeningState(byte type, int minutes, byte users) => MiniGameOpeningStateReceived?.Invoke(type, minutes, users);
+
         /// <summary>VaultProtectionInformation (0x83) state: 0 unprotected, 1 locked, 10-13 results, 12 unlocked.</summary>
         public byte VaultProtectionState { get; private set; }
         public event Action<byte>? VaultProtectionChanged;

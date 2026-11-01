@@ -1782,6 +1782,12 @@ namespace Client.Main.Controls.UI.Game.Inventory
                         return;
                     }
 
+                    if (TryUseEventTicket(_hoveredItem))
+                    {
+                        Scene?.SetMouseInputConsumed();
+                        return;
+                    }
+
                     if (_hoveredItem.Definition?.IsConsumable() == true)
                     {
                         if (_hoveredItem.Definition.IsUpgradeJewel())
@@ -2944,6 +2950,49 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 spriteBatch.DrawString(_font, text, pos, hovered ? Theme.AccentBright : Theme.Accent,
                                        0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
+        }
+
+        /// <summary>
+        /// Event entry items used from the inventory (NewUIMyInventory.cpp): Armor of Guardsman (13,29) and the
+        /// Chaos Castle free ticket (13,121) ask for the Chaos Castle opening state (0x91) and enter after the
+        /// confirmation; the Devil Square / Blood Castle / Illusion Temple free tickets (13,46 / 13,47 / 13,61) show the
+        /// opening state of their event.
+        /// </summary>
+        private bool TryUseEventTicket(InventoryItem item)
+        {
+            if (item?.Definition == null || item.Definition.Group != 13) return false;
+            byte type = item.Definition.Id switch
+            {
+                29 or 121 => 4,
+                46 => 1,
+                47 => 2,
+                61 => 5,
+                _ => 0,
+            };
+            if (type == 0) return false;
+
+            var state = _networkManager?.GetCharacterState();
+            var service = _networkManager?.GetCharacterService();
+            if (state == null || service == null) return true;
+
+            if (type == 4 && !IsHeroInSafeZone(state))
+            {
+                RequestDialog.ShowInfo("You can only use this item in a safe zone.");
+                return true;
+            }
+
+            byte slot = (byte)(InventorySlotOffsetConstant + item.GridPosition.Y * Columns + item.GridPosition.X);
+            // OpenMU falls back to the definition with GameLevel == level when the character is out of range; levels start at 1.
+            byte level = (byte)Math.Clamp(item.Details.Level, 1, 255);
+            state.PendingEventTicket = (type, level, slot);
+            _ = service.SendMiniGameOpeningStateRequestAsync(type, level);
+            return true;
+        }
+
+        private static bool IsHeroInSafeZone(Core.Client.CharacterState state)
+        {
+            if (MuGame.Instance?.ActiveScene?.World is not WorldControl world || world.Terrain == null) return true;
+            return world.Terrain.RequestTerrainFlag(state.PositionX, state.PositionY).HasFlag(Client.Data.ATT.TWFlags.SafeZone);
         }
 
         /// <summary>

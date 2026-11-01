@@ -100,6 +100,31 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 BloodCastleObject.BeginBridgeOpening(world);
                             break;
 
+                        // Chaos Castle states (ChaosCastleStateViewPlugIn): CurMonster carries the remaining
+                        // monsters and players, RemainSecond the time.
+                        case 5: // ChaosCastleStarted
+                        case 6: // ChaosCastleRunning
+                        case 8: // ChaosCastleStageOne
+                        case 9: // ChaosCastleStageTwo
+                        case 10: // ChaosCastleStageThree
+                            BloodCastleTimeControl.Instance?.ShowChaosCastle(remainSec, curKillMonster);
+                            if (playState == 5 || playState >= 8)
+                            {
+                                string text = playState switch
+                                {
+                                    5 => "Chaos Castle has started! Defeat every monster and player.",
+                                    8 => "The castle starts to collapse!",
+                                    9 => "The castle collapses further!",
+                                    _ => "Only the centre of the castle remains!",
+                                };
+                                (MuGame.Instance?.ActiveScene as Client.Main.Scenes.GameScene)?.ChatLog?.AddMessage("System", text, Models.MessageType.System);
+                            }
+                            break;
+
+                        case 7: // ChaosCastleEnded
+                            BloodCastleTimeControl.Instance?.HideWindow();
+                            break;
+
                         default:
                             _logger.LogWarning("Unknown Blood Castle play state: {PlayState}", playState);
                             break;

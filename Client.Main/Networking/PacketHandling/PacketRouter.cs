@@ -97,7 +97,7 @@ namespace Client.Main.Networking.PacketHandling
             _shopHandler = new ShopHandler(loggerFactory, characterState, networkManager, targetVersion);
             _tradeHandler = new TradeHandler(loggerFactory, characterState, networkManager, targetVersion);
             _bloodCastleHandler = new BloodCastleHandler(loggerFactory, characterState, networkManager);
-            _miniGameHandler = new MiniGameHandler(loggerFactory);
+            _miniGameHandler = new MiniGameHandler(loggerFactory, characterState, characterService);
             _guildHandler = new GuildHandler(loggerFactory, characterState, characterService, networkManager);
             _messengerHandler = new MessengerHandler(loggerFactory, characterService, networkManager);
             _gameplayHandler = new GameplayHandler(loggerFactory, characterState, targetVersion);

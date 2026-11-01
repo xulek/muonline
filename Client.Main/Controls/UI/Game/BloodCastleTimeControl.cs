@@ -104,8 +104,16 @@ namespace Client.Main.Controls.UI.Game
             float scaleBig = 0.50f;
             float y = rect.Y + 10;
 
+            // Chaos Castle: remaining monsters and players plus the collapse stage (NewUIChaosCastleTime).
+            if (_chaosCastleMode)
+            {
+                string remainText = $"Remaining: {_killedMonsters}";
+                Vector2 remainSize = _font.MeasureString(remainText) * scale;
+                DrawTextWithShadow(sb, _font, remainText, rect.X + (rect.Width - remainSize.X) / 2f, y, scale, Theme.TextNormal);
+                y += _font.LineSpacing * scale + 4;
+            }
             // Monster count (if set)
-            if (_maxMonsters != 65535)
+            else if (_maxMonsters != 65535)
             {
                 string monsterText = $"Monsters: {_killedMonsters} / {_maxMonsters}";
                 Vector2 monsterSize = _font.MeasureString(monsterText) * scale;
@@ -148,12 +156,25 @@ namespace Client.Main.Controls.UI.Game
         public void ShowWindow()
         {
             Visible = true;
+            _chaosCastleMode = false;
             IsEventActive = true; // Open the bridge when event starts
+        }
+
+        private bool _chaosCastleMode;
+
+        /// <summary>Shows the HUD for Chaos Castle (0x9B with the Chaos Castle states): time and remaining objects.</summary>
+        public void ShowChaosCastle(int remainingSeconds, int remainingObjects)
+        {
+            Visible = true;
+            _chaosCastleMode = true;
+            _killedMonsters = remainingObjects;
+            SetTime(remainingSeconds);
         }
 
         public void HideWindow()
         {
             Visible = false;
+            _chaosCastleMode = false;
             IsEventActive = false; // Close the bridge when event ends
             _remainingTimeSeconds = 0;
             _killedMonsters = 0;

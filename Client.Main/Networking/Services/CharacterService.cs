@@ -538,6 +538,24 @@ namespace Client.Main.Networking.Services
                 return ChatRoomInvitationRequest.Length;
             });
 
+        /// <summary>Asks when a mini game opens (0x91): 1 DS, 2 BC, 4 CC, 5 IT, 6 Doppelganger.</summary>
+        public Task<bool> SendMiniGameOpeningStateRequestAsync(byte miniGameType, byte eventLevel)
+            => SendSimplePacketAsync("mini game opening state request", () =>
+            {
+                var span = GetClearedPacketMemory(5).Span;
+                span[0] = 0xC1; span[1] = 5; span[2] = 0x91; span[3] = miniGameType; span[4] = eventLevel;
+                return 5;
+            });
+
+        /// <summary>Enters Chaos Castle with the ticket in the given inventory slot (0xAF/0x01).</summary>
+        public Task<bool> SendChaosCastleEnterRequestAsync(byte castleLevel, byte ticketSlot)
+            => SendSimplePacketAsync("chaos castle enter request", () =>
+            {
+                var span = GetClearedPacketMemory(6).Span;
+                span[0] = 0xC1; span[1] = 6; span[2] = 0xAF; span[3] = 0x01; span[4] = castleLevel; span[5] = ticketSlot;
+                return 6;
+            });
+
         /// <summary>Requests level/experience of a Dark Raven (0) or Dark Horse (1) item (0xA9).</summary>
         public Task<bool> SendPetInfoRequestAsync(byte petType, byte storage, byte slot)
             => SendSimplePacketAsync("pet info request", () =>

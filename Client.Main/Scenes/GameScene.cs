@@ -63,6 +63,7 @@ namespace Client.Main.Scenes
         internal FriendListWindow FriendList { get; private set; }
         internal LetterReadWindow LetterRead { get; private set; }
         internal LetterComposeWindow LetterCompose { get; private set; }
+        internal MiniGameScoreWindow MiniGameScore { get; private set; }
         private Client.Main.Core.Client.GuildManager _guildManager;
         private Client.Main.Core.Client.FriendManager _friendManager;
         private Controls.UI.NotificationManager _notificationManager;
@@ -333,6 +334,8 @@ namespace Client.Main.Scenes
             LetterCompose = new LetterComposeWindow(friendManager);
             Controls.Add(LetterCompose);
             Controls.Add(new LetterNotifierControl(friendManager));
+            MiniGameScore = new MiniGameScoreWindow();
+            Controls.Add(MiniGameScore);
             _friendManager = friendManager;
             _friendManager.FriendRequestReceived += OnFriendRequestReceived;
             _friendManager.ChatRoomOpened += OnChatRoomOpened;
