@@ -14,6 +14,22 @@ namespace Client.Main.Networking.PacketHandling
     /// </summary>
     public static class PacketBuilder
     {
+        public static int BuildPlayerShopClosePacket(IBufferWriter<byte> writer)
+        {
+            int length = PlayerShopClose.Length;
+            _ = new PlayerShopClose(writer.GetMemory(length).Slice(0, length));
+            return length;
+        }
+
+        public static int BuildPlayerShopMovePacket(IBufferWriter<byte> writer, byte fromSlot, byte toSlot)
+        {
+            static bool IsShopSlot(byte slot) => slot >= 204 && slot < 236;
+            if ((!IsShopSlot(fromSlot) && !IsShopSlot(toSlot)) || fromSlot < 12 || toSlot < 12 || fromSlot >= 236 || toSlot >= 236)
+                throw new ArgumentOutOfRangeException(nameof(toSlot), "A player shop move must use valid inventory and shop slots.");
+            return BuildItemMoveRequestExtendedPacket(writer,
+                IsShopSlot(fromSlot) ? ItemStorageKind.PlayerShop : ItemStorageKind.Inventory, fromSlot,
+                IsShopSlot(toSlot) ? ItemStorageKind.PlayerShop : ItemStorageKind.Inventory, toSlot);
+        }
         // ──────────────────────── Game Server Packets ─────────────────────────
 
         /// <summary>

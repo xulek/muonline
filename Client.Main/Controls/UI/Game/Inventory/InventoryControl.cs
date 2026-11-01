@@ -9,6 +9,7 @@ using Client.Main;
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Core.Utilities;
+using Client.Main.Core.Client;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controls.UI.Game;
@@ -527,14 +528,18 @@ namespace Client.Main.Controls.UI.Game.Inventory
         {
             _currentGameTime = gameTime;
 
+            bool isTyping = Scene?.FocusControl is TextFieldControl { Visible: true, IsFocused: true };
+
             if (MuGame.Instance.Keyboard.IsKeyDown(Keys.Escape) &&
-                MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.Escape))
+                MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.Escape) &&
+                Scene?.IsKeyboardEscapeConsumedThisFrame != true)
             {
                 Hide();
                 return;
             }
 
-            if (MuGame.Instance.Keyboard.IsKeyDown(Keys.L) &&
+            if (!isTyping &&
+                MuGame.Instance.Keyboard.IsKeyDown(Keys.L) &&
                 MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.L))
             {
                 ToggleRepairMode();
@@ -1612,7 +1617,11 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
             if (_leftFooterHovered)
             {
-                Hide();
+                if (_networkManager?.TargetVersion != TargetProtocolVersion.Season6)
+                    RequestDialog.ShowInfo("Personal shop is only available with the Season 6 protocol.");
+                else if (Scene is Client.Main.Scenes.GameScene gameScene)
+                    gameScene.OwnPlayerShop?.Toggle();
+                SoundController.Instance.PlayBuffer("Sound/iButton.wav");
                 return true;
             }
 
@@ -1627,6 +1636,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private void HandleInventoryInteraction(Point mousePos, bool leftJustPressed, bool leftJustReleased)
         {
+            var shopState = _networkManager?.GetCharacterState();
+            if (shopState?.IsPlayerShopMovePending == true || shopState?.IsPlayerShopPricePending == true) return;
             Point gridSlot = GetSlotAtScreenPosition(mousePos);
             _hoveredSlot = gridSlot;
 
@@ -1762,6 +1773,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 if (rightJustPressed && _hoveredItem != null && _pickedItemRenderer.Item == null)
                 {
+                    // Right-click adds the item to the personal shop while its editor is open.
+                    if (OwnPlayerShopEditor is { } ownShop)
+                    {
+                        byte shopSourceSlot = (byte)(InventorySlotOffsetConstant + (_hoveredItem.GridPosition.Y * Columns) + _hoveredItem.GridPosition.X);
+                        ownShop.QuickAdd(_hoveredItem, shopSourceSlot);
+                        Scene?.SetMouseInputConsumed();
+                        return;
+                    }
+
                     if (_hoveredItem.Definition?.IsConsumable() == true)
                     {
                         if (_hoveredItem.Definition.IsUpgradeJewel())
@@ -1871,6 +1891,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
             byte slotIndex = _pickedFromEquipSlot >= 0
                 ? (byte)_pickedFromEquipSlot
                 : (byte)(InventorySlotOffsetConstant + (item.GridPosition.Y * Columns) + item.GridPosition.X);
+
+            if (Scene is Client.Main.Scenes.GameScene gameScene && gameScene.OwnPlayerShop is { } ownShop &&
+                ownShop.AcceptsDrop(MuGame.Instance.UiMouseState.Position))
+            {
+                var position = MuGame.Instance.UiMouseState.Position;
+                RestorePickedItemToOriginalLocation();
+                ownShop.StageItem(item, slotIndex, position);
+                return;
+            }
 
             var shop = NpcShopControl.Instance;
             if (shop != null && shop.Visible && shop.DisplayRectangle.Contains(MuGame.Instance.UiMouseState.Position))
@@ -2740,7 +2769,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
             }
 
             DrawCloseButton(spriteBatch);
-            DrawFooterButton(spriteBatch, _footerLeftButtonRect, "X", _leftFooterHovered);
+            DrawFooterButton(spriteBatch, _footerLeftButtonRect, "$", _leftFooterHovered);
+            DrawShopButtonState(spriteBatch);
             string buttonText = (_networkManager?.GetCharacterState()?.Level >= _repairEnableLevel) ? "R" : "+";
             DrawFooterButton(spriteBatch, _footerRightButtonRect, buttonText, _rightFooterHovered);
         }
@@ -2757,9 +2787,55 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 DrawCloseButton(spriteBatch);
             }
 
-            DrawSeason6Button(spriteBatch, _footerLeftButtonRect, "X", _leftFooterHovered, _s6ButtonDark);
+            DrawSeason6Button(spriteBatch, _footerLeftButtonRect, "$", _leftFooterHovered, _s6ButtonDark);
+            DrawShopButtonState(spriteBatch);
             string buttonText = (_networkManager?.GetCharacterState()?.Level >= _repairEnableLevel) ? "R" : "+";
             DrawSeason6Button(spriteBatch, _footerRightButtonRect, buttonText, _rightFooterHovered, _s6ButtonGold);
+        }
+
+        /// <summary>The personal shop editor when it is open and accepts new items, otherwise null.</summary>
+        private OwnPlayerShopControl OwnPlayerShopEditor =>
+            Scene is Client.Main.Scenes.GameScene { OwnPlayerShop: { Visible: true } ownShop } &&
+            _networkManager?.GetCharacterState()?.IsPlayerShopOpen != true
+                ? ownShop
+                : null;
+
+        /// <summary>Marks the personal shop button while the shop is open and labels both footer buttons on hover.</summary>
+        private void DrawShopButtonState(SpriteBatch spriteBatch)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            if (pixel == null) return;
+
+            var shopRect = Translate(_footerLeftButtonRect);
+            if (_networkManager?.GetCharacterState()?.IsPlayerShopOpen == true)
+            {
+                UiDrawHelper.DrawBorder(spriteBatch, shopRect, Theme.Success * Alpha, 2);
+                spriteBatch.Draw(pixel, new Rectangle(shopRect.Right - 7, shopRect.Y + 2, 5, 5), Theme.Success * Alpha);
+            }
+
+            if (_font == null || (!_leftFooterHovered && !_rightFooterHovered)) return;
+
+            string label;
+            Rectangle anchor;
+            if (_leftFooterHovered)
+            {
+                bool open = _networkManager?.GetCharacterState()?.IsPlayerShopOpen == true;
+                label = open ? "Personal Shop (open)" : "Personal Shop";
+                anchor = shopRect;
+            }
+            else
+            {
+                label = _isRepairMode ? "Repair mode: ON (L)" : "Repair mode (L)";
+                anchor = Translate(_footerRightButtonRect);
+            }
+
+            const float scale = 0.36f;
+            Vector2 size = _font.MeasureString(label) * scale;
+            var box = new Rectangle((int)(anchor.Center.X - size.X / 2f) - 6, anchor.Y - (int)size.Y - 10, (int)size.X + 12, (int)size.Y + 6);
+            spriteBatch.Draw(pixel, box, Color.Black * 0.85f * Alpha);
+            UiDrawHelper.DrawBorder(spriteBatch, box, Theme.BorderInner * Alpha);
+            spriteBatch.DrawString(_font, label, new Vector2(box.X + 6, box.Y + 3), Theme.TextWhite * Alpha,
+                0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
         private void DrawSeason6Button(SpriteBatch spriteBatch, Rectangle localRect, string text,
@@ -2898,6 +2974,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 {
                     lines.Add(("Cannot be repaired", new Color(255, 100, 100)));
                 }
+            }
+            else if (_hoveredEquipSlot < 0 && OwnPlayerShopEditor != null)
+            {
+                lines.Add(("Right-click or drag: add to personal shop", Theme.TextGold));
             }
             const float scale = 0.44f;
             const int lineSpacing = 4;

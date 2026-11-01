@@ -1725,9 +1725,7 @@ namespace Client.Main.Networking.Services
             {
                 await _connectionManager.Connection.SendAsync(() =>
                 {
-                    var len = PlayerShopClose.Length;
-                    _connectionManager.Connection.Output.GetMemory(len).Slice(0, len);
-                    return len;
+                    return PacketBuilder.BuildPlayerShopClosePacket(_connectionManager.Connection.Output);
                 });
                 _logger.LogInformation("Personal shop close request sent.");
             }
@@ -1740,12 +1738,12 @@ namespace Client.Main.Networking.Services
         /// <summary>
         /// Sets the price of an item in the personal shop.
         /// </summary>
-        public async Task SendPlayerShopSetItemPriceAsync(byte itemSlot, uint price)
+        public async Task<bool> SendPlayerShopSetItemPriceAsync(byte itemSlot, uint price)
         {
             if (!_connectionManager.IsConnected)
             {
                 _logger.LogError("Not connected - cannot set shop item price.");
-                return;
+                return false;
             }
 
             _logger.LogInformation("Setting shop item price: slot={Slot}, price={Price}", itemSlot, price);
@@ -1760,22 +1758,60 @@ namespace Client.Main.Networking.Services
                     packet.Price = price;
                     return len;
                 });
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error setting shop item price.");
+                return false;
+            }
+        }
+
+        public async Task<bool> SendPlayerShopMoveAsync(byte fromSlot, byte toSlot)
+        {
+            if (!_connectionManager.IsConnected) return false;
+            try
+            {
+                await _connectionManager.Connection.SendAsync(() =>
+                    PacketBuilder.BuildPlayerShopMovePacket(_connectionManager.Connection.Output, fromSlot, toSlot));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error moving player shop item {From} to {To}.", fromSlot, toSlot);
+                return false;
             }
         }
 
         /// <summary>
-        /// Buys an item from another player's personal shop.
+        /// Notifies the server that another player's shop is no longer being viewed.
         /// </summary>
-        public async Task SendPlayerShopItemBuyRequestAsync(ushort playerId, string playerName, byte itemSlot)
+        public async Task SendPlayerShopCloseOtherAsync(ushort playerId, string playerName)
+        {
+            if (!_connectionManager.IsConnected) return;
+            try
+            {
+                await _connectionManager.Connection.SendAsync(() =>
+                {
+                    var packet = new PlayerShopCloseOther(_connectionManager.Connection.Output.GetMemory(PlayerShopCloseOther.Length).Slice(0, PlayerShopCloseOther.Length));
+                    packet.PlayerId = playerId;
+                    packet.PlayerName = playerName ?? string.Empty;
+                    return PlayerShopCloseOther.Length;
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error closing player shop {PlayerId}.", playerId);
+            }
+        }
+
+        /// <summary>Requests a purchase from another player's personal shop.</summary>
+        public async Task<bool> SendPlayerShopItemBuyRequestAsync(ushort playerId, string playerName, byte itemSlot)
         {
             if (!_connectionManager.IsConnected)
             {
                 _logger.LogError("Not connected - cannot buy shop item.");
-                return;
+                return false;
             }
 
             _logger.LogInformation("Buying shop item: player={PlayerId}, slot={Slot}", playerId, itemSlot);
@@ -1792,10 +1828,12 @@ namespace Client.Main.Networking.Services
                     return len;
                 });
                 _logger.LogInformation("Shop item buy request sent.");
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error buying shop item from player {PlayerId}.", playerId);
+                return false;
             }
         }
     }

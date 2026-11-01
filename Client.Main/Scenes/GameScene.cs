@@ -54,6 +54,8 @@ namespace Client.Main.Scenes
         private MoveCommandWindow _moveCommandWindow;
         private ChatInputBoxControl _chatInput;
         private InventoryControl _inventoryControl;
+        internal PlayerShopControl PlayerShop { get; private set; }
+        internal OwnPlayerShopControl OwnPlayerShop { get; private set; }
         private Controls.UI.NotificationManager _notificationManager;
         private PartyPanelControl _partyPanel;
         private readonly (string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance) _characterInfo;
@@ -255,6 +257,27 @@ namespace Client.Main.Scenes
             Controls.Add(BloodCastleEnterControl.Instance);
             Controls.Add(BloodCastleTimeControl.Instance);
             Controls.Add(BloodCastleResultControl.Instance);
+            PlayerShop = new PlayerShopControl();
+            PlayerShop.ShopClosed += (ownerId, ownerName) =>
+            {
+                var service = MuGame.Network?.GetCharacterService();
+                if (service != null) _ = service.SendPlayerShopCloseOtherAsync(ownerId, ownerName);
+            };
+            PlayerShop.RefreshRequested += (ownerId, ownerName) =>
+            {
+                var service = MuGame.Network?.GetCharacterService();
+                if (service != null) _ = service.SendPlayerStoreListRequestAsync(ownerId, ownerName);
+            };
+            PlayerShop.BuyRequested += async (ownerId, ownerName, slot) =>
+            {
+                var service = MuGame.Network?.GetCharacterService();
+                if (service == null || !await service.SendPlayerShopItemBuyRequestAsync(ownerId, ownerName, slot))
+                {
+                    PlayerShop.PurchaseFinished();
+                    RequestDialog.ShowInfo("Could not send the purchase request.");
+                }
+            };
+            Controls.Add(PlayerShop);
 
             _mapListControl = new MapListControl { Visible = false };
             _chatLog = new ChatLogWindow
@@ -286,6 +309,8 @@ namespace Client.Main.Scenes
             _inventoryControl = new InventoryControl(MuGame.Network, MuGame.AppLoggerFactory);
             Controls.Add(_inventoryControl);
             _inventoryControl.HookEvents();
+            OwnPlayerShop = new OwnPlayerShopControl(MuGame.Network.GetCharacterState());
+            Controls.Add(OwnPlayerShop);
             _windowCloseController = new GameSceneWindowCloseController(_inventoryControl, _logger);
 
             _moveCommandWindow = new MoveCommandWindow(MuGame.AppLoggerFactory, MuGame.Network);

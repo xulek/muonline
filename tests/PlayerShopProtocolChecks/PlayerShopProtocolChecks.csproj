@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Client.Main/Core/Utilities/ItemDataParser.cs" Link="ItemDataParser.cs" />
+    <Compile Include="../../Client.Main/Networking/PacketHandling/PlayerShopListParser.cs" Link="PlayerShopListParser.cs" />
+  </ItemGroup>
+</Project>

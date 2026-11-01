@@ -388,6 +388,13 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 bool isFailed = span[0] == 0xC3 && span.Length >= 4 && span[3] == 0xFF;
                 if (isFailed)
                 {
+                    if (_characterState.TryFinishPlayerShopMove(null, out byte failedShopFrom))
+                    {
+                        _characterState.NotifyPlayerShopMoveResult(failedShopFrom, 0, false);
+                        _characterState.RaiseInventoryChanged();
+                        MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo("The server rejected the shop item move."));
+                        return Task.CompletedTask;
+                    }
                     var failed = new ItemMoveRequestFailed(packet);
                     var itemData = failed.ItemData.ToArray();
                     // First, try restore inventory<->inventory failed move
@@ -450,6 +457,24 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     var targetStore = moved.TargetStorageType;
                     byte toSlot = moved.TargetSlot;
                     var itemData = moved.ItemData.ToArray();
+
+                    if (_characterState.IsPlayerShopMovePending &&
+                        (targetStore == ItemStorageKind.Inventory || targetStore == ItemStorageKind.PlayerShop) &&
+                        ((_targetVersion == TargetProtocolVersion.Season6 &&
+                          (!ItemDataParser.TryGetExtendedItemLength(itemData, out int shopItemLength) || shopItemLength != itemData.Length)) ||
+                         (_targetVersion != TargetProtocolVersion.Season6 && itemData.Length < 7)))
+                    {
+                        _logger.LogWarning("Invalid item data in pending player shop move response.");
+                        return Task.CompletedTask;
+                    }
+                    if ((targetStore == ItemStorageKind.Inventory || targetStore == ItemStorageKind.PlayerShop) &&
+                        _characterState.TryFinishPlayerShopMove(toSlot, out byte shopFrom))
+                    {
+                        if (shopFrom != toSlot) _characterState.RemoveInventoryItem(shopFrom);
+                        _characterState.AddOrUpdateInventoryItem(toSlot, itemData);
+                        _characterState.NotifyPlayerShopMoveResult(shopFrom, toSlot, true);
+                        return Task.CompletedTask;
+                    }
 
                     if (targetStore == ItemStorageKind.Vault)
                     {

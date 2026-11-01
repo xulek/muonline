@@ -35,6 +35,94 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             _targetVersion = targetVersion;
         }
 
+        [PacketHandler(0x3F, 0x01)]
+        public Task HandlePlayerShopPriceResponseAsync(Memory<byte> packet)
+        {
+            var data = packet.Span;
+            if (data.Length != 6 || (data[0] != 0xC3 && data[0] != 0xC1) || data[1] != 6 || data[2] != 0x3F || data[3] != 0x01)
+            {
+                _logger.LogWarning("Invalid player shop price response ({Length} bytes).", packet.Length);
+                return Task.CompletedTask;
+            }
+            if (!_characterState.CompletePlayerShopPrice(data[5], data[4] == 1))
+                _logger.LogWarning("Unexpected player shop price response for slot {Slot}.", data[5]);
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0x3F, 0x02)]
+        public Task HandlePlayerShopOpenResponseAsync(Memory<byte> packet)
+        {
+            var data = packet.Span;
+            if (data.Length != 5 || data[1] != 5 || data[2] != 0x3F || data[3] != 0x02 || (data[0] != 0xC1 && data[0] != 0xC3))
+            {
+                _logger.LogWarning("Invalid player shop open response.");
+                return Task.CompletedTask;
+            }
+            if (data[4] == 1) _characterState.SetPlayerShopOpen(true);
+            else MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo("The server rejected opening your shop."));
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0x3F, 0x03)]
+        public Task HandlePlayerShopClosedAsync(Memory<byte> packet)
+        {
+            var data = packet.Span;
+            if (data.Length != 7 || data[1] != 7 || data[2] != 0x3F || data[3] != 0x03 || (data[0] != 0xC1 && data[0] != 0xC3))
+            {
+                _logger.LogWarning("Invalid player shop close response.");
+                return Task.CompletedTask;
+            }
+            ushort owner = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[5..]);
+            if (data[4] == 1 && owner == _characterState.Id) _characterState.SetPlayerShopOpen(false);
+            if (data[4] == 1 && owner != _characterState.Id)
+                MuGame.ScheduleOnMainThread(() => (MuGame.Instance?.ActiveScene as GameScene)?.PlayerShop?.CloseIfOwner(owner));
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0x3F, 0x05)]
+        public Task HandlePlayerShopListAsync(Memory<byte> packet)
+        {
+            if (!PlayerShopListParser.TryParse(packet.Span, _targetVersion == TargetProtocolVersion.Season6, out var shop))
+            {
+                _logger.LogWarning("Invalid or unsupported player shop list ({Length} bytes).", packet.Length);
+                MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo("Could not read the player shop offer."));
+                return Task.CompletedTask;
+            }
+
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                var window = (MuGame.Instance?.ActiveScene as GameScene)?.PlayerShop;
+                if (window?.AcceptList(shop.OwnerId, shop.OwnerName, shop.ShopName, shop.Items, shop.IsUpdate) == true)
+                    window.BringToFront();
+            });
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0x3F, 0x13)]
+        public Task HandlePlayerShopListUpdateAsync(Memory<byte> packet) => HandlePlayerShopListAsync(packet);
+
+        [PacketHandler(0x3F, 0x06)]
+        public Task HandlePlayerShopBuyResultAsync(Memory<byte> packet)
+        {
+            if (!PlayerShopBuyResultParser.TryParse(packet.Span, _targetVersion == TargetProtocolVersion.Season6, out var result))
+            {
+                _logger.LogWarning("Invalid player shop purchase response ({Length} bytes).", packet.Length);
+                MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo("Could not read the purchase response. Check your inventory before trying again."));
+                return Task.CompletedTask;
+            }
+
+            if (result.Success)
+                _characterState.AddOrUpdateInventoryItem(result.InventorySlot, result.ItemData);
+
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                (MuGame.Instance?.ActiveScene as GameScene)?.PlayerShop?.PurchaseFinished(result.SellerId, result.Success);
+                if (!result.Success)
+                    RequestDialog.ShowInfo($"Purchase failed (server result {result.Result}).");
+            });
+            return Task.CompletedTask;
+        }
+
         /// <summary>
         /// NpcWindowResponse: Open shop window when server requests a merchant window.
         /// </summary>

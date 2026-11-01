@@ -448,6 +448,89 @@ namespace Client.Main.Core.Client
         /// <summary>
         /// Stashes the last requested inventory move (fromSlot -> toSlot) until the server confirms or rejects it.
         /// </summary>
+        private readonly object _playerShopMoveLock = new();
+        private (byte From, byte To)? _pendingPlayerShopMove;
+        private (byte From, byte To, uint Price)? _pendingPlayerShopPrice;
+
+        public bool IsPlayerShopOpen { get; private set; }
+        public event Action<bool> PlayerShopOpenChanged;
+
+        public void SetPlayerShopOpen(bool value)
+        {
+            if (IsPlayerShopOpen == value) return;
+            IsPlayerShopOpen = value;
+            PlayerShopOpenChanged?.Invoke(value);
+        }
+
+        public event Action<byte, byte, uint, bool> PlayerShopPriceResult;
+        public event Action<byte, byte, bool> PlayerShopMoveResult;
+
+        public void NotifyPlayerShopMoveResult(byte fromSlot, byte toSlot, bool success)
+            => PlayerShopMoveResult?.Invoke(fromSlot, toSlot, success);
+        public bool IsPlayerShopPricePending
+        {
+            get { lock (_playerShopMoveLock) return _pendingPlayerShopPrice.HasValue; }
+        }
+
+        public bool TryBeginPlayerShopPrice(byte fromSlot, byte toSlot, uint price)
+        {
+            lock (_playerShopMoveLock)
+            {
+                if (IsPlayerShopOpen || price == 0 || price > int.MaxValue || fromSlot < 12 || fromSlot >= 236 ||
+                    toSlot < 204 || toSlot >= 236 || _pendingPlayerShopPrice.HasValue ||
+                    _pendingPlayerShopMove.HasValue || _pendingMoveFromSlot.HasValue ||
+                    _pendingVaultMoveFrom.HasValue || _pendingChaosMachineMoveFrom.HasValue ||
+                    !_inventoryItems.ContainsKey(fromSlot)) return false;
+                _pendingPlayerShopPrice = (fromSlot, toSlot, price);
+                return true;
+            }
+        }
+
+        public bool CompletePlayerShopPrice(byte sourceSlot, bool success)
+        {
+            (byte From, byte To, uint Price) pending;
+            lock (_playerShopMoveLock)
+            {
+                if (!_pendingPlayerShopPrice.HasValue || _pendingPlayerShopPrice.Value.From != sourceSlot) return false;
+                pending = _pendingPlayerShopPrice.Value;
+                _pendingPlayerShopPrice = null;
+            }
+            PlayerShopPriceResult?.Invoke(pending.From, pending.To, pending.Price, success);
+            return true;
+        }
+
+        public bool IsPlayerShopMovePending
+        {
+            get { lock (_playerShopMoveLock) return _pendingPlayerShopMove.HasValue; }
+        }
+
+        public bool TryBeginPlayerShopMove(byte fromSlot, byte toSlot)
+        {
+            lock (_playerShopMoveLock)
+            {
+                if (IsPlayerShopOpen || _pendingPlayerShopMove.HasValue || _pendingPlayerShopPrice.HasValue || _pendingMoveFromSlot.HasValue ||
+                    _pendingVaultMoveFrom.HasValue || _pendingChaosMachineMoveFrom.HasValue) return false;
+                _pendingPlayerShopMove = (fromSlot, toSlot);
+                return true;
+            }
+        }
+
+        public bool TryFinishPlayerShopMove(byte? targetSlot, out byte fromSlot)
+        {
+            lock (_playerShopMoveLock)
+            {
+                if (!_pendingPlayerShopMove.HasValue ||
+                    (targetSlot.HasValue && _pendingPlayerShopMove.Value.To != targetSlot.Value))
+                {
+                    fromSlot = 0;
+                    return false;
+                }
+                fromSlot = _pendingPlayerShopMove.Value.From;
+                _pendingPlayerShopMove = null;
+                return true;
+            }
+        }
+
         public void StashPendingInventoryMove(byte fromSlot, byte toSlot)
         {
             _pendingMoveFromSlot = fromSlot;
@@ -1474,6 +1557,12 @@ namespace Client.Main.Core.Client
         /// </summary>
         public void ClearInventory()
         {
+            lock (_playerShopMoveLock)
+            {
+                _pendingPlayerShopMove = null;
+                _pendingPlayerShopPrice = null;
+            }
+            SetPlayerShopOpen(false);
             _inventoryItems.Clear();
             InventoryChanged?.Invoke();
             _logger.LogDebug("Inventory cleared.");

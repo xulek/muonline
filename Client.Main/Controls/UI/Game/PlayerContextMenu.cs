@@ -148,6 +148,7 @@ namespace Client.Main.Controls.UI.Game
             var characterService = MuGame.Network?.GetCharacterService();
             if (characterService != null)
             {
+                (MuGame.Instance?.ActiveScene as Client.Main.Scenes.GameScene)?.PlayerShop?.ExpectShop(_targetPlayerId);
                 await characterService.SendPlayerStoreListRequestAsync(_targetPlayerId, _targetPlayerName);
             }
             else
