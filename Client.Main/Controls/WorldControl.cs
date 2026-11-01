@@ -1317,6 +1317,17 @@ namespace Client.Main.Controls
                 DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
                 DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
                 DrawAfterPass(_solidBehind, DepthStateDefault, time);
+                if (ModelObject.HasPendingWalkerCrowdTransparentBatches())
+                {
+                    try
+                    {
+                        ModelObject.FlushWalkerCrowdTransparentBatches(this);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRenderFailure(null, "DrawAfter.CrowdTransparent", ex);
+                    }
+                }
                 DrawAfterPass(_transparentObjects, DepthStateDepthRead, time);
             }
             finally

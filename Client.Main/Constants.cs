@@ -99,6 +99,11 @@ namespace Client.Main
         /// Draws the opaque meshes of an object's projected terrain shadow as one merged draw call.
         /// </summary>
         public static bool ENABLE_MERGED_MESH_SHADOWS = true;
+
+        /// <summary>
+        /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.
+        /// </summary>
+        public static bool ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = true;
         public static bool ENABLE_CROWD_SPATIAL_CULLING;
         public static bool ENABLE_ANIMATION_THROTTLING;
         public static bool ENABLE_SHARED_ANIMATION_PALETTES;

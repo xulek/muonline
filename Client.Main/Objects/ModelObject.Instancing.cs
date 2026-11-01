@@ -826,6 +826,8 @@ namespace Client.Main.Objects
             DisposeStaticMapInstancingBatches();
             ClearWalkerCrowdLegacyInstancingQueues();
             ClearWalkerCrowdMultiPoseQueues();
+            ClearWalkerCrowdTransparentQueues();
+            _walkerCrowdPaletteReadyFrame = -1;
         }
 
         private static void DisposeStaticMapInstancingBatches()

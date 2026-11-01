@@ -69,6 +69,8 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_CROWD_TRANSPARENT") is { } crowdTransparent)
+                Constants.ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = crowdTransparent == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_MERGED_SHADOWS") is { } mergedShadows)
                 Constants.ENABLE_MERGED_MESH_SHADOWS = mergedShadows == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_WEAPONS") is { } weapons)
@@ -78,6 +80,10 @@ namespace Client.Main.Diagnostics
             Constants.UNLIMITED_FPS = true;
             Constants.DISABLE_VSYNC = true;
             game.ApplyGraphicsOptions();
+            if (int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_ANIMFPS"), out int animFps))
+                Constants.ANIMATION_UPDATE_FPS = animFps;
+            if (int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_LIGHTFPS"), out int lightFps))
+                Constants.DYNAMIC_LIGHT_UPDATE_FPS = lightFps;
 
             var state = MuGame.Network.GetCharacterState();
             state.Id = 0x0001;
@@ -216,6 +222,31 @@ namespace Client.Main.Diagnostics
             return best;
         }
 
+        private static int[] _memBench;
+
+        /// <summary>
+        /// Dependent random reads over 64 MB (cache misses to DRAM). Unlike the arithmetic benchmark this slows
+        /// down when the integrated GPU competes for memory bandwidth/latency.
+        /// </summary>
+        private static double MemoryBenchmarkMicroseconds()
+        {
+            const int length = 16 * 1024 * 1024;
+            if (_memBench == null)
+            {
+                _memBench = new int[length];
+                var random = new Random(7);
+                for (int i = 0; i < length; i++)
+                    _memBench[i] = random.Next(length);
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            int index = 0;
+            for (int i = 0; i < 20_000; i++)
+                index = _memBench[index];
+            _benchSink += index;
+            return (Stopwatch.GetTimestamp() - start) * 1_000_000.0 / Stopwatch.Frequency;
+        }
+
         /// <summary>CPU time of the calling (main) thread; OnFrame runs on the game thread.</summary>
         private static TimeSpan MainThreadCpu() =>
             GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user)
@@ -235,7 +266,7 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
                     Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(8, _traceFrames)}");

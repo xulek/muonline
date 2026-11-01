@@ -117,6 +117,8 @@ namespace Client.Main.Objects
 
         private sealed class WalkerCrowdMultiPoseBatch : IDisposable
         {
+            /// <summary>Blend state of a transparent (DrawAfter) batch; null for the opaque batches.</summary>
+            public BlendState Blend;
             public VertexBuffer GeometryVertexBuffer;
             public IndexBuffer GeometryIndexBuffer;
             public int PrimitiveCount;
@@ -183,6 +185,25 @@ namespace Client.Main.Objects
             _walkerCrowdMultiPoseBatches = new(128);
         private static readonly List<WalkerCrowdMultiPoseBatch> _walkerCrowdMultiPoseActiveBatches = new(128);
         private static readonly Dictionary<WalkerCrowdPoseKey, int> _walkerCrowdPoseRows = new(128);
+
+        // Transparent (RGBA cutout) meshes of crowd-instanced walkers, drawn after the DrawAfter pass with the
+        // bone palette uploaded by this frame's opaque crowd flush.
+        private static readonly Dictionary<WalkerCrowdMultiPoseBatchKey, WalkerCrowdMultiPoseBatch>
+            _walkerCrowdTransparentBatches = new(32);
+        private static readonly List<WalkerCrowdMultiPoseBatch> _walkerCrowdTransparentActiveBatches = new(32);
+        private static int _walkerCrowdTransparentQueueFrame = -1;
+        private static int _walkerCrowdPaletteReadyFrame = -1;
+        private static Texture2D _walkerCrowdReadyPaletteTexture;
+        private static int _walkerCrowdReadyPaletteRows;
+        private int _walkerCrowdTransparentQueuedFrame = -1;
+
+        /// <summary>
+        /// The transparent meshes of this walker are drawn by the crowd transparent batch this frame,
+        /// so its own DrawAfter must not draw them again.
+        /// </summary>
+        internal bool IsWalkerCrowdTransparentDrawnThisFrame =>
+            _walkerCrowdTransparentQueuedFrame == MuGame.FrameIndex &&
+            _walkerCrowdPaletteReadyFrame == MuGame.FrameIndex;
         private static readonly List<WalkerCrowdPoseUpload> _walkerCrowdPoseUploads = new(128);
 
         private static Effect _cachedWalkerCrowdMultiPoseEffect;
@@ -446,7 +467,7 @@ namespace Client.Main.Objects
                 return false;
             }
 
-            if (!TryQueueWalkerCrowdMultiPoseMeshes(GetEffectiveBonePoseVersion()))
+            if (!TryQueueWalkerCrowdMultiPoseMeshes(GetEffectiveBonePoseVersion(), queueTransparentMeshes: true))
                 return false;
 
             _walkerCrowdMultiPoseObjectsThisFrame++;
@@ -504,7 +525,7 @@ namespace Client.Main.Objects
         /// Validates and queues the opaque meshes of this object into the multi-pose crowd batches.
         /// Nothing is queued when any mesh cannot be instanced, so the caller can draw the object normally.
         /// </summary>
-        private bool TryQueueWalkerCrowdMultiPoseMeshes(uint poseVersion)
+        private bool TryQueueWalkerCrowdMultiPoseMeshes(uint poseVersion, bool queueTransparentMeshes = false)
         {
             int meshCount = Model.Meshes.Length;
             bool queuedAnyMesh = false;
@@ -609,7 +630,231 @@ namespace Client.Main.Objects
                 _walkerCrowdMultiPoseMeshInstancesThisFrame++;
             }
 
+            if (queueTransparentMeshes)
+                TryQueueWalkerCrowdTransparentMeshes(instanceData);
+
             return true;
+        }
+
+        private bool CanUseWalkerCrowdTransparentMesh(int meshIndex, BlendState groupBlend)
+        {
+            if (IsHiddenMesh(meshIndex) || _meshes[meshIndex].Texture == null)
+                return false;
+
+            // Only RGBA cutout meshes: blend meshes use their own light and blend handling.
+            if (IsBlendMesh(meshIndex) || !_meshes[meshIndex].IsRgba)
+                return false;
+
+            var shaderSelection = DetermineShaderForMesh(meshIndex);
+            if (shaderSelection.UseItemMaterial || shaderSelection.UseMonsterMaterial || !shaderSelection.UseDynamicLighting)
+                return false;
+
+            return ReferenceEquals(GetMeshBlendState(meshIndex, false), groupBlend);
+        }
+
+        private void TryQueueWalkerCrowdTransparentMeshes(SkinnedCrowdInstanceData instanceData)
+        {
+            if (!Constants.ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING || Model?.Meshes == null || _meshes == null)
+                return;
+
+            EnsureMeshRenderPlans();
+            if (_transparentMeshPlan.Count == 0)
+                return;
+
+            int frame = MuGame.FrameIndex;
+            if (_walkerCrowdTransparentQueueFrame != frame)
+            {
+                ClearWalkerCrowdTransparentQueues();
+                _walkerCrowdTransparentQueueFrame = frame;
+            }
+
+            // Validate everything first: either all transparent meshes are batched or none are.
+            int requiredBones = 0;
+            foreach (var group in _transparentMeshPlan)
+            {
+                List<int> meshIndices = group.Value;
+                for (int n = 0; n < meshIndices.Count; n++)
+                {
+                    int meshIndex = meshIndices[n];
+                    if ((uint)meshIndex >= (uint)_meshes.Length ||
+                        !CanUseWalkerCrowdTransparentMesh(meshIndex, group.Key.BlendState) ||
+                        !TryGetMeshGpuSkinBuffers(meshIndex, out _, out _, out int boneCount) ||
+                        boneCount <= 0 || boneCount > MaxGpuSkinBones)
+                        return;
+
+                    var key = new WalkerCrowdMultiPoseBatchKey(Model, meshIndex, _meshes[meshIndex].Texture, IsMeshTwoSided(meshIndex, false));
+                    if (_walkerCrowdTransparentBatches.TryGetValue(key, out var existing) &&
+                        existing.Instances.Count > 0 &&
+                        !ReferenceEquals(existing.Blend, group.Key.BlendState))
+                        return;
+
+                    requiredBones = Math.Max(requiredBones, boneCount);
+                }
+            }
+
+            foreach (var group in _transparentMeshPlan)
+            {
+                List<int> meshIndices = group.Value;
+                for (int n = 0; n < meshIndices.Count; n++)
+                {
+                    int meshIndex = meshIndices[n];
+                    TryGetMeshGpuSkinBuffers(meshIndex, out VertexBuffer geometryVB, out IndexBuffer geometryIB, out _);
+                    bool twoSided = IsMeshTwoSided(meshIndex, false);
+                    Texture2D texture = _meshes[meshIndex].Texture;
+                    var key = new WalkerCrowdMultiPoseBatchKey(Model, meshIndex, texture, twoSided);
+                    if (!_walkerCrowdTransparentBatches.TryGetValue(key, out WalkerCrowdMultiPoseBatch batch))
+                    {
+                        batch = new WalkerCrowdMultiPoseBatch();
+                        _walkerCrowdTransparentBatches[key] = batch;
+                    }
+
+                    batch.GeometryVertexBuffer = geometryVB;
+                    batch.GeometryIndexBuffer = geometryIB;
+                    batch.PrimitiveCount = geometryIB.IndexCount / 3;
+                    batch.TwoSided = twoSided;
+                    batch.Texture = texture;
+                    batch.Blend = group.Key.BlendState;
+
+                    if (batch.Instances.Count == 0)
+                        _walkerCrowdTransparentActiveBatches.Add(batch);
+
+                    batch.Instances.Add(instanceData);
+                }
+            }
+
+            _walkerCrowdMaxBonesThisFlush = Math.Max(_walkerCrowdMaxBonesThisFlush, Math.Min(requiredBones, MaxGpuSkinBones));
+            _walkerCrowdTransparentQueuedFrame = frame;
+        }
+
+        internal static bool HasPendingWalkerCrowdTransparentBatches() => _walkerCrowdTransparentActiveBatches.Count > 0;
+
+        private static void ClearWalkerCrowdTransparentQueues()
+        {
+            for (int i = 0; i < _walkerCrowdTransparentActiveBatches.Count; i++)
+                _walkerCrowdTransparentActiveBatches[i].Instances.Clear();
+            _walkerCrowdTransparentActiveBatches.Clear();
+        }
+
+        /// <summary>
+        /// Draws the queued transparent crowd meshes with read-only depth, after the DrawAfter pass of the solid
+        /// objects. Uses the bone palette of this frame's opaque crowd flush; without it nothing is drawn, and
+        /// the walkers then draw their transparent meshes themselves (see IsWalkerCrowdTransparentDrawnThisFrame).
+        /// </summary>
+        internal static void FlushWalkerCrowdTransparentBatches(WorldControl world)
+        {
+            if (_walkerCrowdTransparentActiveBatches.Count == 0)
+                return;
+
+            GraphicsManager graphicsManager = GraphicsManager.Instance;
+            Effect effect = graphicsManager.DynamicLightingEffect;
+            GraphicsDevice gd = graphicsManager.GraphicsDevice;
+            ModelEffectBindings bindings = effect != null ? GetModelEffectBindings(effect) : null;
+            EffectTechnique crowdTechnique = Constants.ENABLE_CROWD_VERTEX_LIGHTING
+                ? _cachedWalkerCrowdMultiPoseVertexLitTechnique ?? _cachedWalkerCrowdMultiPoseTechnique
+                : _cachedWalkerCrowdMultiPoseTechnique;
+
+            if (_walkerCrowdPaletteReadyFrame != MuGame.FrameIndex ||
+                _walkerCrowdReadyPaletteTexture == null || _walkerCrowdReadyPaletteTexture.IsDisposed ||
+                effect == null || gd == null || bindings == null || crowdTechnique == null ||
+                _walkerCrowdMultiPoseInstancingFailed)
+            {
+                ClearWalkerCrowdTransparentQueues();
+                return;
+            }
+
+            BlendState previousBlend = gd.BlendState;
+            DepthStencilState previousDepth = gd.DepthStencilState;
+            RasterizerState previousRasterizer = gd.RasterizerState;
+            SamplerState previousSampler = gd.SamplerStates[0];
+            EffectTechnique previousTechnique = effect.CurrentTechnique;
+
+            try
+            {
+                PrepareStaticMapInstancingEffect(
+                    effect,
+                    world,
+                    crowdTechnique,
+                    _cachedWalkerCrowdMultiPoseSunOnlyTechnique);
+                bindings.CrowdBonePaletteTexture.SetValue(_walkerCrowdReadyPaletteTexture);
+                bindings.CrowdBonePaletteRowCount.SetValue((float)_walkerCrowdReadyPaletteRows);
+                gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                gd.SamplerStates[0] = GraphicsManager.GetQualityLinearSamplerState();
+
+                for (int i = 0; i < _walkerCrowdTransparentActiveBatches.Count; i++)
+                {
+                    WalkerCrowdMultiPoseBatch batch = _walkerCrowdTransparentActiveBatches[i];
+                    gd.BlendState = batch.Blend ?? BlendState.AlphaBlend;
+                    bindings.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(batch.Blend));
+                    DrawWalkerCrowdMultiPoseBatch(gd, effect, bindings, batch);
+                }
+            }
+            catch (Exception ex)
+            {
+                MuGame.AppLoggerFactory?
+                    .CreateLogger<ModelObject>()?
+                    .LogWarning(ex, "Transparent crowd batch failed.");
+            }
+            finally
+            {
+                bindings.AdditiveAlphaCutoff?.SetValue(0f);
+                effect.CurrentTechnique = previousTechnique;
+                gd.BlendState = previousBlend;
+                gd.DepthStencilState = previousDepth;
+                gd.RasterizerState = previousRasterizer;
+                gd.SamplerStates[0] = previousSampler;
+                ClearWalkerCrowdTransparentQueues();
+            }
+        }
+
+        private static void DrawWalkerCrowdMultiPoseBatch(
+            GraphicsDevice gd,
+            Effect effect,
+            ModelEffectBindings bindings,
+            WalkerCrowdMultiPoseBatch batch)
+        {
+            int instanceCount = batch.Instances.Count;
+            if (instanceCount <= 0 ||
+                batch.GeometryVertexBuffer == null ||
+                batch.GeometryVertexBuffer.IsDisposed ||
+                batch.GeometryIndexBuffer == null ||
+                batch.GeometryIndexBuffer.IsDisposed ||
+                batch.Texture == null ||
+                batch.Texture.IsDisposed)
+            {
+                return;
+            }
+
+            EnsureWalkerCrowdMultiPoseUploadBuffer(batch, instanceCount);
+            for (int j = 0; j < instanceCount; j++)
+                batch.UploadBuffer[j] = batch.Instances[j];
+
+            EnsureWalkerCrowdMultiPoseInstanceBuffer(gd, batch, instanceCount);
+            batch.InstanceBuffer.SetData(batch.UploadBuffer, 0, instanceCount, SetDataOptions.Discard);
+
+            gd.RasterizerState = batch.TwoSided
+                ? RasterizerState.CullNone
+                : RasterizerState.CullClockwise;
+            bindings.DiffuseTexture?.SetValue(batch.Texture);
+
+            batch.VertexBindings[0] = new VertexBufferBinding(batch.GeometryVertexBuffer);
+            batch.VertexBindings[1] = new VertexBufferBinding(batch.InstanceBuffer, 0, 1);
+            gd.SetVertexBuffers(batch.VertexBindings);
+            gd.Indices = batch.GeometryIndexBuffer;
+
+            RegisterGpuSkinnedMeshDraw(instanceCount);
+            int passCount = effect.CurrentTechnique.Passes.Count;
+            for (int passIndex = 0; passIndex < passCount; passIndex++)
+            {
+                effect.CurrentTechnique.Passes[passIndex].Apply();
+                ApplyQualityModelSampler(gd);
+                gd.DrawInstancedPrimitives(
+                    PrimitiveType.TriangleList,
+                    0,
+                    0,
+                    batch.PrimitiveCount,
+                    instanceCount);
+                _walkerCrowdMultiPoseDrawCallsThisFrame++;
+            }
         }
 
         private static int RegisterWalkerCrowdPose(
@@ -679,54 +924,12 @@ namespace Client.Main.Objects
                 gd.SamplerStates[0] = GraphicsManager.GetQualityLinearSamplerState();
 
                 for (int i = 0; i < _walkerCrowdMultiPoseActiveBatches.Count; i++)
-                {
-                    WalkerCrowdMultiPoseBatch batch = _walkerCrowdMultiPoseActiveBatches[i];
-                    int instanceCount = batch.Instances.Count;
-                    if (instanceCount <= 0 ||
-                        batch.GeometryVertexBuffer == null ||
-                        batch.GeometryVertexBuffer.IsDisposed ||
-                        batch.GeometryIndexBuffer == null ||
-                        batch.GeometryIndexBuffer.IsDisposed ||
-                        batch.Texture == null ||
-                        batch.Texture.IsDisposed)
-                    {
-                        continue;
-                    }
-
-                    EnsureWalkerCrowdMultiPoseUploadBuffer(batch, instanceCount);
-                    for (int j = 0; j < instanceCount; j++)
-                        batch.UploadBuffer[j] = batch.Instances[j];
-
-                    EnsureWalkerCrowdMultiPoseInstanceBuffer(gd, batch, instanceCount);
-                    batch.InstanceBuffer.SetData(batch.UploadBuffer, 0, instanceCount, SetDataOptions.Discard);
-
-                    gd.RasterizerState = batch.TwoSided
-                        ? RasterizerState.CullNone
-                        : RasterizerState.CullClockwise;
-                    bindings.DiffuseTexture?.SetValue(batch.Texture);
-
-                    batch.VertexBindings[0] = new VertexBufferBinding(batch.GeometryVertexBuffer);
-                    batch.VertexBindings[1] = new VertexBufferBinding(batch.InstanceBuffer, 0, 1);
-                    gd.SetVertexBuffers(batch.VertexBindings);
-                    gd.Indices = batch.GeometryIndexBuffer;
-
-                    RegisterGpuSkinnedMeshDraw(instanceCount);
-                    int passCount = effect.CurrentTechnique.Passes.Count;
-                    for (int passIndex = 0; passIndex < passCount; passIndex++)
-                    {
-                        effect.CurrentTechnique.Passes[passIndex].Apply();
-                        ApplyQualityModelSampler(gd);
-                        gd.DrawInstancedPrimitives(
-                            PrimitiveType.TriangleList,
-                            0,
-                            0,
-                            batch.PrimitiveCount,
-                            instanceCount);
-                        _walkerCrowdMultiPoseDrawCallsThisFrame++;
-                    }
-                }
+                    DrawWalkerCrowdMultiPoseBatch(gd, effect, bindings, _walkerCrowdMultiPoseActiveBatches[i]);
 
                 _walkerCrowdMultiPoseUniquePosesThisFrame += poseCount;
+                _walkerCrowdPaletteReadyFrame = MuGame.FrameIndex;
+                _walkerCrowdReadyPaletteTexture = _walkerCrowdActiveBonePaletteTexture;
+                _walkerCrowdReadyPaletteRows = poseCount;
             }
             catch (Exception ex)
             {
@@ -1012,6 +1215,13 @@ namespace Client.Main.Objects
         {
             foreach (WalkerCrowdMultiPoseBatch batch in _walkerCrowdMultiPoseBatches.Values)
                 batch.Dispose();
+
+            foreach (WalkerCrowdMultiPoseBatch batch in _walkerCrowdTransparentBatches.Values)
+                batch.Dispose();
+            _walkerCrowdTransparentBatches.Clear();
+            _walkerCrowdTransparentActiveBatches.Clear();
+            _walkerCrowdPaletteReadyFrame = -1;
+            _walkerCrowdReadyPaletteTexture = null;
 
             _walkerCrowdMultiPoseBatches.Clear();
             _walkerCrowdMultiPoseActiveBatches.Clear();
