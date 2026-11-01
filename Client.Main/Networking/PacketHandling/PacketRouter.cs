@@ -1,6 +1,7 @@
 // File: Client/Main/Networking/PacketHandling/PacketRouter.cs
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -48,6 +49,10 @@ namespace Client.Main.Networking.PacketHandling
             = new();
 
         private bool _isConnectServerRouting;
+
+        // Unhandled packets are counted per (mode, code, sub) so each kind is reported once
+        // instead of flooding the log; the summary is written when the connection drops.
+        private readonly ConcurrentDictionary<(bool ConnectServer, byte Code, byte SubCode), int> _unhandledPackets = new();
 
         // ───────────────────────── Properties ─────────────────────────
         public TargetProtocolVersion TargetVersion { get; }
@@ -140,6 +145,7 @@ namespace Client.Main.Networking.PacketHandling
         public Task OnDisconnected()
         {
             _logger.LogWarning("Disconnected from {Server}.", _isConnectServerRouting ? "Connect Server" : "Game Server");
+            LogUnhandledSummary();
             // TODO: Reset client state as needed, e.g. _networkManager.SetInGameStatus(false);
             return Task.CompletedTask;
         }
@@ -194,7 +200,7 @@ namespace Client.Main.Networking.PacketHandling
                 return ExecuteHandlerAsync(handler, packet, code, NoSubCode);
             }
 
-            LogUnhandled(code, subCode);
+            LogUnhandled(code, subCode, headerType, packet.Length);
             return Task.CompletedTask;
         }
 
@@ -388,11 +394,44 @@ namespace Client.Main.Networking.PacketHandling
 
         // ────────────────────────── Logging ────────────────────────────
 
-        private void LogUnhandled(byte code, byte subCode)
+        private void LogUnhandled(byte code, byte subCode, byte headerType, int length)
         {
-            _logger.LogDebug("Unhandled {Mode} packet: Code={C:X2}, Sub={S}",
-                _isConnectServerRouting ? "CS" : "GS",
-                code, subCode == NoSubCode ? "N/A" : subCode.ToString("X2"));
+            var key = (_isConnectServerRouting, code, subCode);
+            int count = _unhandledPackets.AddOrUpdate(key, 1, (_, c) => c + 1);
+            string mode = _isConnectServerRouting ? "CS" : "GS";
+            string sub = subCode == NoSubCode ? "N/A" : subCode.ToString("X2");
+
+            if (count == 1)
+            {
+                // Sub=N/A for a code that actually carries a sub-code usually means the code
+                // is missing from SubCodeHolder, so the router never read the sub-code byte.
+                _logger.LogInformation(
+                    "Unhandled {Mode} packet (first occurrence): Header={H:X2}, Code={C:X2}, Sub={S}, Len={L}",
+                    mode, headerType, code, sub, length);
+            }
+            else
+            {
+                _logger.LogTrace("Unhandled {Mode} packet: Code={C:X2}, Sub={S} (seen {Count}x)",
+                    mode, code, sub, count);
+            }
+        }
+
+        /// <summary>
+        /// Snapshot of packets that arrived without a registered handler, keyed by mode, code and sub-code.
+        /// </summary>
+        public IReadOnlyDictionary<(bool ConnectServer, byte Code, byte SubCode), int> GetUnhandledPacketCounts()
+            => new Dictionary<(bool ConnectServer, byte Code, byte SubCode), int>(_unhandledPackets);
+
+        private void LogUnhandledSummary()
+        {
+            if (_unhandledPackets.IsEmpty)
+                return;
+
+            var lines = _unhandledPackets
+                .OrderByDescending(kv => kv.Value)
+                .Select(kv => $"{(kv.Key.ConnectServer ? "CS" : "GS")} {kv.Key.Code:X2}-{(kv.Key.SubCode == NoSubCode ? "N/A" : kv.Key.SubCode.ToString("X2"))} x{kv.Value}");
+            _logger.LogInformation("Unhandled packets this session ({Kinds} kinds): {Summary}",
+                _unhandledPackets.Count, string.Join(", ", lines));
         }
     }
 }
