@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Text;
 using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controls.UI.Game.Inventory;
@@ -7,6 +8,7 @@ using Client.Main.Core.Client;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 
 namespace Client.Main.Controls.UI.Game.Friends
 {
@@ -36,6 +38,7 @@ namespace Client.Main.Controls.UI.Game.Friends
         private readonly TextFieldControl _subject;
         private readonly TextFieldControl _body;
         private bool _sendHovered, _cancelHovered;
+        private int _firstLine;
         private bool _waiting;
         private string? _error;
 
@@ -48,10 +51,11 @@ namespace Client.Main.Controls.UI.Game.Friends
             // The body field only collects keyboard input; the window draws the wrapped text over it.
             _body = AddField(Pad, BodyY, Width - Pad * 2, FriendManager.MaxLetterLength);
             _body.ViewSize = new Point(BodyLocal.Width, BodyLocal.Height);
-            _body.EnterKeyPressed += (_, _) => MuGame.ScheduleOnMainThread(() =>
+            _body.EnableCaretNavigation = true;
+            _body.EnterKeyPressed += (_, _) =>
             {
-                if (Encoding.UTF8.GetByteCount(_body.Value) < FriendManager.MaxLetterLength) _body.Value += "\n";
-            });
+                if (Encoding.UTF8.GetByteCount(_body.Value) < FriendManager.MaxLetterLength) _body.InsertAtCaret("\n");
+            };
             _to.EnterKeyPressed += (_, _) => MuGame.ScheduleOnMainThread(() => FocusField(_subject));
             _subject.EnterKeyPressed += (_, _) => MuGame.ScheduleOnMainThread(() => FocusField(_body));
             _friends.LetterSendResult += OnSendResult;
@@ -70,6 +74,7 @@ namespace Client.Main.Controls.UI.Game.Friends
             _to.Value = receiver ?? string.Empty;
             _subject.Value = subject ?? string.Empty;
             _body.Value = string.Empty;
+            _firstLine = 0;
             _waiting = false;
             _error = null;
             Show();
@@ -110,6 +115,74 @@ namespace Client.Main.Controls.UI.Game.Friends
         {
             _sendHovered = Translate(SendLocal).Contains(MousePosition);
             _cancelHovered = Translate(CancelLocal).Contains(MousePosition);
+
+            if (!IsFocused(_body)) return;
+            var keyboard = MuGame.Instance.Keyboard;
+            var previous = MuGame.Instance.PrevKeyboard;
+            int direction = keyboard.IsKeyDown(Keys.Up) && previous.IsKeyUp(Keys.Up) ? -1
+                          : keyboard.IsKeyDown(Keys.Down) && previous.IsKeyUp(Keys.Down) ? 1 : 0;
+            if (direction == 0) return;
+
+            // Up/Down keep the caret column on the previous/next wrapped line.
+            string text = _body.Value;
+            var segments = WrapSegments(text, BodyLocal.Width - 20);
+            int line = FindLine(segments, _body.CaretIndex);
+            int target = line + direction;
+            if (target < 0 || target >= segments.Count) return;
+            float x = PlayerShopUi.Measure(text.Substring(segments[line].Start, _body.CaretIndex - segments[line].Start), TextSize).X;
+            var (start, length) = segments[target];
+            int column = 0;
+            while (column < length && text[start + column] != '\n' &&
+                   PlayerShopUi.Measure(text.Substring(start, column + 1), TextSize).X <= x + 2)
+                column++;
+            _body.CaretIndex = start + column;
+        }
+
+        /// <summary>
+        /// Word-wraps the text into (start, length) segments of the original string so the caret index maps to a line.
+        /// A segment ends after its break character (space or '\n').
+        /// </summary>
+        private static List<(int Start, int Length)> WrapSegments(string text, float maxWidth)
+        {
+            var segments = new List<(int, int)>();
+            int lineStart = 0, lastSpace = -1;
+            for (int i = 0; i <= text.Length; i++)
+            {
+                if (i == text.Length)
+                {
+                    segments.Add((lineStart, i - lineStart));
+                    break;
+                }
+                char c = text[i];
+                if (c == '\n')
+                {
+                    segments.Add((lineStart, i - lineStart + 1));
+                    lineStart = i + 1;
+                    lastSpace = -1;
+                    continue;
+                }
+                if (c == ' ') lastSpace = i;
+                if (PlayerShopUi.Measure(text.Substring(lineStart, i - lineStart + 1), TextSize).X > maxWidth && i > lineStart)
+                {
+                    int breakAt = lastSpace >= lineStart ? lastSpace + 1 : i;
+                    segments.Add((lineStart, breakAt - lineStart));
+                    lineStart = breakAt;
+                    lastSpace = -1;
+                    i = breakAt - 1;
+                }
+            }
+            return segments;
+        }
+
+        private static int FindLine(List<(int Start, int Length)> segments, int caret)
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                var (start, length) = segments[i];
+                bool isLast = i == segments.Count - 1;
+                if (caret >= start && (caret < start + length || isLast)) return i;
+            }
+            return Math.Max(0, segments.Count - 1);
         }
 
         protected override bool HandleClick()
@@ -143,22 +216,31 @@ namespace Client.Main.Controls.UI.Game.Friends
             if (IsFocused(_body))
                 Client.Main.Controls.UI.Common.UiDrawHelper.DrawBorder(sb, body, ModernHudTheme.AccentBright * Alpha);
 
-            var lines = WrapText(_body.Value, TextSize, body.Width - 20);
+            string text = _body.Value;
+            var segments = WrapSegments(text, body.Width - 20);
+            int caret = _body.CaretIndex;
+            int caretLine = FindLine(segments, caret);
             int visible = BodyHeight / LineHeight - 1;
-            int first = Math.Max(0, lines.Count - visible); // keep the caret line visible
-            for (int i = first; i < lines.Count; i++)
-                PlayerShopUi.DrawText(sb, lines[i], new Vector2(body.X + 10, body.Y + 8 + (i - first) * LineHeight), ModernHudTheme.TextWhite, TextSize, Alpha);
+            // Keep the caret line visible.
+            _firstLine = Math.Clamp(_firstLine, Math.Max(0, caretLine - visible + 1), caretLine);
+            for (int i = _firstLine; i < segments.Count && i < _firstLine + visible; i++)
+            {
+                var (start, length) = segments[i];
+                string line = text.Substring(start, length).TrimEnd('\n');
+                PlayerShopUi.DrawText(sb, line, new Vector2(body.X + 10, body.Y + 8 + (i - _firstLine) * LineHeight), ModernHudTheme.TextWhite, TextSize, Alpha);
+            }
 
             if (IsFocused(_body) && (int)(gameTime.TotalGameTime.TotalSeconds * 2) % 2 == 0)
             {
-                string last = lines.Count > 0 ? lines[^1] : string.Empty;
-                float x = body.X + 10 + PlayerShopUi.Measure(last, TextSize).X + 1;
-                int y = body.Y + 8 + (lines.Count - 1 - first) * LineHeight;
-                PlayerShopUi.DrawText(sb, "|", new Vector2(x, y), ModernHudTheme.TextWhite, TextSize, Alpha, shadow: false);
+                var (start, _) = segments[caretLine];
+                string before = text.Substring(start, Math.Max(0, caret - start)).TrimEnd('\n');
+                float x = body.X + 10 + PlayerShopUi.Measure(before, TextSize).X;
+                int y = body.Y + 8 + (caretLine - _firstLine) * LineHeight;
+                PlayerShopUi.DrawText(sb, "|", new Vector2(x - 2, y), ModernHudTheme.TextWhite, TextSize, Alpha, shadow: false);
             }
 
             if (_body.Value.Length == 0 && !IsFocused(_body))
-                PlayerShopUi.DrawText(sb, "Write your message here (Enter = new line)", new Vector2(body.X + 10, body.Y + 8),
+                PlayerShopUi.DrawText(sb, "Write your message here (Enter = new line, arrows move the cursor)", new Vector2(body.X + 10, body.Y + 8),
                     ModernHudTheme.TextGray * 0.7f, 11f, Alpha, shadow: false);
         }
     }

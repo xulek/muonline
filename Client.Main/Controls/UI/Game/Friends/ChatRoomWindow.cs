@@ -2,7 +2,9 @@
 using System;
 using System.Collections.Generic;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controllers;
 using Client.Main.Controls.UI.Game.Inventory;
+using Client.Main.Core.Client;
 using Client.Main.Models;
 using Client.Main.Networking;
 using Microsoft.Xna.Framework;
@@ -27,6 +29,8 @@ namespace Client.Main.Controls.UI.Game.Friends
 
         private static readonly Rectangle LogLocal = new(Pad, LogY, Width - Pad * 2, LogHeight);
         private static readonly Rectangle SendLocal = new(Width - Pad - 64, InputY, 64, 24);
+        private static readonly Rectangle InviteLocal = new(Width - 34 - 66, 14, 60, 18);
+        private const int PickerRowHeight = 20;
 
         private readonly ChatRoomSession _session;
         private readonly string _ownName;
@@ -34,7 +38,13 @@ namespace Client.Main.Controls.UI.Game.Friends
         private readonly List<(string Sender, string Text, Color Color)> _messages = new();
         private List<(string Text, Color Color)> _lines = new();
         private int _scrollFromBottom;
-        private bool _sendHovered;
+        private bool _sendHovered, _inviteHovered;
+        private bool _pickerOpen;
+        private int _hoveredPick = -1;
+        private readonly List<string> _pickable = new();
+        private readonly Dictionary<uint, string> _pendingInvites = new();
+        private static readonly Random InviteIds = new();
+        private FriendManager? Friends => MuGame.Network?.GetFriendManager();
         private bool _closing;
 
         public ChatRoomWindow(ChatRoomSession session, string ownName) : base(Width, Height)
@@ -47,6 +57,7 @@ namespace Client.Main.Controls.UI.Game.Friends
             _session.MessageReceived += OnMessage;
             _session.ClientChanged += OnClientChanged;
             _session.Disconnected += OnDisconnected;
+            if (Friends is { } friends) friends.ChatInvitationResult += OnInvitationResult;
             AddLine(string.Empty, $"Connecting to the chat with {session.FriendName}...", ModernHudTheme.TextGray);
         }
 
@@ -79,6 +90,7 @@ namespace Client.Main.Controls.UI.Game.Friends
             _session.MessageReceived -= OnMessage;
             _session.ClientChanged -= OnClientChanged;
             _session.Disconnected -= OnDisconnected;
+            if (Friends is { } friends) friends.ChatInvitationResult -= OnInvitationResult;
             _ = _session.LeaveAsync();
             MuGame.ScheduleOnMainThread(() =>
             {
@@ -102,7 +114,43 @@ namespace Client.Main.Controls.UI.Game.Friends
         }
 
         private void OnMessage(string sender, string text)
-            => MuGame.ScheduleOnMainThread(() => AddLine(sender, text, sender == _ownName ? new Color(200, 255, 0) : ModernHudTheme.TextWhite));
+            => MuGame.ScheduleOnMainThread(() =>
+            {
+                bool own = sender == _ownName;
+                AddLine(sender, text, own ? new Color(200, 255, 0) : ModernHudTheme.TextWhite);
+                // Original SOUND_FRIEND_CHAT_ALERT when a message arrives while the window is not in use.
+                if (!own && !IsFocused(_input))
+                    SoundController.Instance.PlayBuffer("Sound/iFMSGAlert.wav");
+            });
+
+        private void OnInvitationResult(bool success, uint requestId)
+        {
+            if (!_pendingInvites.Remove(requestId, out var name)) return;
+            AddLine(string.Empty, success ? $"{name} has been invited." : $"{name} could not be invited.",
+                success ? ModernHudTheme.TextGray : ModernHudTheme.Danger);
+        }
+
+        private void RefreshPickable()
+        {
+            _pickable.Clear();
+            var inRoom = new HashSet<string>(_session.GetClientNames(), StringComparer.OrdinalIgnoreCase);
+            if (Friends is not { } friends) return;
+            foreach (var friend in friends.GetFriends())
+                if (friend.IsOnline && !inRoom.Contains(friend.Name)) _pickable.Add(friend.Name);
+        }
+
+        private void Invite(string name)
+        {
+            _pickerOpen = false;
+            if (MuGame.Network?.GetCharacterService() is not { } service) return;
+            uint requestId = (uint)InviteIds.Next(1, int.MaxValue);
+            _pendingInvites[requestId] = name;
+            _ = service.SendChatRoomInvitationAsync(name, _session.RoomId, requestId);
+            AddLine(string.Empty, $"Inviting {name}...", ModernHudTheme.TextGray);
+        }
+
+        private Rectangle PickerRowLocal(int index)
+            => new(LogLocal.Right - 150, LogLocal.Y + 4 + index * PickerRowHeight, 146, PickerRowHeight);
 
         private void OnClientChanged(string name, bool joined)
         {
@@ -138,10 +186,26 @@ namespace Client.Main.Controls.UI.Game.Friends
             if (wheel != 0) _scrollFromBottom += Math.Sign(wheel) * 2;
             _scrollFromBottom = Math.Clamp(_scrollFromBottom, 0, Math.Max(0, _lines.Count - visible));
             _sendHovered = Translate(SendLocal).Contains(MousePosition);
+            _inviteHovered = Translate(InviteLocal).Contains(MousePosition);
+            _hoveredPick = -1;
+            if (_pickerOpen)
+            {
+                RefreshPickable();
+                for (int i = 0; i < _pickable.Count; i++)
+                    if (Translate(PickerRowLocal(i)).Contains(MousePosition)) _hoveredPick = i;
+            }
         }
 
         protected override bool HandleClick()
         {
+            if (_pickerOpen && _hoveredPick >= 0) { Invite(_pickable[_hoveredPick]); return true; }
+            if (_inviteHovered)
+            {
+                _pickerOpen = !_pickerOpen && _session.IsConnected;
+                RefreshPickable();
+                return true;
+            }
+            _pickerOpen = false;
             if (_sendHovered) { SendInput(); return true; }
             return false;
         }
@@ -159,6 +223,26 @@ namespace Client.Main.Controls.UI.Game.Friends
 
             PlayerShopUi.DrawButton(sb, Translate(SendLocal), "SEND", _sendHovered, _session.IsConnected && _input.Value.Trim().Length > 0,
                 ModernHudTheme.Success, Alpha, 12f);
+            PlayerShopUi.DrawButton(sb, Translate(InviteLocal), "INVITE", _inviteHovered || _pickerOpen, _session.IsConnected,
+                ModernHudTheme.Accent, Alpha, 10f);
+
+            if (!_pickerOpen) return;
+            var pixel = GraphicsManager.Instance.Pixel;
+            int rows = Math.Max(1, _pickable.Count);
+            var first = Translate(PickerRowLocal(0));
+            var panel = new Rectangle(first.X - 2, first.Y - 2, first.Width + 4, rows * PickerRowHeight + 4);
+            PlayerShopUi.DrawPanel(sb, panel, ModernHudTheme.BgMid, Alpha);
+            if (_pickable.Count == 0)
+            {
+                PlayerShopUi.DrawTextCentered(sb, "No other friend online", first, ModernHudTheme.TextGray, 11f, Alpha);
+                return;
+            }
+            for (int i = 0; i < _pickable.Count; i++)
+            {
+                var row = Translate(PickerRowLocal(i));
+                if (_hoveredPick == i) sb.Draw(pixel, row, ModernHudTheme.Accent * 0.4f * Alpha);
+                PlayerShopUi.DrawText(sb, _pickable[i], new Vector2(row.X + 8, row.Y + 3), ModernHudTheme.TextWhite, 12f, Alpha);
+            }
         }
 
         protected override void DrawOverlay(SpriteBatch sb, GameTime gameTime)

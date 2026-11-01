@@ -112,10 +112,10 @@ namespace Client.Main.Controls.UI.Game.Hud
                 new MenuEntry("Forge", "Interface/DH/mi_menu_forge.OZP", null),
                 new MenuEntry("Guide", "Interface/DH/mi_menu_guide.OZP", null),
                 new MenuEntry("Allocate", "Interface/DH/mi_menu_allocate.OZP", OpenMastery),
-                new MenuEntry("Friend", "Interface/DH/mi_menu_friend.OZP", null),
+                new MenuEntry("Friend", "Interface/DH/mi_menu_friend.OZP", OpenFriends),
                 // The Skill book opens the Skill Imprint screen.
                 new MenuEntry("Skill", "Interface/DH/mi_menu_skill.OZP", OpenImprint),
-                new MenuEntry("Mail", "Interface/DH/mi_menu_mail.OZP", null),
+                new MenuEntry("Mail", "Interface/DH/mi_menu_mail.OZP", OpenLetters),
                 // The potion tab occupies the former gear slot; Settings moves down one row.
                 new MenuEntry("Potions", "Interface/DH/mi_menu_potion_tab.OZP", OpenPotionImprint),
                 new MenuEntry("Settings", "Interface/DH/mi_menu_settings.OZP", OpenExitMenu),
@@ -137,6 +137,20 @@ namespace Client.Main.Controls.UI.Game.Hud
         }
 
         // "Skill" toggles the Skill Imprint screen.
+        private void OpenFriends()
+        {
+            _open = false;
+            UpdateBounds();
+            (Scene as GameScene)?.FriendList?.Toggle();
+        }
+
+        private void OpenLetters()
+        {
+            _open = false;
+            UpdateBounds();
+            (Scene as GameScene)?.FriendList?.ShowLetters();
+        }
+
         private void OpenImprint()
         {
             _open = false;

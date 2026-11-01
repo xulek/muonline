@@ -70,12 +70,40 @@ namespace Client.Main.Controls.UI
             {
                 _inputText.Clear();
                 _inputText.Append(value ?? string.Empty);
+                _caret = _inputText.Length;
                 MarkTextChanged();
                 MoveCursorToEnd();
             }
         }
 
         public bool MaskValue { get; set; }
+
+        /// <summary>
+        /// When enabled, Left/Right/Home/End move a caret and typing, Backspace and Delete edit at the caret.
+        /// Off by default: the field then only appends at the end, as before.
+        /// </summary>
+        public bool EnableCaretNavigation { get; set; }
+
+        private int _caret;
+
+        /// <summary>Caret position (0..Value.Length); always the end when caret navigation is off.</summary>
+        public int CaretIndex
+        {
+            get => EnableCaretNavigation ? Math.Clamp(_caret, 0, _inputText.Length) : _inputText.Length;
+            set => _caret = Math.Clamp(value, 0, _inputText.Length);
+        }
+
+        /// <summary>Inserts text at the caret (at the end when caret navigation is off).</summary>
+        public void InsertAtCaret(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            int index = CaretIndex;
+            _inputText.Insert(index, text);
+            _caret = index + text.Length;
+            MarkTextChanged();
+            UpdateScrollOffset();
+            ValueChanged?.Invoke(this, EventArgs.Empty);
+        }
         public event EventHandler ValueChanged;
         public event EventHandler EnterKeyPressed;
 
@@ -262,6 +290,9 @@ namespace Client.Main.Controls.UI
                     ProcessKey(key, shift, capsLock);
             }
 
+            if (EnableCaretNavigation)
+                ProcessCaretKeys(keyboard, previousKeyboard);
+
             EnsureScrollOffsetCurrent();
 #endif
 
@@ -275,9 +306,43 @@ namespace Client.Main.Controls.UI
 
 #if !ANDROID
         // Keyboard input processing for Windows/Desktop platforms
+        private void ProcessCaretKeys(KeyboardState keyboard, KeyboardState previousKeyboard)
+        {
+            bool Pressed(Keys key) => keyboard.IsKeyDown(key) && previousKeyboard.IsKeyUp(key);
+            int caret = CaretIndex;
+            if (Pressed(Keys.Left)) caret--;
+            if (Pressed(Keys.Right)) caret++;
+            if (Pressed(Keys.Home)) caret = 0;
+            if (Pressed(Keys.End)) caret = _inputText.Length;
+            if (Pressed(Keys.Delete) && caret < _inputText.Length)
+            {
+                _inputText.Remove(caret, 1);
+                MarkTextChanged();
+                ValueChanged?.Invoke(this, EventArgs.Empty);
+            }
+            _caret = Math.Clamp(caret, 0, _inputText.Length);
+            _showCursor = true;
+        }
+
         private void ProcessKey(Keys key, bool shift, bool capsLock)
         {
             bool textChanged = false;
+            if (EnableCaretNavigation && key == Keys.Delete)
+            {
+                return; // handled by ProcessCaretKeys
+            }
+            if (key == Keys.Back && EnableCaretNavigation)
+            {
+                int caret = CaretIndex;
+                if (caret > 0)
+                {
+                    _inputText.Remove(caret - 1, 1);
+                    _caret = caret - 1;
+                    MarkTextChanged();
+                    ValueChanged?.Invoke(this, EventArgs.Empty);
+                }
+                return;
+            }
             if (key == Keys.Back && _inputText.Length > 0)
             {
                 _inputText.Remove(_inputText.Length - 1, 1);
@@ -292,6 +357,11 @@ namespace Client.Main.Controls.UI
             else
             {
                 char character = KeyToChar(key, shift, capsLock);
+                if (character != '\0' && EnableCaretNavigation)
+                {
+                    InsertAtCaret(character.ToString());
+                    return;
+                }
                 if (character != '\0')
                 {
                     _inputText.Append(character);
@@ -302,6 +372,7 @@ namespace Client.Main.Controls.UI
 
             if (textChanged)
             {
+                _caret = _inputText.Length;
                 MoveCursorToEnd();
                 ValueChanged?.Invoke(this, EventArgs.Empty);
             }

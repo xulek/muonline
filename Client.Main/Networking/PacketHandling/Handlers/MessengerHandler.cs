@@ -72,8 +72,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 return Task.CompletedTask;
 
             var added = new FriendAdded(packet);
-            Friends.AddOrUpdateFriend(added.FriendName, added.ServerId);
-            ShowSystemMessage($"{added.FriendName} has been added to your friend list.");
+            string name = added.FriendName;
+            byte serverId = added.ServerId;
+            MuGame.ScheduleOnMainThread(() => Friends.AddOrUpdateFriend(name, serverId));
+            ShowSystemMessage($"{name} has been added to your friend list.");
             return Task.CompletedTask;
         }
 
@@ -85,10 +87,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 return Task.CompletedTask;
 
             string requester = new FriendRequest(packet).Requester;
-            MuGame.ScheduleOnMainThread(() => RequestDialog.Show(
-                $"{requester} wants to add you as a friend.",
-                onAccept: () => _ = _characterService.SendFriendAddResponseAsync(true, requester),
-                onReject: () => _ = _characterService.SendFriendAddResponseAsync(false, requester)));
+            MuGame.ScheduleOnMainThread(() => Friends.RaiseFriendRequest(requester));
             return Task.CompletedTask;
         }
 
@@ -99,7 +98,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             if (packet.Length < FriendDeleted.Length || packet.Span[3] != 0x01)
                 return Task.CompletedTask;
 
-            Friends.RemoveFriend(new FriendDeleted(packet).FriendName);
+            string name = new FriendDeleted(packet).FriendName;
+            MuGame.ScheduleOnMainThread(() => Friends.RemoveFriend(name));
             return Task.CompletedTask;
         }
 
@@ -111,21 +111,23 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 return Task.CompletedTask;
 
             var update = new FriendOnlineStateUpdate(packet);
-            Friends.UpdateFriendServer(update.FriendName, update.ServerId);
+            string name = update.FriendName;
+            byte serverId = update.ServerId;
+            MuGame.ScheduleOnMainThread(() => Friends.UpdateFriendServer(name, serverId));
             return Task.CompletedTask;
         }
 
-        /// <summary>FriendInvitationResult (0xCB): result of the own friend request.</summary>
+        /// <summary>FriendInvitationResult (0xCB): result of the own chat room invitation (ChatRoomInvitationRequest).</summary>
         [PacketHandler(0xCB, PacketRouter.NoSubCode)]
         public Task HandleFriendInvitationResultAsync(Memory<byte> packet)
         {
             if (packet.Length < FriendInvitationResult.Length)
                 return Task.CompletedTask;
 
-            bool success = new FriendInvitationResult(packet).Success;
-            ShowSystemMessage(success
-                ? "Your friend request has been sent."
-                : "The friend request could not be sent. Check the character name.");
+            var result = new FriendInvitationResult(packet);
+            bool success = result.Success;
+            uint requestId = result.RequestId;
+            MuGame.ScheduleOnMainThread(() => Friends.RaiseChatInvitationResult(success, requestId));
             return Task.CompletedTask;
         }
 
@@ -251,12 +253,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return Task.CompletedTask;
                 }
 
-                string host = info.ChatServerIp;
-                ushort roomId = info.ChatRoomId;
-                uint token = info.AuthenticationToken;
-                string friendName = info.FriendName;
-                MuGame.ScheduleOnMainThread(() =>
-                    (MuGame.Instance?.ActiveScene as GameScene)?.OpenChatRoom(host, roomId, token, friendName));
+                var invite = new ChatRoomInvite(info.ChatServerIp, info.ChatRoomId, info.AuthenticationToken, info.FriendName);
+                MuGame.ScheduleOnMainThread(() => Friends.RaiseChatRoomOpened(invite));
             }
             catch (Exception ex)
             {

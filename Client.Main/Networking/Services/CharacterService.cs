@@ -395,6 +395,26 @@ namespace Client.Main.Networking.Services
             }
         }
 
+        /// <summary>Cuts a string to the UTF-8 size of a fixed packet field (the packet structs throw when it does not fit).</summary>
+        private static string FitField(string value, int maxBytes)
+        {
+            value ??= string.Empty;
+            while (value.Length > 0 && System.Text.Encoding.UTF8.GetByteCount(value) > maxBytes)
+                value = value[..^1];
+            return value;
+        }
+
+        /// <summary>
+        /// Output buffer of <paramref name="length"/> bytes, zeroed: the packet structs only write their fields and
+        /// the pooled buffer may still hold old data (e.g. OpenMU rejects LetterDeleteRequest unless byte 3 is 0).
+        /// </summary>
+        private Memory<byte> GetClearedPacketMemory(int length)
+        {
+            var memory = _connectionManager.Connection.Output.GetMemory(length).Slice(0, length);
+            memory.Span.Clear();
+            return memory;
+        }
+
         /// <summary>
         /// Sends a guild packet built by <paramref name="write"/>; returns false when it could not be sent.
         /// </summary>
@@ -427,8 +447,8 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendFriendAddRequestAsync(string friendName)
             => SendSimplePacketAsync($"friend add request ({friendName})", () =>
             {
-                var packet = new FriendAddRequest(_connectionManager.Connection.Output.GetMemory(FriendAddRequest.Length).Slice(0, FriendAddRequest.Length));
-                packet.FriendName = friendName;
+                var packet = new FriendAddRequest(GetClearedPacketMemory(FriendAddRequest.Length));
+                packet.FriendName = FitField(friendName, 10);
                 return FriendAddRequest.Length;
             });
 
@@ -436,9 +456,9 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendFriendAddResponseAsync(bool accepted, string requesterName)
             => SendSimplePacketAsync("friend add response", () =>
             {
-                var packet = new FriendAddResponse(_connectionManager.Connection.Output.GetMemory(FriendAddResponse.Length).Slice(0, FriendAddResponse.Length));
+                var packet = new FriendAddResponse(GetClearedPacketMemory(FriendAddResponse.Length));
                 packet.Accepted = accepted;
-                packet.FriendRequesterName = requesterName;
+                packet.FriendRequesterName = FitField(requesterName, 10);
                 return FriendAddResponse.Length;
             });
 
@@ -446,8 +466,8 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendFriendDeleteAsync(string friendName)
             => SendSimplePacketAsync($"friend delete ({friendName})", () =>
             {
-                var packet = new FriendDelete(_connectionManager.Connection.Output.GetMemory(FriendDelete.Length).Slice(0, FriendDelete.Length));
-                packet.FriendName = friendName;
+                var packet = new FriendDelete(GetClearedPacketMemory(FriendDelete.Length));
+                packet.FriendName = FitField(friendName, 10);
                 return FriendDelete.Length;
             });
 
@@ -455,7 +475,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendSetFriendOnlineStateAsync(bool online)
             => SendSimplePacketAsync("friend online state", () =>
             {
-                var packet = new SetFriendOnlineState(_connectionManager.Connection.Output.GetMemory(SetFriendOnlineState.Length).Slice(0, SetFriendOnlineState.Length));
+                var packet = new SetFriendOnlineState(GetClearedPacketMemory(SetFriendOnlineState.Length));
                 packet.OnlineState = online;
                 return SetFriendOnlineState.Length;
             });
@@ -468,10 +488,10 @@ namespace Client.Main.Networking.Services
             return SendSimplePacketAsync($"letter to {receiver}", () =>
             {
                 int length = LetterSendRequest.GetRequiredSize(message);
-                var packet = new LetterSendRequest(_connectionManager.Connection.Output.GetMemory(length).Slice(0, length));
+                var packet = new LetterSendRequest(GetClearedPacketMemory(length));
                 packet.LetterId = letterId;
-                packet.Receiver = receiver;
-                packet.Title = title ?? string.Empty;
+                packet.Receiver = FitField(receiver, 10);
+                packet.Title = FitField(title, 60);
                 packet.Rotation = rotation;
                 packet.Animation = animation;
                 packet.MessageLength = (ushort)System.Text.Encoding.UTF8.GetByteCount(message);
@@ -484,7 +504,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendLetterReadRequestAsync(ushort letterIndex)
             => SendSimplePacketAsync($"letter read ({letterIndex})", () =>
             {
-                var packet = new LetterReadRequest(_connectionManager.Connection.Output.GetMemory(LetterReadRequest.Length).Slice(0, LetterReadRequest.Length));
+                var packet = new LetterReadRequest(GetClearedPacketMemory(LetterReadRequest.Length));
                 packet.LetterIndex = letterIndex;
                 return LetterReadRequest.Length;
             });
@@ -493,7 +513,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendLetterDeleteRequestAsync(ushort letterIndex)
             => SendSimplePacketAsync($"letter delete ({letterIndex})", () =>
             {
-                var packet = new LetterDeleteRequest(_connectionManager.Connection.Output.GetMemory(LetterDeleteRequest.Length).Slice(0, LetterDeleteRequest.Length));
+                var packet = new LetterDeleteRequest(GetClearedPacketMemory(LetterDeleteRequest.Length));
                 packet.LetterIndex = letterIndex;
                 return LetterDeleteRequest.Length;
             });
@@ -502,8 +522,8 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendChatRoomCreateRequestAsync(string friendName)
             => SendSimplePacketAsync($"chat room create ({friendName})", () =>
             {
-                var packet = new ChatRoomCreateRequest(_connectionManager.Connection.Output.GetMemory(ChatRoomCreateRequest.Length).Slice(0, ChatRoomCreateRequest.Length));
-                packet.FriendName = friendName;
+                var packet = new ChatRoomCreateRequest(GetClearedPacketMemory(ChatRoomCreateRequest.Length));
+                packet.FriendName = FitField(friendName, 10);
                 return ChatRoomCreateRequest.Length;
             });
 
@@ -511,8 +531,8 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendChatRoomInvitationAsync(string friendName, ushort roomId, uint requestId)
             => SendSimplePacketAsync($"chat room invitation ({friendName})", () =>
             {
-                var packet = new ChatRoomInvitationRequest(_connectionManager.Connection.Output.GetMemory(ChatRoomInvitationRequest.Length).Slice(0, ChatRoomInvitationRequest.Length));
-                packet.FriendName = friendName;
+                var packet = new ChatRoomInvitationRequest(GetClearedPacketMemory(ChatRoomInvitationRequest.Length));
+                packet.FriendName = FitField(friendName, 10);
                 packet.RoomId = roomId;
                 packet.RequestId = requestId;
                 return ChatRoomInvitationRequest.Length;
@@ -522,7 +542,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendGuildInfoRequestAsync(uint guildId)
             => SendSimplePacketAsync($"guild info request ({guildId})", () =>
             {
-                var packet = new GuildInfoRequest(_connectionManager.Connection.Output.GetMemory(GuildInfoRequest.Length).Slice(0, GuildInfoRequest.Length));
+                var packet = new GuildInfoRequest(GetClearedPacketMemory(GuildInfoRequest.Length));
                 packet.GuildId = guildId;
                 return GuildInfoRequest.Length;
             });
@@ -531,7 +551,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendGuildListRequestAsync()
             => SendSimplePacketAsync("guild list request", () =>
             {
-                _ = new GuildListRequest(_connectionManager.Connection.Output.GetMemory(GuildListRequest.Length).Slice(0, GuildListRequest.Length));
+                _ = new GuildListRequest(GetClearedPacketMemory(GuildListRequest.Length));
                 return GuildListRequest.Length;
             });
 
@@ -543,8 +563,8 @@ namespace Client.Main.Networking.Services
             {
                 securityCode ??= string.Empty;
                 int length = GuildKickPlayerRequest.GetRequiredSize(securityCode);
-                var packet = new GuildKickPlayerRequest(_connectionManager.Connection.Output.GetMemory(length).Slice(0, length));
-                packet.PlayerName = playerName;
+                var packet = new GuildKickPlayerRequest(GetClearedPacketMemory(length));
+                packet.PlayerName = FitField(playerName, 10);
                 packet.SecurityCode = securityCode;
                 return length;
             });
@@ -553,7 +573,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendGuildMasterAnswerAsync(bool showCreationDialog)
             => SendSimplePacketAsync("guild master answer", () =>
             {
-                var packet = new GuildMasterAnswer(_connectionManager.Connection.Output.GetMemory(GuildMasterAnswer.Length).Slice(0, GuildMasterAnswer.Length));
+                var packet = new GuildMasterAnswer(GetClearedPacketMemory(GuildMasterAnswer.Length));
                 packet.ShowCreationDialog = showCreationDialog;
                 return GuildMasterAnswer.Length;
             });
@@ -562,8 +582,8 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendGuildCreateAsync(string guildName, byte[] packedMark)
             => SendSimplePacketAsync("guild create request", () =>
             {
-                var packet = new GuildCreateRequest(_connectionManager.Connection.Output.GetMemory(GuildCreateRequest.Length).Slice(0, GuildCreateRequest.Length));
-                packet.GuildName = guildName;
+                var packet = new GuildCreateRequest(GetClearedPacketMemory(GuildCreateRequest.Length));
+                packet.GuildName = FitField(guildName, 8);
                 packedMark.AsSpan(0, Math.Min(packedMark.Length, packet.GuildEmblem.Length)).CopyTo(packet.GuildEmblem);
                 return GuildCreateRequest.Length;
             });
@@ -572,7 +592,7 @@ namespace Client.Main.Networking.Services
         public Task<bool> SendCancelGuildCreationAsync()
             => SendSimplePacketAsync("guild creation cancel", () =>
             {
-                _ = new CancelGuildCreation(_connectionManager.Connection.Output.GetMemory(CancelGuildCreation.Length).Slice(0, CancelGuildCreation.Length));
+                _ = new CancelGuildCreation(GetClearedPacketMemory(CancelGuildCreation.Length));
                 return CancelGuildCreation.Length;
             });
 

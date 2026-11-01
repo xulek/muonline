@@ -26,13 +26,19 @@ namespace Client.Main.Core.Client
     /// </summary>
     public sealed class LetterEntry
     {
-        public ushort Index { get; init; }
+        /// <summary>Position in the server's letter list; shifts down when an earlier letter is deleted.</summary>
+        public ushort Index { get; set; }
         public string Sender { get; init; } = string.Empty;
         public string Timestamp { get; init; } = string.Empty;
         public string Subject { get; init; } = string.Empty;
         public bool IsRead { get; set; }
         public string? Message { get; set; }
     }
+
+    /// <summary>
+    /// ChatRoomConnectionInfo (0xCA): where to connect to join a chat room.
+    /// </summary>
+    public sealed record ChatRoomInvite(string Host, ushort RoomId, uint Token, string FriendName);
 
     /// <summary>
     /// Messenger state of the local character: friend list, mailbox and pending friend requests.
@@ -68,6 +74,18 @@ namespace Client.Main.Core.Client
 
         /// <summary>Raised with the result of the own letter send request (0xC5).</summary>
         public event Action<byte>? LetterSendResult;
+
+        /// <summary>Another player wants to add us as friend (0xC2); answer with FriendAddResponse.</summary>
+        public event Action<string>? FriendRequestReceived;
+
+        /// <summary>The server opened a chat room for us (0xCA).</summary>
+        public event Action<ChatRoomInvite>? ChatRoomOpened;
+
+        /// <summary>A friend logged in (offline → online), original SOUND_FRIEND_LOGIN_ALERT.</summary>
+        public event Action<string>? FriendCameOnline;
+
+        /// <summary>Result of the own chat room invitation (0xCB): (success, request id).</summary>
+        public event Action<bool, uint>? ChatInvitationResult;
 
         public bool IsInitialized { get; private set; }
         public int MaxLetters { get; private set; } = 50;
@@ -132,12 +150,13 @@ namespace Client.Main.Core.Client
 
         public void UpdateFriendServer(string name, byte serverId)
         {
-            bool changed = false;
+            bool changed = false, cameOnline = false;
             lock (_lock)
             {
                 var friend = _friends.Find(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
                 if (friend != null && friend.ServerId != serverId)
                 {
+                    cameOnline = !friend.IsOnline && serverId != FriendEntry.OfflineServerId;
                     friend.ServerId = serverId;
                     SortFriends();
                     changed = true;
@@ -145,6 +164,7 @@ namespace Client.Main.Core.Client
             }
 
             if (changed) FriendListChanged?.Invoke();
+            if (cameOnline) FriendCameOnline?.Invoke(name);
         }
 
         public void RemoveFriend(string name)
@@ -201,15 +221,27 @@ namespace Client.Main.Core.Client
             LetterOpened?.Invoke(letter);
         }
 
-        /// <summary>RemoveLetter (0xC8). The server keeps the indexes of the remaining letters.</summary>
+        /// <summary>
+        /// RemoveLetter (0xC8). OpenMU addresses letters by their position in the character's letter list,
+        /// so the letters after the removed one move down by one.
+        /// </summary>
         public void RemoveLetter(ushort index)
         {
             int removed;
-            lock (_lock) removed = _letters.RemoveAll(l => l.Index == index);
+            lock (_lock)
+            {
+                removed = _letters.RemoveAll(l => l.Index == index);
+                if (removed > 0)
+                    foreach (var letter in _letters)
+                        if (letter.Index > index) letter.Index--;
+            }
             if (removed > 0) LettersChanged?.Invoke();
         }
 
         public void RaiseLetterSendResult(byte result) => LetterSendResult?.Invoke(result);
+        public void RaiseFriendRequest(string requester) => FriendRequestReceived?.Invoke(requester);
+        public void RaiseChatRoomOpened(ChatRoomInvite invite) => ChatRoomOpened?.Invoke(invite);
+        public void RaiseChatInvitationResult(bool success, uint requestId) => ChatInvitationResult?.Invoke(success, requestId);
 
         /// <summary>Drops everything tied to the current session (disconnect / character change).</summary>
         public void Reset()

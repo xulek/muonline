@@ -64,6 +64,7 @@ namespace Client.Main.Scenes
         internal LetterReadWindow LetterRead { get; private set; }
         internal LetterComposeWindow LetterCompose { get; private set; }
         private Client.Main.Core.Client.GuildManager _guildManager;
+        private Client.Main.Core.Client.FriendManager _friendManager;
         private Controls.UI.NotificationManager _notificationManager;
         private PartyPanelControl _partyPanel;
         private readonly (string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance) _characterInfo;
@@ -331,6 +332,12 @@ namespace Client.Main.Scenes
             Controls.Add(LetterRead);
             LetterCompose = new LetterComposeWindow(friendManager);
             Controls.Add(LetterCompose);
+            Controls.Add(new LetterNotifierControl(friendManager));
+            _friendManager = friendManager;
+            _friendManager.FriendRequestReceived += OnFriendRequestReceived;
+            _friendManager.ChatRoomOpened += OnChatRoomOpened;
+            _friendManager.NewLetterReceived += OnNewLetterReceived;
+            _friendManager.FriendCameOnline += OnFriendCameOnline;
             _guildManager.GuildMasterDialogRequested += OnGuildMasterDialogRequested;
             _guildManager.GuildCreationDialogRequested += OnGuildCreationDialogRequested;
             _windowCloseController = new GameSceneWindowCloseController(_inventoryControl, _logger);
@@ -1398,6 +1405,26 @@ namespace Client.Main.Scenes
 
         private readonly System.Collections.Generic.List<ChatRoomWindow> _chatRooms = new();
 
+        private void OnFriendRequestReceived(string requester)
+        {
+            var service = MuGame.Network?.GetCharacterService();
+            if (service == null) return;
+            RequestDialog.Show(
+                $"{requester} wants to add you as a friend.",
+                onAccept: () => _ = service.SendFriendAddResponseAsync(true, requester),
+                onReject: () => _ = service.SendFriendAddResponseAsync(false, requester));
+        }
+
+        private void OnChatRoomOpened(Client.Main.Core.Client.ChatRoomInvite invite)
+            => OpenChatRoom(invite.Host, invite.RoomId, invite.Token, invite.FriendName);
+
+        // Original alert sounds (ZzzOpenData.cpp: SOUND_FRIEND_MAIL_ALERT / SOUND_FRIEND_LOGIN_ALERT).
+        private void OnNewLetterReceived(Client.Main.Core.Client.LetterEntry letter)
+            => SoundController.Instance.PlayBuffer("Sound/iFMailAlert.wav");
+
+        private void OnFriendCameOnline(string name)
+            => SoundController.Instance.PlayBuffer("Sound/iFLogInAlert.wav");
+
         /// <summary>
         /// ChatRoomConnectionInfo (0xCA): connects to the chat server and opens a chat window for the room
         /// (or shows the existing one).
@@ -1428,6 +1455,15 @@ namespace Client.Main.Scenes
         public override void Dispose()
         {
             UiThemeManager.ThemeChanged -= HandleUiThemeChanged;
+            if (_friendManager != null)
+            {
+                _friendManager.FriendRequestReceived -= OnFriendRequestReceived;
+                _friendManager.ChatRoomOpened -= OnChatRoomOpened;
+                _friendManager.NewLetterReceived -= OnNewLetterReceived;
+                _friendManager.FriendCameOnline -= OnFriendCameOnline;
+            }
+            foreach (var room in _chatRooms.ToArray())
+                room.Hide();
             if (_guildManager != null)
             {
                 _guildManager.GuildMasterDialogRequested -= OnGuildMasterDialogRequested;
