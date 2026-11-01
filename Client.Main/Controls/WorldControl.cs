@@ -286,6 +286,9 @@ namespace Client.Main.Controls
 
         public ushort MapId { get; protected set; }
 
+        /// <summary>True when the world class declares a <see cref="WorldInfoAttribute"/> (a real game map).</summary>
+        public bool HasWorldInfo { get; private set; }
+
         public new string Name { get; protected set; }
 
         // --- Constructor ---
@@ -306,6 +309,7 @@ namespace Client.Main.Controls
             {
                 MapId = worldInfo.MapId;
                 Name = worldInfo.DisplayName;
+                HasWorldInfo = true;
             }
 
             Controls.Add(Terrain = new TerrainControl { WorldIndex = worldIndex });
@@ -441,6 +445,16 @@ namespace Client.Main.Controls
 
             // tasks.Add(Container.Load());
             await Task.WhenAll(tasks);
+
+            // Maps without their own audio fall back to the per-map defaults. Worlds without
+            // WorldInfo (login, character select) keep MapId 0 and must not pick up Lorencia's.
+            if (HasWorldInfo)
+            {
+                if (string.IsNullOrEmpty(BackgroundMusicPath))
+                    BackgroundMusicPath = WorldAudioDatabase.GetMusic(MapId);
+                if (string.IsNullOrEmpty(AmbientSoundPath))
+                    AmbientSoundPath = WorldAudioDatabase.GetAmbient(MapId);
+            }
 
             // Play or stop background music
             if (!string.IsNullOrEmpty(BackgroundMusicPath))

@@ -12,7 +12,7 @@ namespace Client.Main.Worlds
         {
             Name = "Tarkan";
             BackgroundMusicPath = "Music/tarkan.mp3";
-            AmbientSoundPath = "Sound/aDesert.wav";
+            AmbientSoundPath = "Sound/desert.wav";
         }
 
         private TarkanSandstormOverlay _sandstormOverlay;
