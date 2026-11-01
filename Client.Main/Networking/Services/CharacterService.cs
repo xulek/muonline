@@ -538,6 +538,36 @@ namespace Client.Main.Networking.Services
                 return ChatRoomInvitationRequest.Length;
             });
 
+        /// <summary>Requests level/experience of a Dark Raven (0) or Dark Horse (1) item (0xA9).</summary>
+        public Task<bool> SendPetInfoRequestAsync(byte petType, byte storage, byte slot)
+            => SendSimplePacketAsync("pet info request", () =>
+            {
+                var memory = GetClearedPacketMemory(6);
+                var span = memory.Span;
+                span[0] = 0xC1;
+                span[1] = 6;
+                span[2] = 0xA9;
+                span[3] = petType;
+                span[4] = storage;
+                span[5] = slot;
+                return 6;
+            });
+
+        /// <summary>Saves the key configuration on the server (0xF3/0x30), see <see cref="KeyConfiguration"/>.</summary>
+        public Task<bool> SendSaveKeyConfigurationAsync(byte[] configuration)
+            => SendSimplePacketAsync("key configuration", () =>
+            {
+                int length = 4 + configuration.Length;
+                var memory = GetClearedPacketMemory(length);
+                var span = memory.Span;
+                span[0] = 0xC1;
+                span[1] = (byte)length;
+                span[2] = 0xF3;
+                span[3] = 0x30;
+                configuration.CopyTo(span[4..]);
+                return length;
+            });
+
         /// <summary>Requests name and mark of a guild that is not cached yet (0x66).</summary>
         public Task<bool> SendGuildInfoRequestAsync(uint guildId)
             => SendSimplePacketAsync($"guild info request ({guildId})", () =>

@@ -830,6 +830,85 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             return Task.CompletedTask;
         }
 
+        /// <summary>Summoned monsters and transformed players spawned through the NPC queue: masked id → shown name.</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, (string Name, bool IsPlayer)> _monsterNameOverrides = new();
+
+        /// <summary>
+        /// AddSummonedMonstersToScope (C2 0x1F): monsters summoned by players (Elf / Summoner skills).
+        /// Shown like normal monsters with the owner in the name (ReceiveCreateSummonViewport, GlobalText 485).
+        /// </summary>
+        [PacketHandler(0x1F, PacketRouter.NoSubCode)]
+        public Task HandleAddSummonedMonstersToScopeAsync(Memory<byte> packet)
+        {
+            var span = packet.Span;
+            if (span.Length < 5) return Task.CompletedTask;
+            int count = span[4];
+            int offset = 5;
+            ushort mapId = _characterState.MapId;
+            for (int i = 0; i < count && offset + 20 <= span.Length; i++)
+            {
+                var entry = span[offset..];
+                ushort rawId = (ushort)((entry[0] << 8) | entry[1]);
+                ushort type = (ushort)((entry[2] << 8) | entry[3]);
+                byte x = entry[4], y = entry[5];
+                byte direction = (byte)((entry[8] >> 4) & 0x0F);
+                string owner = ReadFixedString(entry.Slice(9, 10));
+                int effects = entry[19];
+                offset += 20 + effects;
+
+                ushort maskedId = (ushort)(rawId & 0x7FFF);
+                string monster = NpcDatabase.GetNpcName(type);
+                string name = string.IsNullOrEmpty(owner) ? monster : $"{monster} ({owner})";
+                _monsterNameOverrides[maskedId] = (name, false);
+                _scopeManager.AddOrUpdateNpcInScope(maskedId, rawId, x, y, type, name);
+                QueueNpcSpawn(maskedId, rawId, x, y, direction, type, name, mapId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// AddTransformedCharactersToScope (C2 0x45): players wearing a transformation ring. The client shows the
+        /// monster given by Skin with the character name (ReceiveCreateTransformViewport: CreateMonster + KIND_PLAYER).
+        /// </summary>
+        [PacketHandler(0x45, PacketRouter.NoSubCode)]
+        public Task HandleAddTransformedCharactersToScopeAsync(Memory<byte> packet)
+        {
+            var span = packet.Span;
+            if (span.Length < 5) return Task.CompletedTask;
+            int count = span[4];
+            int offset = 5;
+            ushort mapId = _characterState.MapId;
+            for (int i = 0; i < count && offset + 38 <= span.Length; i++)
+            {
+                var entry = span[offset..];
+                ushort rawId = (ushort)((entry[0] << 8) | entry[1]);
+                byte x = entry[2], y = entry[3];
+                ushort skin = (ushort)((entry[4] << 8) | entry[5]);
+                string name = ReadFixedString(entry.Slice(6, 10));
+                byte direction = (byte)((entry[18] >> 4) & 0x0F);
+                int effects = entry[37];
+                offset += 38 + effects;
+
+                ushort maskedId = (ushort)(rawId & 0x7FFF);
+                if (maskedId == _characterState.Id)
+                    continue; // the hero keeps its own player model
+
+                _monsterNameOverrides[maskedId] = (name, true);
+                _scopeManager.AddOrUpdateNpcInScope(maskedId, rawId, x, y, skin, name);
+                QueueNpcSpawn(maskedId, rawId, x, y, direction, skin, name, mapId);
+                _logger.LogDebug("Transformed player {Name} ({Id:X4}) shown as monster {Skin}.", name, maskedId, skin);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private static string ReadFixedString(ReadOnlySpan<byte> data)
+        {
+            int end = data.IndexOf((byte)0);
+            return System.Text.Encoding.UTF8.GetString(end < 0 ? data : data[..end]);
+        }
+
         [PacketHandler(0x16, PacketRouter.NoSubCode)] // AddMonstersToScope
         public Task HandleAddMonstersToScopeAsync(Memory<byte> packet)
         {
@@ -889,6 +968,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 ushort maskedId = (ushort)(rawId & 0x7FFF);
                 string name = NpcDatabase.GetNpcName(type);
 
+                _monsterNameOverrides.TryRemove(maskedId, out _);
                 _scopeManager.AddOrUpdateNpcInScope(maskedId, rawId, x, y, type, name);
                 QueueNpcSpawn(maskedId, rawId, x, y, direction, type, name, currentMapId);
             }
@@ -1127,6 +1207,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
             // Configure the object's properties
             obj.NetworkId = maskedId;
+            if (obj is MonsterObject named && _monsterNameOverrides.TryGetValue(maskedId, out var nameOverride))
+            {
+                named.DisplayNameOverride = nameOverride.Name;
+                named.IsTransformedPlayer = nameOverride.IsPlayer;
+            }
             obj.Location = new Vector2(x, y);
             obj.Direction = MapServerDirection(direction);
             obj.World = worldRef;
@@ -1955,6 +2040,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     ushort rawId = entry.Id;
                     ushort masked = (ushort)(rawId & 0x7FFF);
 
+                    _monsterNameOverrides.TryRemove(masked, out _);
+
                     _scopeManager.RemoveObjectFromScope(masked);
                     objectsToRemove.Add(masked);
                 }
@@ -2034,6 +2121,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 objectsToRemove.Add(masked);
                 InvalidateNpcSpawnGeneration(masked);
+                _monsterNameOverrides.TryRemove(masked, out _);
                 _scopeManager.RemoveObjectFromScope(masked);
             }
 
@@ -2290,6 +2378,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 else
                 {
                     _logger.LogInformation("💀 {Killed} died. Killed by {Killer}", killedName, killerName);
+                    _monsterNameOverrides.TryRemove(killed, out _);
                     _scopeManager.RemoveObjectFromScope(killed);
                 }
 

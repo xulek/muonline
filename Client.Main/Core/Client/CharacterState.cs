@@ -452,6 +452,51 @@ namespace Client.Main.Core.Client
         private (byte From, byte To)? _pendingPlayerShopMove;
         private (byte From, byte To, uint Price)? _pendingPlayerShopPrice;
 
+        // ─────────────── Daily gameplay state (vault lock, pets, summons, key configuration) ───────────────
+
+        /// <summary>VaultProtectionInformation (0x83) state: 0 unprotected, 1 locked, 10-13 results, 12 unlocked.</summary>
+        public byte VaultProtectionState { get; private set; }
+        public event Action<byte>? VaultProtectionChanged;
+
+        public void SetVaultProtectionState(byte state)
+        {
+            VaultProtectionState = state;
+            VaultProtectionChanged?.Invoke(state);
+        }
+
+        /// <summary>Health of the own summoned monster in percent (0xF3/0x20), null when there is none.</summary>
+        public byte? SummonHealthPercent { get; set; }
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(byte Storage, byte Slot), (byte Level, uint Experience, byte Health)> _petInfos = new();
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(byte Storage, byte Slot), DateTime> _petInfoRequests = new();
+
+        /// <summary>PetInfoResponse (0xA9): Dark Horse / Dark Raven level, experience and health of an item.</summary>
+        public void SetPetInfo(byte storage, byte slot, byte level, uint experience, byte health)
+            => _petInfos[(storage, slot)] = (level, experience, health);
+
+        public bool TryGetPetInfo(byte storage, byte slot, out (byte Level, uint Experience, byte Health) info)
+            => _petInfos.TryGetValue((storage, slot), out info);
+
+        /// <summary>True when the pet info of the slot should be requested (at most every 5 seconds per slot).</summary>
+        public bool ShouldRequestPetInfo(byte storage, byte slot)
+        {
+            var now = DateTime.UtcNow;
+            if (_petInfoRequests.TryGetValue((storage, slot), out var last) && now - last < TimeSpan.FromSeconds(5))
+                return false;
+            _petInfoRequests[(storage, slot)] = now;
+            return true;
+        }
+
+        /// <summary>Key configuration stored on the server (0xF3/0x30), null until received.</summary>
+        public KeyConfiguration? ServerKeyConfiguration { get; private set; }
+        public event Action<KeyConfiguration>? KeyConfigurationReceived;
+
+        public void SetServerKeyConfiguration(KeyConfiguration configuration)
+        {
+            ServerKeyConfiguration = configuration;
+            KeyConfigurationReceived?.Invoke(configuration);
+        }
+
         public bool IsPlayerShopOpen { get; private set; }
         public event Action<bool> PlayerShopOpenChanged;
 
@@ -562,6 +607,10 @@ namespace Client.Main.Core.Client
             PendingPickupRawId = null;
             SetPlayerShopOpen(false);
             PlayerShopTitles.Clear();
+            _petInfos.Clear();
+            _petInfoRequests.Clear();
+            SummonHealthPercent = null;
+            ServerKeyConfiguration = null;
             _logger.LogDebug("Transient session state reset after disconnect.");
         }
 
@@ -1798,21 +1847,29 @@ namespace Client.Main.Core.Client
         /// Adds or activates a buff/effect.
         /// </summary>
         public void ActivateBuff(byte effectId, ushort playerId)
+            => ActivateBuff(effectId, playerId, null, null);
+
+        /// <summary>
+        /// Adds or activates a buff/effect with a server-provided duration (e.g. item effects, 0x2D / 0x29)
+        /// and an optional display name for effects unknown to the buff registry.
+        /// </summary>
+        public void ActivateBuff(byte effectId, ushort playerId, TimeSpan? duration, string? name)
         {
             ushort maskedId = (ushort)(playerId & 0x7FFF);
             var key = (effectId, maskedId);
             var definition = BuffDefinitionRegistry.Get((BuffEffectId)effectId);
             var activatedAt = DateTime.UtcNow;
+            var effectiveDuration = duration ?? definition.Duration;
             _activeBuffs[key] = new ActiveBuffState
             {
                 EffectId = effectId,
                 PlayerIdRaw = playerId,
                 PlayerIdMasked = maskedId,
                 ActivatedAt = activatedAt,
-                Name = definition.Name,
+                Name = string.IsNullOrEmpty(name) ? definition.Name : name,
                 ValueText = definition.ValueText,
-                Duration = definition.Duration,
-                ExpiresAt = definition.Duration.HasValue ? activatedAt + definition.Duration.Value : null
+                Duration = effectiveDuration,
+                ExpiresAt = effectiveDuration.HasValue ? activatedAt + effectiveDuration.Value : null
             };
             ActiveBuffsChanged?.Invoke();
             _logger.LogDebug("Buff activated. Effect ID: {EffectId}, Player ID: {PlayerId} (masked {MaskedId})", effectId, playerId, maskedId);

@@ -166,6 +166,7 @@ namespace Client.Main.Controls.UI.Game.Hud
 
             _skillPanel.SkillSelected += OnSkillSelectedFromPanel;
             _state.InventoryChanged += OnInventoryChanged;
+            _state.KeyConfigurationReceived += OnServerKeyConfigurationReceived;
 
             RefreshLayout();
         }
@@ -178,6 +179,7 @@ namespace Client.Main.Controls.UI.Game.Hud
         public override void Dispose()
         {
             _state.InventoryChanged -= OnInventoryChanged;
+            _state.KeyConfigurationReceived -= OnServerKeyConfigurationReceived;
             base.Dispose();
         }
 
@@ -699,7 +701,8 @@ namespace Client.Main.Controls.UI.Game.Hud
             if (learnedSkills.Count == 0)
                 return;
 
-            if (MuGame.TryLoadQuickSlotAssignments(characterName, out int activeSkillSlot, out ushort?[] savedSkillSlots, out (byte Group, int Id)?[] savedPotionSlots))
+            _restoredFromLocal = MuGame.TryLoadQuickSlotAssignments(characterName, out int activeSkillSlot, out ushort?[] savedSkillSlots, out (byte Group, int Id)?[] savedPotionSlots);
+            if (_restoredFromLocal)
             {
                 for (int i = PotionSlotCount; i < Math.Min(SlotCount, savedSkillSlots.Length); i++)
                 {
@@ -721,12 +724,76 @@ namespace Client.Main.Controls.UI.Game.Hud
                 }
             }
 
+            else if (_state.ServerKeyConfiguration is { } serverConfig && serverConfig.HasAnyAssignment())
+            {
+                ApplyServerKeyConfiguration(serverConfig, learnedSkills);
+            }
+
             for (int i = 0; i < _imprintSets[1].Length && i < _hotbarSkills.Length; i++)
                 _imprintSets[1][i] = _slotSkills[PotionSlotCount + i]?.SkillId;
             SyncHotbarSkills();
 
             EnsureActiveSkillSelection(learnedSkills.Values.FirstOrDefault());
             _quickSlotsRestored = true;
+        }
+
+        private bool _restoredFromLocal;
+
+        /// <summary>
+        /// Uses the key configuration stored on the server (0xF3/0x30, original ReceiveOption) when this machine
+        /// has no saved quick slots for the character: skill hotkeys 1..0 and the Q/W/E/R potions.
+        /// </summary>
+        private void ApplyServerKeyConfiguration(KeyConfiguration config, Dictionary<ushort, SkillEntryState> learnedSkills)
+        {
+            for (int i = 0; i < KeyConfiguration.SkillHotkeyCount && PotionSlotCount + i < SlotCount; i++)
+            {
+                ushort skillId = config.SkillHotkeys[i];
+                if (skillId != KeyConfiguration.EmptySkill && learnedSkills.TryGetValue(skillId, out var skill))
+                    _slotSkills[PotionSlotCount + i] = skill;
+            }
+
+            for (int i = 0; i < 4 && i < ItemHotbarSlotCount; i++)
+            {
+                byte potion = config.PotionHotkeys[i];
+                if (potion != 0xFF)
+                    _potionAssignments[i] = (14, potion);
+            }
+        }
+
+        private void OnServerKeyConfigurationReceived(KeyConfiguration config)
+        {
+            // Arrived after the local restore: only apply when nothing was saved on this machine.
+            if (!_quickSlotsRestored || _restoredFromLocal || !config.HasAnyAssignment())
+                return;
+
+            var learnedSkills = _state.GetSkills().ToDictionary(skill => skill.SkillId);
+            ApplyServerKeyConfiguration(config, learnedSkills);
+            for (int i = 0; i < _imprintSets[1].Length && i < _hotbarSkills.Length; i++)
+                _imprintSets[1][i] = _slotSkills[PotionSlotCount + i]?.SkillId;
+            SyncHotbarSkills();
+            EnsureActiveSkillSelection(learnedSkills.Values.FirstOrDefault());
+        }
+
+        /// <summary>Saves the hotkeys on the server too, like SaveOptions in the original client.</summary>
+        private void SaveKeyConfigurationOnServer()
+        {
+            var config = new KeyConfiguration();
+            if (_state.ServerKeyConfiguration is { } previous)
+            {
+                config.GameOptions = previous.GameOptions;
+                config.ChatLogBox = previous.ChatLogBox;
+            }
+
+            for (int i = 0; i < KeyConfiguration.SkillHotkeyCount && PotionSlotCount + i < SlotCount; i++)
+                config.SkillHotkeys[i] = _slotSkills[PotionSlotCount + i]?.SkillId ?? KeyConfiguration.EmptySkill;
+            for (int i = 0; i < 4 && i < ItemHotbarSlotCount; i++)
+                config.PotionHotkeys[i] = _potionAssignments[i] is { Group: 14 } potion && potion.Id is >= 0 and < 0xFF ? (byte)potion.Id : (byte)0xFF;
+
+            var bytes = config.ToBytes();
+            if (_state.ServerKeyConfiguration != null && bytes.AsSpan().SequenceEqual(_state.ServerKeyConfiguration.ToBytes()))
+                return;
+            _state.SetServerKeyConfiguration(config);
+            _ = MuGame.Network?.GetCharacterService()?.SendSaveKeyConfigurationAsync(bytes);
         }
 
         private void EnsureActiveSkillSelection(SkillEntryState? fallbackSkill)
@@ -771,6 +838,8 @@ namespace Client.Main.Controls.UI.Game.Hud
             }
 
             MuGame.PersistQuickSlotAssignments(characterName, _activeSkillSlot, skillIds, _potionAssignments);
+            _restoredFromLocal = true;
+            SaveKeyConfigurationOnServer();
         }
 
         private string? GetPersistentCharacterName()

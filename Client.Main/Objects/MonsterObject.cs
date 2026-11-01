@@ -48,10 +48,21 @@ namespace Client.Main.Objects
         /// <summary>
         /// Gets the monster's display name defined by <see cref="NpcInfoAttribute"/>.
         /// </summary>
+        /// <summary>
+        /// Name shown instead of the monster name: summoned monsters show their owner, players transformed by a
+        /// ring keep their character name (original ReceiveCreateSummonViewport / ReceiveCreateTransformViewport).
+        /// </summary>
+        public string DisplayNameOverride { get; set; }
+
+        /// <summary>True for a player that appears as this monster (transformation ring).</summary>
+        public bool IsTransformedPlayer { get; set; }
+
         public override string DisplayName
         {
             get
             {
+                if (!string.IsNullOrEmpty(DisplayNameOverride))
+                    return DisplayNameOverride;
                 if (!string.IsNullOrEmpty(_cachedDisplayName))
                     return _cachedDisplayName;
 

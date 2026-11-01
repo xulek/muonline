@@ -2946,12 +2946,37 @@ namespace Client.Main.Controls.UI.Game.Inventory
             }
         }
 
+        /// <summary>
+        /// Dark Raven (13,5) and Dark Horse (13,4): level, experience and health from PetInfoResponse (0xA9),
+        /// requested on hover like giPetManager::RequestPetInfo in the original client.
+        /// </summary>
+        private void AppendPetInfo(List<(string text, Color color)> lines, InventoryItem item)
+        {
+            if (item?.Definition == null || item.Definition.Group != 13 || item.Definition.Id is not (4 or 5)) return;
+            byte slot = _hoveredEquipSlot >= 0
+                ? (byte)_hoveredEquipSlot
+                : (byte)(12 + item.GridPosition.Y * Columns + item.GridPosition.X);
+            var state = _networkManager?.GetCharacterState();
+            if (state == null) return;
+
+            if (state.ShouldRequestPetInfo(0, slot))
+                _ = _networkManager.GetCharacterService()?.SendPetInfoRequestAsync(item.Definition.Id == 5 ? (byte)0 : (byte)1, 0, slot);
+
+            if (state.TryGetPetInfo(0, slot, out var info))
+            {
+                lines.Add(($"Pet Level: {info.Level}", new Color(255, 210, 120)));
+                lines.Add(($"Pet Experience: {info.Experience:N0}", new Color(200, 200, 200)));
+                lines.Add(($"Pet Life: {info.Health}%", info.Health < 30 ? new Color(255, 100, 100) : new Color(140, 230, 140)));
+            }
+        }
+
         private void DrawTooltip(SpriteBatch spriteBatch)
         {
             if (_pickedItem_renderer_item() != null || _hoveredItem == null || _font == null)
                 return;
 
             var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem);
+            AppendPetInfo(lines, _hoveredItem);
             if (NpcShopControl.IsOpen)
             {
                 int sellPrice = ItemPriceCalculator.CalculateSellPrice(_hoveredItem);

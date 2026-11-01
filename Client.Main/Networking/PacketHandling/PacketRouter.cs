@@ -46,6 +46,7 @@ namespace Client.Main.Networking.PacketHandling
         private readonly MiniGameHandler _miniGameHandler;
         private readonly GuildHandler _guildHandler;
         private readonly MessengerHandler _messengerHandler;
+        private readonly GameplayHandler _gameplayHandler;
         private readonly PetHandler _petHandler;
         private readonly BuffManager _buffManager;
 
@@ -99,6 +100,7 @@ namespace Client.Main.Networking.PacketHandling
             _miniGameHandler = new MiniGameHandler(loggerFactory);
             _guildHandler = new GuildHandler(loggerFactory, characterState, characterService, networkManager);
             _messengerHandler = new MessengerHandler(loggerFactory, characterService, networkManager);
+            _gameplayHandler = new GameplayHandler(loggerFactory, characterState, targetVersion);
             _petHandler = new PetHandler(loggerFactory);
 
             RegisterAttributeBasedHandlers();
@@ -272,6 +274,7 @@ namespace Client.Main.Networking.PacketHandling
                 _miniGameHandler,
                 _guildHandler,
                 _messengerHandler,
+                _gameplayHandler,
                 _petHandler
             };
 
