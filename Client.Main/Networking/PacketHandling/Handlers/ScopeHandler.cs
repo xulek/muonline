@@ -2482,56 +2482,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         }
 
 
-        [PacketHandler(0x65, PacketRouter.NoSubCode)] // AssignCharacterToGuild
-        public Task HandleAssignCharacterToGuildAsync(Memory<byte> packet)
-        {
-            try
-            {
-                var assign = new AssignCharacterToGuild(packet);
-                _logger.LogDebug("🛡️ AssignCharacterToGuild: {Count} players.", assign.PlayerCount);
-                for (int i = 0; i < assign.PlayerCount; i++)
-                {
-                    var rel = assign[i];
-                    ushort rawId = rel.PlayerId;
-                    ushort maskedId = (ushort)(rawId & 0x7FFF);
-                    _logger.LogDebug(
-                        "Player {Player:X4} (Raw: {Raw:X4}) in Guild {GuildId}, Role {Role}",
-                        maskedId, rawId, rel.GuildId, rel.Role);
-                    // TODO: update guild info in _scopeManager
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error parsing AssignCharacterToGuild (0x65).");
-            }
-            return Task.CompletedTask;
-        }
-
-        [PacketHandler(0x5D, PacketRouter.NoSubCode)] // GuildMemberLeftGuild
-        public Task HandleGuildMemberLeftGuildAsync(Memory<byte> packet)
-        {
-            try
-            {
-                if (packet.Length < GuildMemberLeftGuild.Length)
-                {
-                    _logger.LogWarning("GuildMemberLeftGuild packet too short: {Length}", packet.Length);
-                    return Task.CompletedTask;
-                }
-                var left = new GuildMemberLeftGuild(packet);
-                ushort rawId = left.PlayerId;
-                ushort maskedId = (ushort)(rawId & 0x7FFF);
-                _logger.LogDebug(
-                    "🚶 Player {Id:X4} left guild (GM: {IsGM}).",
-                    maskedId, left.IsGuildMaster
-                );
-                // TODO: clear guild info in _scopeManager
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error parsing GuildMemberLeftGuild (0x5D).");
-            }
-            return Task.CompletedTask;
-        }
+        // Guild assignment packets (0x65, 0x5D) are handled by GuildHandler.
 
         private void EnqueueDroppedItemProcessing(
             ScopeObject dropObj,

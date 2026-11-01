@@ -396,6 +396,88 @@ namespace Client.Main.Networking.Services
         }
 
         /// <summary>
+        /// Sends a guild packet built by <paramref name="write"/>; returns false when it could not be sent.
+        /// </summary>
+        private async Task<bool> SendGuildPacketAsync(string description, Func<int> write)
+        {
+            if (!_connectionManager.IsConnected)
+            {
+                _logger.LogError("Not connected - cannot send {Description}.", description);
+                return false;
+            }
+
+            try
+            {
+                await _connectionManager.Connection.SendAsync(write);
+                _logger.LogInformation("{Description} sent.", description);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending {Description}.", description);
+                return false;
+            }
+        }
+
+        /// <summary>Requests name and mark of a guild that is not cached yet (0x66).</summary>
+        public Task<bool> SendGuildInfoRequestAsync(uint guildId)
+            => SendGuildPacketAsync($"guild info request ({guildId})", () =>
+            {
+                var packet = new GuildInfoRequest(_connectionManager.Connection.Output.GetMemory(GuildInfoRequest.Length).Slice(0, GuildInfoRequest.Length));
+                packet.GuildId = guildId;
+                return GuildInfoRequest.Length;
+            });
+
+        /// <summary>Requests the member list of the own guild (0x52).</summary>
+        public Task<bool> SendGuildListRequestAsync()
+            => SendGuildPacketAsync("guild list request", () =>
+            {
+                _ = new GuildListRequest(_connectionManager.Connection.Output.GetMemory(GuildListRequest.Length).Slice(0, GuildListRequest.Length));
+                return GuildListRequest.Length;
+            });
+
+        /// <summary>
+        /// Kicks a member (guild master), leaves the guild (own name) or disbands it (guild master, own name) (0x53).
+        /// </summary>
+        public Task<bool> SendGuildKickPlayerAsync(string playerName, string securityCode)
+            => SendGuildPacketAsync("guild kick request", () =>
+            {
+                securityCode ??= string.Empty;
+                int length = GuildKickPlayerRequest.GetRequiredSize(securityCode);
+                var packet = new GuildKickPlayerRequest(_connectionManager.Connection.Output.GetMemory(length).Slice(0, length));
+                packet.PlayerName = playerName;
+                packet.SecurityCode = securityCode;
+                return length;
+            });
+
+        /// <summary>Answers the guild master NPC dialog: proceed to the creation window or cancel (0x54).</summary>
+        public Task<bool> SendGuildMasterAnswerAsync(bool showCreationDialog)
+            => SendGuildPacketAsync("guild master answer", () =>
+            {
+                var packet = new GuildMasterAnswer(_connectionManager.Connection.Output.GetMemory(GuildMasterAnswer.Length).Slice(0, GuildMasterAnswer.Length));
+                packet.ShowCreationDialog = showCreationDialog;
+                return GuildMasterAnswer.Length;
+            });
+
+        /// <summary>Creates a guild with the given name and packed 32-byte mark (0x55).</summary>
+        public Task<bool> SendGuildCreateAsync(string guildName, byte[] packedMark)
+            => SendGuildPacketAsync("guild create request", () =>
+            {
+                var packet = new GuildCreateRequest(_connectionManager.Connection.Output.GetMemory(GuildCreateRequest.Length).Slice(0, GuildCreateRequest.Length));
+                packet.GuildName = guildName;
+                packedMark.AsSpan(0, Math.Min(packedMark.Length, packet.GuildEmblem.Length)).CopyTo(packet.GuildEmblem);
+                return GuildCreateRequest.Length;
+            });
+
+        /// <summary>Cancels the guild creation window (0x57).</summary>
+        public Task<bool> SendCancelGuildCreationAsync()
+            => SendGuildPacketAsync("guild creation cancel", () =>
+            {
+                _ = new CancelGuildCreation(_connectionManager.Connection.Output.GetMemory(CancelGuildCreation.Length).Slice(0, CancelGuildCreation.Length));
+                return CancelGuildCreation.Length;
+            });
+
+        /// <summary>
         /// Requests the item list of another player's personal store.
         /// </summary>
         public async Task SendPlayerStoreListRequestAsync(ushort targetPlayerId, string targetPlayerName)

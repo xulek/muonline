@@ -47,7 +47,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 string partnerName = answer.Name;
                 ushort partnerLevel = answer.TradePartnerLevel;
                 uint guildId = answer.GuildId;
-                string partnerGuild = ""; // TODO: Resolve guild name from GuildId if needed
+                var guilds = _networkManager.GetGuildManager();
+                string partnerGuild = guilds.GetGuildName(guildId);
+                if (guildId != 0 && partnerGuild.Length == 0 && guilds.ShouldRequestGuild(guildId))
+                    _ = _networkManager.GetCharacterService()?.SendGuildInfoRequestAsync(guildId);
                 bool accepted = answer.Accepted;
 
                 if (!accepted)

@@ -44,6 +44,7 @@ namespace Client.Main.Networking.PacketHandling
         private readonly TradeHandler _tradeHandler;
         private readonly BloodCastleHandler _bloodCastleHandler;
         private readonly MiniGameHandler _miniGameHandler;
+        private readonly GuildHandler _guildHandler;
         private readonly PetHandler _petHandler;
         private readonly BuffManager _buffManager;
 
@@ -95,6 +96,7 @@ namespace Client.Main.Networking.PacketHandling
             _tradeHandler = new TradeHandler(loggerFactory, characterState, networkManager, targetVersion);
             _bloodCastleHandler = new BloodCastleHandler(loggerFactory, characterState, networkManager);
             _miniGameHandler = new MiniGameHandler(loggerFactory);
+            _guildHandler = new GuildHandler(loggerFactory, characterState, characterService, networkManager);
             _petHandler = new PetHandler(loggerFactory);
 
             RegisterAttributeBasedHandlers();
@@ -156,6 +158,7 @@ namespace Client.Main.Networking.PacketHandling
             if (!_isConnectServerRouting)
             {
                 _characterState?.ResetAfterDisconnect();
+                _networkManager?.GetGuildManager()?.Reset();
             }
 
             return Task.CompletedTask;
@@ -264,6 +267,7 @@ namespace Client.Main.Networking.PacketHandling
                 _tradeHandler,
                 _bloodCastleHandler,
                 _miniGameHandler,
+                _guildHandler,
                 _petHandler
             };
 

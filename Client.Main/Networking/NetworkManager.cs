@@ -44,6 +44,7 @@ namespace Client.Main.Networking
         private readonly ConnectServerService _connectServerService;
         private readonly CharacterState _characterState;
         private readonly PartyManager _partyManager;
+        private readonly GuildManager _guildManager;
         private readonly ScopeManager _scopeManager;
         private readonly Dictionary<byte, byte> _serverDirectionMap;
         private string _selectedCharacterNameForLogin = string.Empty;
@@ -78,6 +79,7 @@ namespace Client.Main.Networking
         public CharacterService GetCharacterService() => _characterService;
         public ScopeManager GetScopeManager() => _scopeManager;
         public PartyManager GetPartyManager() => _partyManager;
+        public GuildManager GetGuildManager() => _guildManager;
         public TargetProtocolVersion TargetVersion => _packetRouter.TargetVersion;
         public string CurrentHost => _currentHost;
         public int CurrentPort => _currentPort;
@@ -93,6 +95,8 @@ namespace Client.Main.Networking
             _characterState = characterState;
             _scopeManager = scopeManager;
             _partyManager = new PartyManager(_loggerFactory);
+            _guildManager = new GuildManager(_loggerFactory);
+            _scopeManager.GuildManager = _guildManager;
 
             var clientVersionBytes = BuildClientVersionBytes(settings.ClientVersion, _logger);
             var clientSerialBytes = BuildClientSerialBytes(settings.ClientSerial, _logger);
@@ -659,6 +663,7 @@ namespace Client.Main.Networking
         {
             _logger.LogInformation(">>> ProcessLogoutResponse: Received logout response type {Type}", type);
             _characterState.IsInGame = false;
+            _guildManager.Reset();
 
             switch (type)
             {

@@ -19,6 +19,10 @@ namespace Client.Main.Core.Client
     {
         private readonly ILogger<ScopeManager> _logger;
         private readonly CharacterState _characterState; // Needed for position-based calculations to determine proximity
+
+        /// <summary>Guild assignments of players in scope; cleaned up together with the scope.</summary>
+        public GuildManager GuildManager { get; set; }
+
         private readonly ConcurrentDictionary<ushort, ScopeObject> _objectsInScope = new(); // Thread-safe dictionary to store objects in scope, using masked IDs as keys
         private readonly Stack<PlayerScopeObject> _playerPool = new();
         private readonly Stack<NpcScopeObject> _npcPool = new();
@@ -357,6 +361,7 @@ namespace Client.Main.Core.Client
             if (_objectsInScope.TryRemove(maskedId, out var removedObject))
             {
                 _characterState.PlayerShopTitles.Remove(maskedId);
+                GuildManager?.RemovePlayer(maskedId, isSelf: false);
                 ReturnScopeObject(removedObject);
                 _logger.LogTrace("🔭 Scope Remove: ID {Id:X4} ({Type}) - Success", maskedId, removedObject.ObjectType);
                 return true;
@@ -538,6 +543,7 @@ namespace Client.Main.Core.Client
             int removedCount = 0;
 
             _characterState.PlayerShopTitles.Clear(keepSelf ? selfId : null);
+            GuildManager?.ClearPlayers(keepSelf ? selfId : null);
 
             // Remove entries individually so pooled scope objects are returned correctly. A
             // ConcurrentDictionary.Clear() would drop pooled NPC/player/money instances without

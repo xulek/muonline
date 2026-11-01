@@ -16,6 +16,7 @@ using Client.Main.Networking.PacketHandling.Handlers; // For CharacterClassNumbe
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Client.Main.Controls.UI.Game.Inventory;
+using Client.Main.Controls.UI.Game.Guild;
 using Client.Main.Controls.UI.Game.Map;
 using Client.Main.Controls.UI.Game.Party;
 using Client.Main.Controls.UI.Game.PauseMenu;
@@ -56,6 +57,9 @@ namespace Client.Main.Scenes
         private InventoryControl _inventoryControl;
         internal PlayerShopControl PlayerShop { get; private set; }
         internal OwnPlayerShopControl OwnPlayerShop { get; private set; }
+        internal GuildInfoWindow GuildInfo { get; private set; }
+        internal GuildCreateWindow GuildCreate { get; private set; }
+        private Client.Main.Core.Client.GuildManager _guildManager;
         private Controls.UI.NotificationManager _notificationManager;
         private PartyPanelControl _partyPanel;
         private readonly (string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance) _characterInfo;
@@ -311,6 +315,13 @@ namespace Client.Main.Scenes
             _inventoryControl.HookEvents();
             OwnPlayerShop = new OwnPlayerShopControl(MuGame.Network.GetCharacterState());
             Controls.Add(OwnPlayerShop);
+            _guildManager = MuGame.Network.GetGuildManager();
+            GuildInfo = new GuildInfoWindow(_guildManager, MuGame.Network.GetCharacterState());
+            Controls.Add(GuildInfo);
+            GuildCreate = new GuildCreateWindow();
+            Controls.Add(GuildCreate);
+            _guildManager.GuildMasterDialogRequested += OnGuildMasterDialogRequested;
+            _guildManager.GuildCreationDialogRequested += OnGuildCreationDialogRequested;
             _windowCloseController = new GameSceneWindowCloseController(_inventoryControl, _logger);
 
             _moveCommandWindow = new MoveCommandWindow(MuGame.AppLoggerFactory, MuGame.Network);
@@ -1350,9 +1361,27 @@ namespace Client.Main.Scenes
             }
         }
 
+        /// <summary>Guild master NPC dialog (0x54), as UIGuildMaster.cpp: proceed to the creation window or cancel.</summary>
+        private void OnGuildMasterDialogRequested()
+        {
+            var service = MuGame.Network?.GetCharacterService();
+            if (service == null) return;
+            RequestDialog.Show(
+                "Do you want to create a guild?",
+                onAccept: () => _ = service.SendGuildMasterAnswerAsync(true),
+                onReject: () => _ = service.SendGuildMasterAnswerAsync(false));
+        }
+
+        private void OnGuildCreationDialogRequested() => GuildCreate?.Show();
+
         public override void Dispose()
         {
             UiThemeManager.ThemeChanged -= HandleUiThemeChanged;
+            if (_guildManager != null)
+            {
+                _guildManager.GuildMasterDialogRequested -= OnGuildMasterDialogRequested;
+                _guildManager.GuildCreationDialogRequested -= OnGuildCreationDialogRequested;
+            }
             _pendingWorldActivation = null;
             _pendingWorldActivationScheduled = false;
             _initialWorldActivationCooldown = false;

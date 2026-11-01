@@ -1,4 +1,5 @@
 using Client.Main.Content;
+using Client.Main.Core.Client;
 using Client.Main.Controls;
 using Client.Main.Data;
 using Client.Main.Models;
@@ -153,6 +154,80 @@ namespace Client.Main.Objects.Player
         public override string DisplayName => Name;
 
         /// <summary>
+        /// Hover name plate. Guild members get the original two-line plate (ZzzInterface.cpp RenderBoolean):
+        /// "[Guild] Role" with the guild mark above the character name, coloured like
+        /// GetGuildRelationShipBGColor/TextColor (own character, own guild, other guild).
+        /// </summary>
+        public override void DrawHoverName()
+        {
+            var guilds = _networkManager?.GetGuildManager();
+            var charState = _networkManager?.GetCharacterState();
+            if (guilds == null || charState == null)
+            {
+                base.DrawHoverName();
+                return;
+            }
+
+            ushort id = IsMainWalker ? charState.Id : NetworkId;
+            if (!guilds.TryGetPlayerGuild(id, out var guild, out var role) || guild == null)
+            {
+                base.DrawHoverName();
+                return;
+            }
+
+            var font = GraphicsManager.Instance.Font;
+            if (!Constants.SHOW_NAMES_ON_HOVER || !IsMouseHover || font == null || string.IsNullOrEmpty(Name))
+                return;
+
+            Vector3 anchor = new((BoundingBoxWorld.Min.X + BoundingBoxWorld.Max.X) * 0.5f,
+                (BoundingBoxWorld.Min.Y + BoundingBoxWorld.Max.Y) * 0.5f,
+                BoundingBoxWorld.Max.Z + 20f);
+            Vector3 screen = GraphicsDevice.Viewport.Project(anchor, Camera.Instance.Projection, Camera.Instance.View, Matrix.Identity);
+            if (screen.Z < 0f || screen.Z > 1f)
+                return;
+
+            string roleName = GuildManager.GetRoleName(role);
+            string guildLine = roleName.Length > 0 ? $"[{guild.Name}] {roleName}" : $"[{guild.Name}]";
+
+            float scale = 0.4f * Constants.RENDER_SCALE;
+            Vector2 nameSize = font.MeasureString(Name) * scale;
+            Vector2 guildSize = font.MeasureString(guildLine) * scale;
+            int lineHeight = (int)MathF.Ceiling(MathF.Max(nameSize.Y, guildSize.Y));
+            int markSize = lineHeight - 2;
+            float guildWidth = markSize + 4 + guildSize.X;
+            int width = (int)MathF.Ceiling(MathF.Max(nameSize.X, guildWidth)) + 8;
+            var box = new Rectangle((int)(screen.X - width * 0.5f), (int)(screen.Y - lineHeight * 2 - 4), width, lineHeight * 2 + 4);
+
+            bool isHero = IsMainWalker;
+            bool sameGuild = guilds.HasGuild && guild.Id == guilds.OwnGuildId;
+            Color background = isHero ? new Color(60, 100, 0, 150) : sameGuild ? new Color(20, 50, 80, 150) : new Color(10, 30, 50, 150);
+            Color guildText = isHero || sameGuild ? new Color(200, 255, 0) : new Color(230, 230, 255);
+            Color nameText = isHero ? new Color(200, 255, 0) : new Color(176, 224, 230);
+
+            var sb = GraphicsManager.Instance.Sprite;
+            var pixel = GraphicsManager.Instance.Pixel;
+            if (pixel == null || pixel.IsDisposed)
+                return;
+
+            var markRect = new Rectangle(box.X + 4, box.Y + 2 + (lineHeight - markSize) / 2, markSize, markSize);
+            var guildPos = new Vector2(markRect.Right + 4, box.Y + 2);
+            var namePos = new Vector2(screen.X - nameSize.X * 0.5f, box.Y + 2 + lineHeight);
+
+            using (new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone))
+            {
+                sb.Draw(pixel, box, background);
+                sb.DrawString(font, guildLine, guildPos, guildText, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                sb.DrawString(font, Name, namePos, nameText, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            }
+
+            // The 8x8 mark is upscaled; point sampling keeps the pixel art crisp.
+            using (new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone))
+            {
+                GuildMarkTextureCache.Draw(sb, GuildMarkTextureCache.Get(guild), markRect);
+            }
+        }
+
+        /// <summary>
         /// Draws the title of this player's open personal shop above the head.
         /// Must be called inside an active SpriteBatch scope (see BaseScene pass 2c).
         /// </summary>
@@ -181,6 +256,9 @@ namespace Client.Main.Objects.Player
             Vector2 size = font.MeasureString(title) * scale;
             // Sit above the (hover) name plate so both stay readable.
             float lift = size.Y + 14f * Constants.RENDER_SCALE;
+            // The hover plate of guild members has an extra "[Guild] Role" line.
+            if (IsMouseHover && _networkManager?.GetGuildManager()?.TryGetPlayerGuild(id, out var hoverGuild, out _) == true && hoverGuild != null)
+                lift += size.Y + 4f;
             var pos = new Vector2(screen.X - size.X * 0.5f, screen.Y - size.Y - lift);
 
             var box = new Rectangle((int)(pos.X - 6), (int)(pos.Y - 3), (int)(size.X + 12), (int)(size.Y + 6));

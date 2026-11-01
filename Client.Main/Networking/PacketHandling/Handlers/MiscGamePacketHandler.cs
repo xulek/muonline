@@ -63,7 +63,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 MuGame.ScheduleOnMainThread(() =>
                 {
                     RequestDialog.Show(
-                        $"{requesterName} has invited you to their guild.",
+                        $"{requesterName} wants to join your guild.",
                         onAccept: () =>
                         {
                             _ = _characterService.SendGuildJoinResponseAsync(true, requesterId);
