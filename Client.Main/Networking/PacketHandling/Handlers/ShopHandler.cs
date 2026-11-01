@@ -35,6 +35,60 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             _targetVersion = targetVersion;
         }
 
+        /// <summary>
+        /// 0x3F/00: shop titles of players that entered the scope. Shown above their heads.
+        /// </summary>
+        [PacketHandler(0x3F, 0x00)]
+        public Task HandlePlayerShopTitlesAsync(Memory<byte> packet)
+        {
+            if (!PlayerShopTitlesParser.TryParse(packet.Span, out var shops))
+            {
+                _logger.LogWarning("Invalid player shop titles packet ({Length} bytes).", packet.Length);
+                return Task.CompletedTask;
+            }
+
+            foreach (var (playerId, title) in shops!)
+                _characterState.PlayerShopTitles.Set((ushort)(playerId & 0x7FFF), title);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 0x3F/08: an item of the own shop was sold. Removes it and shows a blue system message.
+        /// </summary>
+        [PacketHandler(0x3F, 0x08)]
+        public Task HandlePlayerShopItemSoldAsync(Memory<byte> packet)
+        {
+            if (!PlayerShopSoldParser.TryParse(packet.Span, out byte slot, out string buyer))
+            {
+                _logger.LogWarning("Invalid player shop item sold packet ({Length} bytes).", packet.Length);
+                return Task.CompletedTask;
+            }
+
+            _characterState.RemoveInventoryItem(slot);
+            MuGame.ScheduleOnMainThread(() =>
+                (MuGame.Instance?.ActiveScene as GameScene)?.ChatLog?.AddMessage(
+                    "System", $"Your shop item was sold to {buyer}.", Models.MessageType.Info));
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 0x3F/12: the shop dialog of the given player has to be closed (shop closed or sold out).
+        /// </summary>
+        [PacketHandler(0x3F, 0x12)]
+        public Task HandlePlayerShopDialogCloseAsync(Memory<byte> packet)
+        {
+            var data = packet.Span;
+            if (data.Length != 6 || data[0] != 0xC1 || data[1] != 6 || data[2] != 0x3F || data[3] != 0x12)
+            {
+                _logger.LogWarning("Invalid close player shop dialog packet ({Length} bytes).", packet.Length);
+                return Task.CompletedTask;
+            }
+
+            ushort owner = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[4..]);
+            MuGame.ScheduleOnMainThread(() => (MuGame.Instance?.ActiveScene as GameScene)?.PlayerShop?.CloseIfOwner(owner));
+            return Task.CompletedTask;
+        }
+
         [PacketHandler(0x3F, 0x01)]
         public Task HandlePlayerShopPriceResponseAsync(Memory<byte> packet)
         {
@@ -74,6 +128,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             }
             ushort owner = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[5..]);
             if (data[4] == 1 && owner == _characterState.Id) _characterState.SetPlayerShopOpen(false);
+            if (data[4] == 1 && owner != _characterState.Id)
+                _characterState.PlayerShopTitles.Remove((ushort)(owner & 0x7FFF));
             if (data[4] == 1 && owner != _characterState.Id)
                 MuGame.ScheduleOnMainThread(() => (MuGame.Instance?.ActiveScene as GameScene)?.PlayerShop?.CloseIfOwner(owner));
             return Task.CompletedTask;

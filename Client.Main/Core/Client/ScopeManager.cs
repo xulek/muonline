@@ -356,6 +356,7 @@ namespace Client.Main.Core.Client
         {
             if (_objectsInScope.TryRemove(maskedId, out var removedObject))
             {
+                _characterState.PlayerShopTitles.Remove(maskedId);
                 ReturnScopeObject(removedObject);
                 _logger.LogTrace("🔭 Scope Remove: ID {Id:X4} ({Type}) - Success", maskedId, removedObject.ObjectType);
                 return true;
@@ -535,6 +536,8 @@ namespace Client.Main.Core.Client
             ushort selfId = _characterState.Id;
             bool keepSelf = !clearSelf && selfId != 0xFFFF;
             int removedCount = 0;
+
+            _characterState.PlayerShopTitles.Clear(keepSelf ? selfId : null);
 
             // Remove entries individually so pooled scope objects are returned correctly. A
             // ConcurrentDictionary.Clear() would drop pooled NPC/player/money instances without

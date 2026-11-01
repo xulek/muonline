@@ -152,6 +152,51 @@ namespace Client.Main.Objects.Player
         public string Name { get; set; } = "Character";
         public override string DisplayName => Name;
 
+        /// <summary>
+        /// Draws the title of this player's open personal shop above the head.
+        /// Must be called inside an active SpriteBatch scope (see BaseScene pass 2c).
+        /// </summary>
+        public void DrawShopTitle()
+        {
+            var font = GraphicsManager.Instance.Font;
+            var sb = GraphicsManager.Instance.Sprite;
+            var pixel = GraphicsManager.Instance.Pixel;
+            var charState = _networkManager?.GetCharacterState();
+            if (font == null || sb == null || pixel == null || pixel.IsDisposed || charState == null || !Visible)
+                return;
+
+            ushort id = IsMainWalker ? charState.Id : NetworkId;
+            if (!charState.PlayerShopTitles.TryGet(id, out string title))
+                return;
+
+            Vector3 anchor = new((BoundingBoxWorld.Min.X + BoundingBoxWorld.Max.X) * 0.5f,
+                (BoundingBoxWorld.Min.Y + BoundingBoxWorld.Max.Y) * 0.5f,
+                BoundingBoxWorld.Max.Z + 20f);
+            Vector3 screen = GraphicsDevice.Viewport.Project(
+                anchor, Camera.Instance.Projection, Camera.Instance.View, Matrix.Identity);
+            if (screen.Z < 0f || screen.Z > 1f)
+                return;
+
+            float scale = 0.42f * Constants.RENDER_SCALE;
+            Vector2 size = font.MeasureString(title) * scale;
+            // Sit above the (hover) name plate so both stay readable.
+            float lift = size.Y + 14f * Constants.RENDER_SCALE;
+            var pos = new Vector2(screen.X - size.X * 0.5f, screen.Y - size.Y - lift);
+
+            var box = new Rectangle((int)(pos.X - 6), (int)(pos.Y - 3), (int)(size.X + 12), (int)(size.Y + 6));
+            var viewport = GraphicsDevice.Viewport;
+            if (box.Right < 0 || box.Bottom < 0 || box.X > viewport.Width || box.Y > viewport.Height)
+                return;
+
+            var border = new Color(214, 170, 70, 220);
+            sb.Draw(pixel, box, new Color(25, 18, 8, 190));
+            sb.Draw(pixel, new Rectangle(box.X, box.Y, box.Width, 1), border);
+            sb.Draw(pixel, new Rectangle(box.X, box.Bottom - 1, box.Width, 1), border);
+            sb.Draw(pixel, new Rectangle(box.X, box.Y, 1, box.Height), border);
+            sb.Draw(pixel, new Rectangle(box.Right - 1, box.Y, 1, box.Height), border);
+            sb.DrawString(font, title, pos, new Color(255, 232, 150), 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        }
+
         private readonly CharacterService _characterService;
         private readonly NetworkManager _networkManager;
 

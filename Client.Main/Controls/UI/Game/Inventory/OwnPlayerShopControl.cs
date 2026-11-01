@@ -424,7 +424,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
             if (service != null)
             {
                 SetStatus("Opening shop...", ModernHudTheme.TextGold);
-                await service.SendPlayerShopOpenAsync(_title.Value.Trim());
+                _state.PendingPlayerShopTitle = _title.Value.Trim();
+                await service.SendPlayerShopOpenAsync(_state.PendingPlayerShopTitle);
             }
         }
 

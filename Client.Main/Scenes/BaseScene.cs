@@ -585,6 +585,25 @@ namespace Client.Main.Scenes
                 }
             }
 
+            // --- Pass 2c: Personal shop titles above the players' heads (always visible) ---
+            if (MuGame.Network?.GetCharacterState()?.PlayerShopTitles.HasAny == true)
+            {
+                using (new SpriteBatchScope(
+                           GraphicsManager.Instance.Sprite,
+                           SpriteSortMode.Deferred,
+                           BlendState.NonPremultiplied,
+                           SamplerState.LinearClamp,
+                           DepthStencilState.None,
+                           RasterizerState.CullNone))
+                {
+                    for (int i = 0; i < worldObjects.Count; i++)
+                    {
+                        if (worldObjects[i] is Client.Main.Objects.Player.PlayerObject player)
+                            player.DrawShopTitle();
+                    }
+                }
+            }
+
             // --- Pass 3: Render standard 2D UI (HUD overlays) ---
             // This batch ignores the depth buffer and draws on top of everything.
             using (new SpriteBatchScope(

@@ -15,6 +15,47 @@ namespace Client.Main.Networking.PacketHandling
         public bool Success => Result == 1;
     }
 
+    internal static class PlayerShopTitlesParser
+    {
+        private const int HeaderLength = 6;
+        private const int EntryLength = 38;
+
+        /// <summary>Parses 0x3F/00: the shop titles of players that entered the scope.</summary>
+        public static bool TryParse(ReadOnlySpan<byte> data, out IReadOnlyList<(ushort PlayerId, string Title)>? shops)
+        {
+            shops = null;
+            if (data.Length < HeaderLength || data[0] != 0xC2 || BinaryPrimitives.ReadUInt16BigEndian(data[1..]) != data.Length ||
+                data[3] != 0x3F || data[4] != 0x00 || data.Length != HeaderLength + data[5] * EntryLength)
+                return false;
+
+            var list = new List<(ushort PlayerId, string Title)>(data[5]);
+            for (int i = 0; i < data[5]; i++)
+            {
+                var entry = data.Slice(HeaderLength + i * EntryLength, EntryLength);
+                list.Add((BinaryPrimitives.ReadUInt16BigEndian(entry), PlayerShopListParser.ReadString(entry[2..])));
+            }
+
+            shops = list;
+            return true;
+        }
+    }
+
+    internal static class PlayerShopSoldParser
+    {
+        /// <summary>Parses 0x3F/08: an item of the own shop was sold to <paramref name="buyerName"/>.</summary>
+        public static bool TryParse(ReadOnlySpan<byte> data, out byte inventorySlot, out string buyerName)
+        {
+            inventorySlot = 0;
+            buyerName = string.Empty;
+            if (data.Length != 15 || data[0] != 0xC1 || data[1] != 15 || data[2] != 0x3F || data[3] != 0x08)
+                return false;
+
+            inventorySlot = data[4];
+            buyerName = PlayerShopListParser.ReadString(data.Slice(5, 10));
+            return true;
+        }
+    }
+
     internal static class PlayerShopBuyResultParser
     {
         public static bool TryParse(ReadOnlySpan<byte> data, bool extended, out PlayerShopBuyResultData? result)
@@ -88,7 +129,7 @@ namespace Client.Main.Networking.PacketHandling
             return true;
         }
 
-        private static string ReadString(ReadOnlySpan<byte> data)
+        internal static string ReadString(ReadOnlySpan<byte> data)
         {
             int terminator = data.IndexOf((byte)0);
             return Encoding.UTF8.GetString(terminator < 0 ? data : data[..terminator]);

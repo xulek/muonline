@@ -455,10 +455,20 @@ namespace Client.Main.Core.Client
         public bool IsPlayerShopOpen { get; private set; }
         public event Action<bool> PlayerShopOpenChanged;
 
+        /// <summary>Titles of the open personal shops in scope (own shop included).</summary>
+        public PlayerShopTitleRegistry PlayerShopTitles { get; } = new();
+
+        /// <summary>Title sent with the last shop open request; shown above the hero once the server confirms.</summary>
+        public string PendingPlayerShopTitle { get; set; }
+
         public void SetPlayerShopOpen(bool value)
         {
             if (IsPlayerShopOpen == value) return;
             IsPlayerShopOpen = value;
+            if (value)
+                PlayerShopTitles.Set(Id, PendingPlayerShopTitle);
+            else
+                PlayerShopTitles.Remove(Id);
             PlayerShopOpenChanged?.Invoke(value);
         }
 
