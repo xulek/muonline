@@ -26,11 +26,20 @@ namespace Client.Main.Objects.Worlds.Tarkan
 
         // SourceMain AddTerrainLight: type 4 -> white range 3; type 7 -> warm range 3;
         // types 61/65/66 -> warm range 2
-        private readonly Controls.DynamicLight? _terrainLight;
+        private Controls.DynamicLight? _terrainLight;
 
-        protected override bool RequiresPerFrameAnimation => true;
-        protected override bool AllowMapObjectInstancing => false;
-        public override bool IsStaticForCaching => false;
+        // Only the types with SourceMain per-frame effects (UV scrolling, pulsing light, blend meshes, hidden
+        // meshes with particles, flag animation, chrome pass) need the per-object path; the plain props and
+        // rocks use static map instancing like other maps.
+        private bool HasSourceEffects => IsSourceEffectType(Type);
+
+        private static bool IsSourceEffectType(int type) => type is
+            2 or 4 or 7 or 8 or 11 or 12 or 13 or 60 or 61 or 63 or 64 or 65 or 66 or
+            70 or 72 or 73 or 75 or 76 or 79 or 81 or 82 or 83;
+
+        protected override bool RequiresPerFrameAnimation => HasSourceEffects;
+        protected override bool AllowMapObjectInstancing => !HasSourceEffects;
+        public override bool IsStaticForCaching => !HasSourceEffects;
 
         protected override bool ForceTwoSidedMeshes =>
             Type == 8 || Type == 6 || Type == 11 || Type == 12 || Type == 13 ||
@@ -41,22 +50,15 @@ namespace Client.Main.Objects.Worlds.Tarkan
         {
             LightEnabled = true;
             _visualEffect = new TarkanObjectVisualEffect(this);
-            Children.Add(_visualEffect);
-
-            float lightRangeTiles = Type == 4 || Type == 7 ? 3f : Type is 61 or 65 or 66 ? 2f : 0f;
-            if (lightRangeTiles > 0f)
-            {
-                _terrainLight = new Controls.DynamicLight
-                {
-                    Owner = this,
-                    Radius = lightRangeTiles * Constants.TERRAIN_SCALE,
-                    Intensity = 1f
-                };
-            }
         }
 
         public override async Task Load()
         {
+            // Only types 63/64 draw impact sprites; a child on every prop would keep it out of the
+            // static map update skip.
+            if ((Type == 63 || Type == 64) && !Children.Contains(_visualEffect))
+                Children.Add(_visualEffect);
+
             BlendMeshState = BlendState.Additive;
 
             // Type 8 (Flag): 4x animation speed and NonPremultiplied alpha
@@ -74,6 +76,19 @@ namespace Client.Main.Objects.Worlds.Tarkan
             }
 
             await base.Load();
+
+            // Type is assigned by the map object factory after construction, so the light is created here.
+            float lightRangeTiles = Type == 4 || Type == 7 ? 3f : Type is 61 or 65 or 66 ? 2f : 0f;
+            if (lightRangeTiles > 0f && _terrainLight == null)
+            {
+                _terrainLight = new Controls.DynamicLight
+                {
+                    Owner = this,
+                    Position = WorldPosition.Translation,
+                    Radius = lightRangeTiles * Constants.TERRAIN_SCALE,
+                    Intensity = 1f
+                };
+            }
 
             if (_terrainLight != null && World?.Terrain != null)
                 World.Terrain.AddDynamicLight(_terrainLight);

@@ -27,6 +27,7 @@ namespace Client.Main.Objects.Effects
         }
 
         private readonly Bubble[] _bubbles = new Bubble[MAX_BUBBLES];
+        private Matrix _viewProjection;
         private readonly Random _rnd = new Random();
 
         // Texture for the bubble (PNG with transparency)
@@ -96,10 +97,12 @@ namespace Client.Main.Objects.Effects
 
             var sb = GraphicsManager.Instance.Sprite;
 
-            // Render bubbles with depth write enabled so they can occlude other objects
+            // Render bubbles with depth write enabled so they can occlude other objects.
+            // Deferred keeps the submission order (same result) but draws the system in one call.
+            _viewProjection = Camera.Instance.View * Camera.Instance.Projection;
             using (new SpriteBatchScope(
                        sb,
-                       SpriteSortMode.Immediate,
+                       SpriteSortMode.Deferred,
                        BlendState.AlphaBlend,
                        SamplerState.LinearClamp,
                        DepthStencilState.Default,
@@ -207,13 +210,18 @@ namespace Client.Main.Objects.Effects
 
         private void DrawBubbleBillboard(Bubble bubble)
         {
-            // Project the bubble's 3D position to 2D screen coordinates
-            Vector3 screenPos = GraphicsDevice.Viewport.Project(
-                bubble.Position,
-                Camera.Instance.Projection,
-                Camera.Instance.View,
-                Matrix.Identity
-            );
+            // Project the bubble's 3D position to 2D screen coordinates (Viewport.Project with the
+            // view-projection computed once per system instead of per bubble).
+            Vector4 clip = Vector4.Transform(new Vector4(bubble.Position, 1f), _viewProjection);
+            if (clip.W <= 0f)
+                return;
+
+            var viewport = GraphicsDevice.Viewport;
+            float invW = 1f / clip.W;
+            Vector3 screenPos = new Vector3(
+                (clip.X * invW + 1f) * 0.5f * viewport.Width + viewport.X,
+                (-clip.Y * invW + 1f) * 0.5f * viewport.Height + viewport.Y,
+                clip.Z * invW * (viewport.MaxDepth - viewport.MinDepth) + viewport.MinDepth);
 
             // Skip if behind camera
             if (screenPos.Z < 0f || screenPos.Z > 1f)
