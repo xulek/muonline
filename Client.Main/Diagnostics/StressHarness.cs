@@ -33,7 +33,55 @@ namespace Client.Main.Diagnostics
 
         private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, Done }
 
-        private const byte HeroX = 135, HeroY = 128;
+        // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
+        private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
+        private static readonly byte HeroX = ParsePos(0, 135), HeroY = ParsePos(1, 128);
+
+        private static byte ParsePos(int index, byte fallback)
+        {
+            var parts = (Environment.GetEnvironmentVariable("MU_STRESS_POS") ?? string.Empty).Split(',');
+            return parts.Length == 2 && byte.TryParse(parts[index], out byte value) ? value : fallback;
+        }
+
+        // MU_STRESS_LIGHTS=N adds N dynamic lights around the hero (radius 250-400, warm colours);
+        // MU_STRESS_LIGHT_FLICKER=1 changes their intensity every frame like fire effects do.
+        private static readonly int StressLightCount = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_LIGHTS"), out int lights) ? lights : 0;
+        private static readonly bool StressLightFlicker = Environment.GetEnvironmentVariable("MU_STRESS_LIGHT_FLICKER") == "1";
+        private static readonly List<DynamicLight> StressLights = new();
+
+        private static void AddStressLights(MuGame game)
+        {
+            var terrain = game.ActiveScene?.World?.Terrain;
+            if (StressLightCount <= 0 || terrain == null || StressLights.Count > 0)
+                return;
+
+            var random = new Random(3);
+            int side = (int)Math.Ceiling(Math.Sqrt(StressLightCount));
+            for (int i = 0; i < StressLightCount; i++)
+            {
+                float x = (HeroX - side + (i % side) * 2 + 0.5f) * Constants.TERRAIN_SCALE;
+                float y = (HeroY - side + (i / side) * 2 + 0.5f) * Constants.TERRAIN_SCALE;
+                var light = new DynamicLight
+                {
+                    Position = new Vector3(x, y, terrain.RequestTerrainHeight(x, y) + 80f),
+                    Color = new Vector3(1f, 0.6f + (float)random.NextDouble() * 0.3f, 0.3f),
+                    Radius = 250f + (float)random.NextDouble() * 150f,
+                    Intensity = 1f
+                };
+                terrain.AddDynamicLight(light);
+                StressLights.Add(light);
+            }
+            Console.WriteLine($"[stress] added {StressLights.Count} dynamic lights");
+        }
+
+        private static void FlickerStressLights()
+        {
+            if (!StressLightFlicker)
+                return;
+            double t = PhaseClock.Elapsed.TotalSeconds;
+            for (int i = 0; i < StressLights.Count; i++)
+                StressLights[i].Intensity = 0.8f + 0.2f * MathF.Sin((float)(t * 9.0 + i * 1.7));
+        }
         private const ushort FirstMonsterId = 0x0200;
 
         private static readonly List<ushort> Types = new();
@@ -92,7 +140,7 @@ namespace Client.Main.Diagnostics
             state.Name = "Stress";
             state.Class = CharacterClassNumber.DarkKnight;
             state.Level = 400;
-            state.MapId = 0;
+            state.MapId = StressMap;
             state.PositionX = HeroX;
             state.PositionY = HeroY;
             var appearance = new byte[25];
@@ -121,8 +169,8 @@ namespace Client.Main.Diagnostics
         /// <summary>Called at the end of every drawn frame.</summary>
         public static void OnFrame(MuGame game, FrameProfiler.Snapshot frame)
         {
-
             if (!Enabled || _phase == Phase.Done) return;
+            FlickerStressLights();
             double elapsed = PhaseClock.Elapsed.TotalSeconds;
 
             switch (_phase)
@@ -145,6 +193,7 @@ namespace Client.Main.Diagnostics
                 case Phase.Settle:
                     if (elapsed >= 3)
                     {
+                        AddStressLights(game);
                         if (InventoryScene)
                         {
                             FillInventory(game);
