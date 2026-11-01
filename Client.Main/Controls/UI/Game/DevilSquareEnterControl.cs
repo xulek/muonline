@@ -587,19 +587,12 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
-            if (!_hasMatchingInvitation)
-            {
-                string msg = _hasAnyInvitation
-                    ? $"Devil's Invitation +{_expectedInvitationLevel} required."
-                    : "Devil's Invitation required to enter.";
-                RequestDialog.ShowInfo(msg);
-                return;
-            }
-
+            // Like the original (SendDevilSquareEnterRequest(level, 0xFF)) the server finds a suitable
+            // invitation itself when no slot is given and answers with the reason when entering fails.
             var svc = MuGame.Network?.GetCharacterService();
             if (svc != null)
             {
-                _ = svc.SendDevilSquareEnterRequestAsync((byte)_activeIndex, _matchingInvitationSlot);
+                _ = svc.SendDevilSquareEnterRequestAsync((byte)_activeIndex, _hasMatchingInvitation ? _matchingInvitationSlot : (byte)0xFF);
             }
 
             CloseWindow();
@@ -669,15 +662,14 @@ namespace Client.Main.Controls.UI.Game
                 }
 
                 var data = item.Value;
-                if (data == null || data.Length < 6)
+                if (data == null || data.Length == 0)
                 {
                     continue;
                 }
 
-                byte group = ItemDatabase.GetItemGroup(data);
-                short id = data[0];
-
-                if (group != 14 || id != 19)
+                // Devil's Invitation (14,19). The definition lookup understands the Season 6 extended item
+                // format, whose items can be shorter than 6 bytes and do not store the number in byte 0.
+                if (ItemDatabase.GetItemDefinition(data) is not { Group: 14, Id: 19 })
                 {
                     continue;
                 }

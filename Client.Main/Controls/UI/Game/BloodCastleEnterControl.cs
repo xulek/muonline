@@ -604,19 +604,12 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
-            if (!_hasMatchingTicket)
-            {
-                string msg = _hasAnyTicket
-                    ? $"Blood Castle {_expectedTicketLevel} Invisibility Cloak required."
-                    : "Invisibility Cloak required to enter.";
-                RequestDialog.ShowInfo(msg);
-                return;
-            }
-
+            // Like the original (SendBloodCastleEnterRequest(level, 0xFF)) the server finds a suitable
+            // cloak itself when no slot is given and answers with the reason when entering fails.
             var svc = MuGame.Network?.GetCharacterService();
             if (svc != null)
             {
-                _ = svc.SendBloodCastleEnterRequestAsync((byte)(_activeIndex + 1), _matchingTicketSlot);
+                _ = svc.SendBloodCastleEnterRequestAsync((byte)(_activeIndex + 1), _hasMatchingTicket ? _matchingTicketSlot : (byte)0xFF);
             }
 
             CloseWindow();
@@ -699,16 +692,14 @@ namespace Client.Main.Controls.UI.Game
                 }
 
                 var data = item.Value;
-                if (data == null || data.Length < 6)
+                if (data == null || data.Length == 0)
                 {
                     continue;
                 }
 
-                byte group = ItemDatabase.GetItemGroup(data);
-                short id = data[0];
-
-                // Invisibility Cloak / Blood Castle Ticket (group 13, id 18)
-                if (group != 13 || id != 18)
+                // Invisibility Cloak / Blood Castle Ticket (13,18). The definition lookup understands the
+                // Season 6 extended item format, whose items can be shorter than 6 bytes.
+                if (ItemDatabase.GetItemDefinition(data) is not { Group: 13, Id: 18 })
                 {
                     continue;
                 }

@@ -82,6 +82,27 @@ async Task ToLorenciaAsync(NetworkManager network, CharacterState state)
 }
 
 var (gm, gmState, gmName) = await EnterGameAsync(Env("MU_TEST_GM_USER"), Env("MU_TEST_GM_PASSWORD"));
+if (Environment.GetEnvironmentVariable("MU_TEST_TICKETS") == "1")
+{
+    // Devil's Invitation +1 (14,19) and Invisibility Cloak +1 (13,18) as recognised by the event enter windows.
+    foreach (var (group, number) in new[] { (14, 19), (13, 18) })
+    {
+        var seen = new HashSet<ushort>(gm.GetScopeManager().GetScopeItems(ScopeObjectType.Item).Select(i => i.Id));
+        await gm.SendPublicChatMessageAsync($"/item {group} {number} 1");
+        ItemScopeObject? droppedTicket = null;
+        await WaitFor(() => (droppedTicket = gm.GetScopeManager().GetScopeItems(ScopeObjectType.Item).OfType<ItemScopeObject>()
+            .FirstOrDefault(i => !seen.Contains(i.Id) && ItemDatabase.GetItemDefinition(i.ItemData.ToArray()) is { } d && d.Group == group && d.Id == number)) != null, 8);
+        if (droppedTicket == null) { Report(false, $"/item {group} {number} 1 dropped"); continue; }
+        await gm.GetCharacterService().SendPickupItemRequestAsync(droppedTicket.RawId, TargetProtocolVersion.Season6);
+        KeyValuePair<byte, byte[]> owned = default;
+        bool found = await WaitFor(() => (owned = gmState.GetInventoryItems().FirstOrDefault(e => e.Key >= 12 && ItemDatabase.GetItemDefinition(e.Value) is { } d && d.Group == group && d.Id == number)).Value != null, 8);
+        var data = owned.Value ?? Array.Empty<byte>();
+        Report(found && ItemDatabase.ParseItemDetails(data).Level == 1, $"Ticket ({group},{number}) +1 recognised from the inventory",
+            $"slot {owned.Key}, level {ItemDatabase.ParseItemDetails(data).Level}, {data.Length} bytes {Convert.ToHexString(data)}, old check (len>=6, data[0]=={number}): {data.Length >= 6 && data[0] == number}");
+    }
+    await gm.DisposeAsync();
+    return failures == 0 ? 0 : 1;
+}
 if (Environment.GetEnvironmentVariable("MU_TEST_SHOW_RINGS") is { } restore)
 {
     foreach (var (slot, data) in gmState.GetInventoryItems().OrderBy(e => e.Key))
