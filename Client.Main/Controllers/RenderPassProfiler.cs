@@ -160,14 +160,51 @@ public static class RenderPassProfiler
         _previewBudgetSkips = 0;
     }
 
-    public static PassToken Start() => Enabled
-        ? new PassToken(Stopwatch.GetTimestamp(), GC.GetAllocatedBytesForCurrentThread())
-        : default;
+    /// <summary>
+    /// Diagnostics (MU_GPU_SYNC=1): wait for the GPU at every pass boundary, so pass times include the
+    /// GPU execution of their commands instead of only the CPU submission. Serializes CPU and GPU, so the
+    /// frame rate is lower; compare passes with each other, not with an unsynchronized run.
+    /// </summary>
+    public static readonly bool GpuSync = Environment.GetEnvironmentVariable("MU_GPU_SYNC") == "1";
+    private static Microsoft.Xna.Framework.Graphics.OcclusionQuery _gpuFence;
+    public static double GpuFenceTimeoutCount;
+
+    public static void WaitForGpu()
+    {
+        var device = Client.Main.Controllers.GraphicsManager.Instance?.GraphicsDevice;
+        if (device == null)
+            return;
+
+        _gpuFence ??= new Microsoft.Xna.Framework.Graphics.OcclusionQuery(device);
+        _gpuFence.Begin();
+        _gpuFence.End();
+        long started = Stopwatch.GetTimestamp();
+        while (!_gpuFence.IsComplete)
+        {
+            if (Stopwatch.GetElapsedTime(started).TotalMilliseconds > 100)
+            {
+                GpuFenceTimeoutCount++;
+                return;
+            }
+        }
+    }
+
+    public static PassToken Start()
+    {
+        if (!Enabled)
+            return default;
+        if (GpuSync)
+            WaitForGpu();
+        return new PassToken(Stopwatch.GetTimestamp(), GC.GetAllocatedBytesForCurrentThread());
+    }
 
     private static void Measure(PassToken token, ref double elapsedMs, ref double allocatedKb)
     {
         if (!Enabled || token.Timestamp == 0L)
             return;
+
+        if (GpuSync)
+            WaitForGpu();
 
         elapsedMs += Stopwatch.GetElapsedTime(token.Timestamp).TotalMilliseconds;
         long allocated = GC.GetAllocatedBytesForCurrentThread() - token.AllocatedBytes;

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Graphics;
@@ -68,6 +69,8 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_MERGED_SHADOWS") is { } mergedShadows)
+                Constants.ENABLE_MERGED_MESH_SHADOWS = mergedShadows == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_WEAPONS") is { } weapons)
                 Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING = weapons == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_CROWD") is { } crowd)
@@ -98,6 +101,9 @@ namespace Client.Main.Diagnostics
                 });
             });
             PhaseClock.Restart();
+            Console.WriteLine($"[stress] adapter: {game.GraphicsDevice?.Adapter?.Description} profile={game.GraphicsDevice?.GraphicsProfile} backbuffer={game.GraphicsDevice?.PresentationParameters.BackBufferWidth}x{game.GraphicsDevice?.PresentationParameters.BackBufferHeight}");
+            foreach (var adapter in Microsoft.Xna.Framework.Graphics.GraphicsAdapter.Adapters)
+                Console.WriteLine($"[stress] available adapter: {adapter.Description} default={adapter.IsDefaultAdapter}");
             Console.WriteLine($"[stress] start: types {string.Join(",", Types)}, count {_count}, children {Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN}, crowd {Constants.ENABLE_WALKER_CROWD_INSTANCING}");
         }
 
@@ -176,9 +182,46 @@ namespace Client.Main.Diagnostics
 
         // MU_STRESS_TRACE=1: one line per second of the measured phase, to find periodic drops.
         private static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("MU_STRESS_TRACE") == "1";
+        private static readonly bool TypeTraceEnabled = ObjectTypeProfiler.Enabled = TraceEnabled;
         private static int _traceSecond = -1, _traceFrames, _traceDirty, _tracePoses, _traceGc0, _traceGc1, _traceGc2;
         private static double _traceWorstMs;
         private static int _traceSlow;
+        private static TimeSpan _traceProcCpu, _traceMainCpu, _traceGcPause;
+        private static long _traceTpItems;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentThread();
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+
+        private static double _benchSink;
+
+        /// <summary>
+        /// Fixed amount of scalar work timed on the main thread. When it takes longer, the core runs slower
+        /// (clock/power limits or contention); when it stays constant, a slower frame means more game work.
+        /// </summary>
+        private static double CpuBenchmarkMicroseconds()
+        {
+            double best = double.MaxValue;
+            for (int run = 0; run < 3; run++)
+            {
+                long start = Stopwatch.GetTimestamp();
+                double x = 1.0001;
+                for (int i = 0; i < 200_000; i++)
+                    x = x * 1.0000001 + 0.0000001;
+                _benchSink += x;
+                best = Math.Min(best, (Stopwatch.GetTimestamp() - start) * 1_000_000.0 / Stopwatch.Frequency);
+            }
+            return best;
+        }
+
+        /// <summary>CPU time of the calling (main) thread; OnFrame runs on the game thread.</summary>
+        private static TimeSpan MainThreadCpu() =>
+            GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user)
+                ? TimeSpan.FromTicks(kernel + user)
+                : TimeSpan.Zero;
+        private static double _traceScene, _traceWbase, _traceShadow;
         private static double _traceUpd, _traceDraw, _traceWobj, _traceTerr, _traceAfter, _tracePost, _traceFw;
         private static readonly System.Diagnostics.Stopwatch TraceClock = System.Diagnostics.Stopwatch.StartNew();
         private static long _traceBytes, _traceAlloc;
@@ -192,12 +235,20 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
+                    ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
+                    ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
+                    Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(8, _traceFrames)}");
                 }
                 _traceSecond = second; _traceFrames = 0; _traceDirty = 0; _tracePoses = 0; _traceBytes = 0; _traceWorstMs = 0; _traceSlow = 0;
+                _traceScene = _traceWbase = _traceShadow = 0;
                 _traceUpd = _traceDraw = _traceWobj = _traceTerr = _traceAfter = _tracePost = _traceFw = 0;
                 _traceGc0 = GC.CollectionCount(0); _traceGc1 = GC.CollectionCount(1); _traceGc2 = GC.CollectionCount(2);
                 _traceAlloc = GC.GetTotalAllocatedBytes();
+                _traceProcCpu = Process.GetCurrentProcess().TotalProcessorTime;
+                _traceMainCpu = MainThreadCpu();
+                _traceTpItems = ThreadPool.CompletedWorkItemCount;
+                _traceGcPause = GC.GetTotalPauseDuration();
             }
             _traceFrames++;
             double frameMs = TraceClock.Elapsed.TotalMilliseconds;
@@ -209,6 +260,7 @@ namespace Client.Main.Diagnostics
             _traceUpd += frame.UpdateMs; _traceDraw += frame.DrawMs; _traceWobj += passes.WorldObjectsMs;
             _traceTerr += passes.TerrainOpaqueMs; _traceAfter += passes.SceneAfterMs; _tracePost += passes.PostProcessMs;
             _traceFw += passes.FrameworkDrawMs;
+            _traceScene += passes.SceneDrawMs; _traceWbase += passes.WorldBaseMs; _traceShadow += passes.ShadowMs;
             _tracePoses += ModelObject.LastFrameWalkerCrowdMultiPoseUniquePoses;
             _traceBytes += ModelObject.LastFrameWalkerCrowdMultiPosePaletteBytes;
         }

@@ -1656,7 +1656,9 @@ namespace Client.Main.Controls
 
                     try
                     {
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                         obj.Draw(time);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.Draw, typeProfileStarted);
                         ClearRenderFault(obj, "Draw.Sprite");
                     }
                     catch (Exception ex)
@@ -1710,7 +1712,9 @@ namespace Client.Main.Controls
                     SetDepthState(ResolveObjectDepthState(obj, depthState));
                     try
                     {
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                         obj.Draw(time);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.Draw, typeProfileStarted);
                         ClearRenderFault(obj, "Draw.Model");
                     }
                     catch (Exception ex)
@@ -1779,7 +1783,9 @@ namespace Client.Main.Controls
 
                     try
                     {
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                         model.DrawQueuedCrowdInstancingSidePasses(time);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(model, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.CrowdSide, typeProfileStarted);
                         ClearRenderFault(model, "Draw.CrowdSidePass");
                     }
                     catch (Exception ex)
@@ -1846,7 +1852,9 @@ namespace Client.Main.Controls
                         continue;
 
                     _cutoutMapBatch.Flush(time);
+                    long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                     obj.DrawAfter(time);
+                    Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.DrawAfter, typeProfileStarted);
                     ClearRenderFault(obj, "DrawAfter");
                 }
                 catch (Exception ex)
@@ -2642,7 +2650,9 @@ namespace Client.Main.Controls
                     // frame. ModelObject throttles only its expensive bone-pose calculation.
                     if (!profileObjectUpdates)
                     {
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                         obj.Update(time);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.Update, typeProfileStarted);
                     }
                     else
                     {
