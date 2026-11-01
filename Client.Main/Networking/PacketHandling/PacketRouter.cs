@@ -30,6 +30,7 @@ namespace Client.Main.Networking.PacketHandling
         private readonly ILogger<PacketRouter> _logger;
         private readonly NetworkManager _networkManager;
         private readonly MuOnlineSettings _settings;
+        private readonly CharacterState _characterState;
 
         private readonly CharacterDataHandler _characterDataHandler;
         private readonly InventoryHandler _inventoryHandler;
@@ -76,6 +77,7 @@ namespace Client.Main.Networking.PacketHandling
             TargetVersion = targetVersion;
             _networkManager = networkManager;
             _settings = settings;
+            _characterState = characterState;
 
             // Instantiate BuffManager (shared across handlers)
             _buffManager = new BuffManager(loggerFactory);
@@ -148,7 +150,14 @@ namespace Client.Main.Networking.PacketHandling
         {
             _logger.LogWarning("Disconnected from {Server}.", _isConnectServerRouting ? "Connect Server" : "Game Server");
             LogUnhandledSummary();
-            // TODO: Reset client state as needed, e.g. _networkManager.SetInGameStatus(false);
+            _unhandledPackets.Clear();
+
+            // Requests sent before the connection dropped will never be answered.
+            if (!_isConnectServerRouting)
+            {
+                _characterState?.ResetAfterDisconnect();
+            }
+
             return Task.CompletedTask;
         }
 

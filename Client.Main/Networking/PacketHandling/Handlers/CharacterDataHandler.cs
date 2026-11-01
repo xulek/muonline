@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MUnique.OpenMU.Network.Packets;
 using MUnique.OpenMU.Network.Packets.ServerToClient;
 using System;
+using System.Buffers.Binary;
 using System.Threading.Tasks;
 using Client.Main.Core.Utilities;
 using Client.Main.Core.Client;
@@ -1214,6 +1215,60 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "💥 Error parsing MasterSkillLevelUpdate packet.");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xF3, 0x53)] // MasterSkillList
+        public Task HandleMasterSkillListAsync(Memory<byte> packet)
+        {
+            const int headerLength = 12;
+            const int entryLength = 12;
+            try
+            {
+                var span = packet.Span;
+                if (span.Length < headerLength)
+                {
+                    _logger.LogWarning("⚠️ MasterSkillList packet too short: {Length}", span.Length);
+                    return Task.CompletedTask;
+                }
+
+                uint count = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(8, 4));
+                int available = (span.Length - headerLength) / entryLength;
+                if (count > available)
+                {
+                    _logger.LogWarning("⚠️ MasterSkillList announces {Count} skills but carries {Available}.", count, available);
+                    count = (uint)available;
+                }
+
+                byte characterClass = (byte)_characterState.Class;
+                int applied = 0;
+                for (int i = 0; i < count; i++)
+                {
+                    var entry = span.Slice(headerLength + i * entryLength, entryLength);
+                    byte index = entry[0];
+                    if (!MasterSkillIndexMap.TryGetSkillNumber(characterClass, index, out ushort skillNumber))
+                    {
+                        _logger.LogDebug("MasterSkillList: unknown tree index {Index} for class {Class}.", index, _characterState.Class);
+                        continue;
+                    }
+
+                    _characterState.AddOrUpdateSkill(new SkillEntryState
+                    {
+                        SkillId = skillNumber,
+                        SkillLevel = entry[1],
+                        DisplayValue = BinaryPrimitives.ReadSingleLittleEndian(entry.Slice(4, 4)),
+                        NextDisplayValue = BinaryPrimitives.ReadSingleLittleEndian(entry.Slice(8, 4))
+                    });
+                    applied++;
+                }
+
+                _logger.LogInformation("Ⓜ️ MasterSkillList: {Applied}/{Count} master skills applied.", applied, count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "💥 Error parsing MasterSkillList packet.");
             }
 
             return Task.CompletedTask;

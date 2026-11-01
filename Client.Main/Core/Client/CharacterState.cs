@@ -541,6 +541,30 @@ namespace Client.Main.Core.Client
             }
         }
 
+        /// <summary>
+        /// Drops state that only makes sense on a live game server connection: pending requests
+        /// awaiting a response, the own shop flag and shop titles of the old scope.
+        /// </summary>
+        public void ResetAfterDisconnect()
+        {
+            IsInGame = false;
+            lock (_playerShopMoveLock)
+            {
+                _pendingPlayerShopMove = null;
+                _pendingPlayerShopPrice = null;
+            }
+            _pendingMoveFromSlot = null;
+            _pendingMoveToSlot = null;
+            _pendingVaultMoveFrom = null;
+            _pendingVaultMoveTo = null;
+            _pendingChaosMachineMoveFrom = null;
+            _pendingChaosMachineMoveTo = null;
+            PendingPickupRawId = null;
+            SetPlayerShopOpen(false);
+            PlayerShopTitles.Clear();
+            _logger.LogDebug("Transient session state reset after disconnect.");
+        }
+
         public void StashPendingInventoryMove(byte fromSlot, byte toSlot)
         {
             _pendingMoveFromSlot = fromSlot;
