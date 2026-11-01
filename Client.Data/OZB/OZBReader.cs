@@ -10,6 +10,26 @@ namespace Client.Data.OZB
 {
     public class OZBReader : BaseReader<OZB>
     {
+        /// <summary>
+        /// Size of a 256 x 256 height map as read by the original OpenTerrainHeight (ZzzLodTerrain.cpp):
+        /// 4 bytes + 1080 bytes of BMP header and palette, then one byte per tile.
+        /// </summary>
+        private const int RawHeightFileLength = 4 + 1080 + 256 * 256;
+
+        /// <summary>
+        /// Height maps whose header is not a BMP signature (e.g. the all-zero, flat Chaos Castle map of the
+        /// Season 20 data) are read like the original client does: skip the header without validating it.
+        /// </summary>
+        private static OZB ReadRawHeight(byte[] buffer)
+        {
+            const int size = 256;
+            var heights = new System.ReadOnlySpan<byte>(buffer, RawHeightFileLength - size * size, size * size);
+            var data = new Color[size * size];
+            for (int i = 0; i < data.Length; i++)
+                data[i] = Color.FromArgb(255, heights[i], 0, 0);
+            return new OZB { Version = 0, Width = size, Height = size, Data = data };
+        }
+
         protected override OZB Read(byte[] buffer)
         {
             using var br = new BinaryReader(new MemoryStream(buffer));
@@ -23,6 +43,7 @@ namespace Client.Data.OZB
                 "BM6" => this.ReadBM6(br, version),
                 "BM8" => this.ReadBM8(br, version),
                 "BM\u0018" => this.ReadBM8(br, version),
+                _ when buffer.Length == RawHeightFileLength => ReadRawHeight(buffer),
                 _ => throw new FileLoadException($"Invalid OZB file type. Expected BM6 or BM8, Received: {fileType}"),
             };
         }

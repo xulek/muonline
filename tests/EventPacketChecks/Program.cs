@@ -95,6 +95,14 @@ Encoding.UTF8.GetBytes("Tester").CopyTo(table, 29);
 BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(29 + 12), 400);
 await Route(table);
 
+// The Season 20 Chaos Castle height map (World19) has no BMP header: it must load as a flat 256 x 256 map.
+var ccHeight = Path.Combine(@"C:\Games\MU_Red_1_20_61_Full\Data", "World19", "TerrainHeight.OZB");
+if (File.Exists(ccHeight))
+{
+    var ozb = await new Client.Data.OZB.OZBReader().Load(ccHeight);
+    Check(ozb.Width == 256 && ozb.Height == 256 && ozb.Data.Length == 65536, "Chaos Castle height map (World19) loads without a BMP header", $"{ozb.Width}x{ozb.Height}");
+}
+
 var unhandled = router.GetUnhandledPacketCounts();
 Check(unhandled.Count == 0, "All event packets were routed to a handler", string.Join(", ", unhandled.Select(u => $"{u.Key.Code:X2}-{u.Key.SubCode:X2}")));
 Console.WriteLine(failures == 0 ? "Event packet checks passed." : $"Event packet checks: {failures} failure(s).");
