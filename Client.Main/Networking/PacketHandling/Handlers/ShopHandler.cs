@@ -109,6 +109,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         BloodCastleEnterControl.Instance.ShowWindow();
                     });
                 }
+                else
+                {
+                    // e.g. IllusionTemple, LugardDoppelgangerEntry, JerintGaionEvententry, SeedMaster,
+                    // Lahap, PetTrainer – the NPC talk succeeded but the client has no window for it yet.
+                    _logger.LogInformation("NPC window {Window} ({Id}) has no client UI yet.", resp.Window, (byte)resp.Window);
+                }
             }
             catch (Exception ex)
             {
