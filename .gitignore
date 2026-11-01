@@ -338,3 +338,5 @@ OpenMU/
 .mgstats
 graphify*/
 .graphify*/
+/docs/gap-plan/
+*.db
