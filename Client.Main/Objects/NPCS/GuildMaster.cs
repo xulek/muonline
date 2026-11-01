@@ -13,6 +13,12 @@ namespace Client.Main.Objects.NPCS
         }
         protected override void HandleClick()
         {
+            // The server answers with the guild master dialog (0x54) or, below level 100 / already in a guild, a message.
+            var svc = MuGame.Network?.GetCharacterService();
+            if (svc != null)
+            {
+                _ = svc.SendTalkToNpcRequestAsync(NetworkId);
+            }
         }
     }
 }
