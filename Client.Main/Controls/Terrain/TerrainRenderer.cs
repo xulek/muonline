@@ -806,6 +806,14 @@ namespace Client.Main.Controls.Terrain
             _buildingDrawnBlockCount = 0;
         }
 
+        /// <summary>
+        /// Drops the cached tile index plan so tiles whose NoGround flag changed are drawn or skipped again.
+        /// </summary>
+        internal void InvalidateTerrainAttributes()
+        {
+            _persistentTerrainIndexVersion = int.MinValue;
+        }
+
         private bool IsPersistentTerrainIndexCacheUsable(int visibilityVersion, int textureStateHash)
         {
             if (_persistentTerrainIndexVersion != visibilityVersion ||

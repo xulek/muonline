@@ -300,6 +300,45 @@ namespace Client.Main.Controls
         public int GetHeroTile(float xf, float yf) => _data.Mapping.Layer1[TerrainPhysics.GetTerrainIndex(xf, yf)];
         public TWFlags RequestTerrainFlag(int x, int y) => _physics?.RequestTerrainFlag(x, y) ?? 0f;
         public float RequestTerrainHeight(float xf, float yf) => _physics?.RequestTerrainHeight(xf, yf) ?? 0f;
+
+        /// <summary>
+        /// Sets or clears <paramref name="flag"/> on every tile of the given inclusive rectangles
+        /// (server-driven change, e.g. Blood Castle gates or the Chaos Castle floor collapsing).
+        /// </summary>
+        /// <returns>Number of tiles whose flags actually changed.</returns>
+        public int ApplyAttributeChange(TWFlags flag, bool remove, IEnumerable<(int StartX, int StartY, int EndX, int EndY)> areas)
+        {
+            var walls = _data?.Attributes?.TerrainWall;
+            if (walls == null)
+                return 0;
+
+            int changed = 0;
+            foreach (var (startX, startY, endX, endY) in areas)
+            {
+                int maxX = Math.Min(endX, Constants.TERRAIN_SIZE - 1);
+                int maxY = Math.Min(endY, Constants.TERRAIN_SIZE - 1);
+                for (int y = Math.Max(startY, 0); y <= maxY; y++)
+                {
+                    for (int x = Math.Max(startX, 0); x <= maxX; x++)
+                    {
+                        int index = y * Constants.TERRAIN_SIZE + x;
+                        TWFlags before = walls[index];
+                        TWFlags after = remove ? before & ~flag : before | flag;
+                        if (after == before)
+                            continue;
+
+                        walls[index] = after;
+                        changed++;
+                    }
+                }
+            }
+
+            if (changed > 0 && (flag & TWFlags.NoGround) != 0)
+                _renderer?.InvalidateTerrainAttributes();
+
+            return changed;
+        }
+
         internal bool HasSnowShadowSurface => _renderer?.Snow != null;
         internal DeviasSnowRenderer SnowShadowSurface => _renderer?.Snow;
         internal float RequestShadowSurfaceHeight(float x, float y)

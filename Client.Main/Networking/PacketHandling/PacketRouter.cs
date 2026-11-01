@@ -42,6 +42,7 @@ namespace Client.Main.Networking.PacketHandling
         private readonly ShopHandler _shopHandler;
         private readonly TradeHandler _tradeHandler;
         private readonly BloodCastleHandler _bloodCastleHandler;
+        private readonly MiniGameHandler _miniGameHandler;
         private readonly PetHandler _petHandler;
         private readonly BuffManager _buffManager;
 
@@ -91,6 +92,7 @@ namespace Client.Main.Networking.PacketHandling
             _shopHandler = new ShopHandler(loggerFactory, characterState, networkManager, targetVersion);
             _tradeHandler = new TradeHandler(loggerFactory, characterState, networkManager, targetVersion);
             _bloodCastleHandler = new BloodCastleHandler(loggerFactory, characterState, networkManager);
+            _miniGameHandler = new MiniGameHandler(loggerFactory);
             _petHandler = new PetHandler(loggerFactory);
 
             RegisterAttributeBasedHandlers();
@@ -252,6 +254,7 @@ namespace Client.Main.Networking.PacketHandling
                 _shopHandler,
                 _tradeHandler,
                 _bloodCastleHandler,
+                _miniGameHandler,
                 _petHandler
             };
 
