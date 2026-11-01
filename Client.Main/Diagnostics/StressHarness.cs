@@ -31,7 +31,7 @@ namespace Client.Main.Diagnostics
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, Done }
 
         private const byte HeroX = 135, HeroY = 128;
         private const ushort FirstMonsterId = 0x0200;
@@ -141,7 +141,26 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Settle:
-                    if (elapsed >= 3) Next(Phase.Spawn);
+                    if (elapsed >= 3)
+                    {
+                        if (InventoryScene)
+                        {
+                            FillInventory(game);
+                            Next(Phase.Inventory);
+                        }
+                        else
+                        {
+                            Next(Phase.Spawn);
+                        }
+                    }
+                    break;
+
+                case Phase.Inventory:
+                    if (elapsed >= 4)
+                    {
+                        SaveScreenshot(game, $"{_label}_inventory");
+                        Finish(game, null);
+                    }
                     break;
 
                 case Phase.Spawn:
@@ -178,6 +197,48 @@ namespace Client.Main.Diagnostics
                         Next(Phase.Spawn);
                     break;
             }
+        }
+
+        // MU_STRESS_INVENTORY=1: fills equipment and inventory with sample items, opens the inventory window and
+        // saves a screenshot (MU_STRESS_SHOTS) to check item model previews without a server.
+        private static readonly bool InventoryScene = Environment.GetEnvironmentVariable("MU_STRESS_INVENTORY") == "1";
+
+        private static byte[] SampleItem(byte group, short number, byte level = 0, byte flags = 0) =>
+            new byte[] { (byte)((group << 4) | ((number >> 8) & 0x0F)), (byte)number, level, 255, flags };
+
+        private static void FillInventory(MuGame game)
+        {
+            var state = MuGame.Network.GetCharacterState();
+            state.ClearInventory();
+            // Equipment: weapon, shield, helm, armor, pants, gloves, boots, wings, pendant, rings.
+            state.AddOrUpdateInventoryItem(0, SampleItem(0, 13, 9));    // Double Blade +9
+            state.AddOrUpdateInventoryItem(1, SampleItem(6, 6, 7));     // shield
+            state.AddOrUpdateInventoryItem(2, SampleItem(7, 1, 11));    // helm +11
+            state.AddOrUpdateInventoryItem(3, SampleItem(8, 1, 11));    // armor
+            state.AddOrUpdateInventoryItem(4, SampleItem(9, 1, 11));    // pants
+            state.AddOrUpdateInventoryItem(5, SampleItem(10, 1, 11));   // gloves
+            state.AddOrUpdateInventoryItem(6, SampleItem(11, 1, 11));   // boots
+            state.AddOrUpdateInventoryItem(7, SampleItem(12, 5));       // wings
+            state.AddOrUpdateInventoryItem(9, SampleItem(13, 12));      // pendant
+            state.AddOrUpdateInventoryItem(10, SampleItem(13, 8));      // ring
+            // Inventory grid (slot 12 = first cell, 8 cells per row).
+            state.AddOrUpdateInventoryItem(12, SampleItem(14, 13));     // Jewel of Bless
+            state.AddOrUpdateInventoryItem(13, SampleItem(14, 14));     // Jewel of Soul
+            state.AddOrUpdateInventoryItem(14, SampleItem(14, 16));     // Jewel of Life
+            state.AddOrUpdateInventoryItem(15, SampleItem(12, 15));     // Jewel of Chaos
+            state.AddOrUpdateInventoryItem(16, SampleItem(14, 3));      // potion
+            state.AddOrUpdateInventoryItem(17, SampleItem(14, 6));      // mana potion
+            state.AddOrUpdateInventoryItem(28, SampleItem(1, 2, 4));    // axe
+            state.AddOrUpdateInventoryItem(30, SampleItem(5, 0, 3));    // staff
+            state.AddOrUpdateInventoryItem(32, SampleItem(4, 3));       // bow
+            state.AddOrUpdateInventoryItem(34, SampleItem(2, 3, 13));   // mace +13
+            state.AddOrUpdateInventoryItem(52, SampleItem(8, 5, 0));    // armor
+            state.AddOrUpdateInventoryItem(54, SampleItem(12, 2));      // wings
+            state.AddOrUpdateInventoryItem(57, SampleItem(14, 19, 1));  // Devil's Invitation
+            state.RaiseInventoryChanged();
+            if (game.ActiveScene is GameScene scene)
+                scene.InventoryControl?.Show();
+            Console.WriteLine("[stress] inventory filled and opened");
         }
 
         private static void Next(Phase phase)
@@ -223,6 +284,38 @@ namespace Client.Main.Diagnostics
         }
 
         private static int[] _memBench;
+        private static int[] _cacheBench;
+
+        /// <summary>
+        /// Dependent random reads over 2 MB (L3 hits, L2 misses): their latency follows the ring/uncore clock,
+        /// which the arithmetic benchmark does not see.
+        /// </summary>
+        private static double CacheBenchmarkMicroseconds()
+        {
+            const int length = 512 * 1024;
+            if (_cacheBench == null)
+            {
+                _cacheBench = new int[length];
+                // Single random cycle so every read depends on the previous one.
+                var order = new int[length];
+                for (int i = 0; i < length; i++) order[i] = i;
+                var random = new Random(11);
+                for (int i = length - 1; i > 0; i--) { int j = random.Next(i + 1); (order[i], order[j]) = (order[j], order[i]); }
+                for (int i = 0; i < length; i++) _cacheBench[order[i]] = order[(i + 1) % length];
+            }
+
+            double best = double.MaxValue;
+            for (int run = 0; run < 3; run++)
+            {
+                long start = Stopwatch.GetTimestamp();
+                int index = 0;
+                for (int i = 0; i < 100_000; i++)
+                    index = _cacheBench[index];
+                _benchSink += index;
+                best = Math.Min(best, (Stopwatch.GetTimestamp() - start) * 1_000_000.0 / Stopwatch.Frequency);
+            }
+            return best;
+        }
 
         /// <summary>
         /// Dependent random reads over 64 MB (cache misses to DRAM). Unlike the arithmetic benchmark this slows
@@ -266,7 +359,7 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
                     Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(8, _traceFrames)}");
@@ -349,7 +442,7 @@ namespace Client.Main.Diagnostics
         }
 
         /// <summary>MU_STRESS_SHOTS=directory saves the back buffer of every measured scene as PNG.</summary>
-        private static void SaveScreenshot(MuGame game, string name)
+        internal static void SaveScreenshot(MuGame game, string name)
         {
             string dir = Environment.GetEnvironmentVariable("MU_STRESS_SHOTS");
             if (string.IsNullOrEmpty(dir)) return;

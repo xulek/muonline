@@ -798,6 +798,9 @@ namespace Client.Main
             });
             // --- END PLAYER IDLE POSE DATA ---
 
+            // --- DIAGNOSTIC AUTO LOGIN (MU_AUTOLOGIN_USER) ---
+            Client.Main.Diagnostics.AutoLogin.Attach(this);
+
             // --- OFFLINE CROWD STRESS SCENES (MU_STRESS=1) ---
             if (Client.Main.Diagnostics.StressHarness.Enabled && Network != null)
             {
@@ -922,6 +925,8 @@ namespace Client.Main
 #endif
                 if (Client.Main.Diagnostics.StressHarness.Enabled)
                     Client.Main.Diagnostics.StressHarness.OnFrame(this, _frameProfiler.Current);
+                if (Client.Main.Diagnostics.AutoLogin.Enabled)
+                    Client.Main.Diagnostics.AutoLogin.OnFrame(this);
             }
         }
 
