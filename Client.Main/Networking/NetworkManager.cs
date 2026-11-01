@@ -381,6 +381,10 @@ namespace Client.Main.Networking
             }
             _logger.LogInformation("Sending select character request for: {CharacterName}", characterName);
             _selectedCharacterNameForLogin = characterName;
+            // The Season 6 CharacterInformation packet carries no level; take it from the character list.
+            var listed = _lastCharacterList?.FirstOrDefault(c => c.Name == characterName);
+            if (listed is { Level: > 0 } entry)
+                _characterState.Level = entry.Level;
             UpdateState(ClientConnectionState.SelectingCharacter);
             await _characterService.SelectCharacterAsync(characterName);
         }

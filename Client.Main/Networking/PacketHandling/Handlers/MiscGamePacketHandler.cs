@@ -60,22 +60,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 }
                 _logger.LogInformation("Received guild join request from {Name} ({Id}).", requesterName, requesterId);
 
-                MuGame.ScheduleOnMainThread(() =>
-                {
-                    RequestDialog.Show(
-                        $"{requesterName} wants to join your guild.",
-                        onAccept: () =>
-                        {
-                            _ = _characterService.SendGuildJoinResponseAsync(true, requesterId);
-                            _logger.LogInformation("Accepted guild join invite from {Name} ({Id}).", requesterName, requesterId);
-                        },
-                        onReject: () =>
-                        {
-                            _ = _characterService.SendGuildJoinResponseAsync(false, requesterId);
-                            _logger.LogInformation("Rejected guild join invite from {Name} ({Id}).", requesterName, requesterId);
-                        }
-                    );
-                });
+                MuGame.ScheduleOnMainThread(() => _networkManager.GetGuildManager().RaiseGuildJoinRequest(requesterId, requesterName));
             }
             catch (Exception ex)
             {

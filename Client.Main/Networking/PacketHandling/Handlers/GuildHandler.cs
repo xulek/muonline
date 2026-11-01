@@ -80,7 +80,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 ushort playerId = (ushort)(left.PlayerId & 0x7FFF);
                 bool isSelf = playerId == _characterState.Id;
                 string guildName = isSelf ? Guilds.OwnGuild?.Name ?? string.Empty : string.Empty;
+                bool wasOwnMember = !isSelf && Guilds.HasGuild && Guilds.GetPlayerGuildId(playerId) == Guilds.OwnGuildId;
                 Guilds.RemovePlayer(playerId, isSelf);
+                // The guild master gets no kick result from OpenMU; refresh the member list instead.
+                if (wasOwnMember)
+                    _ = _characterService.SendGuildListRequestAsync();
                 _logger.LogDebug("Player {Id:X4} left the guild (GM: {IsGM}).", playerId, left.IsGuildMaster);
 
                 if (isSelf)
@@ -182,7 +186,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 GuildJoinResponse.GuildJoinRequestResult.MinimumLevel6 => "You need to be at least level 6 to join a guild.",
                 _ => $"Guild join failed ({result}).",
             };
-            MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo(text));
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                Guilds.RaiseGuildJoinResult((byte)result);
+                RequestDialog.ShowInfo(text);
+            });
             return Task.CompletedTask;
         }
 
@@ -196,7 +204,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             var result = new GuildKickResponse(packet).Result;
             string text = result switch
             {
-                GuildKickResponse.GuildKickSuccess.KickSucceeded => "The member has been removed from the guild.",
+                // OpenMU sends KickSucceeded to the kicked player (after 0x5D), not to the guild master.
+                GuildKickResponse.GuildKickSuccess.KickSucceeded => Guilds.HasGuild
+                    ? "The member has been removed from the guild."
+                    : "You have been removed from the guild.",
                 GuildKickResponse.GuildKickSuccess.GuildMemberWithdrawn => "You have left the guild.",
                 GuildKickResponse.GuildKickSuccess.GuildDisband => "The guild has been disbanded.",
                 GuildKickResponse.GuildKickSuccess.FailedPasswordIncorrect => "Incorrect security code.",
@@ -207,7 +218,17 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             if (result == GuildKickResponse.GuildKickSuccess.KickSucceeded && Guilds.HasGuild)
                 _ = _characterService.SendGuildListRequestAsync();
 
-            MuGame.ScheduleOnMainThread(() => RequestDialog.ShowInfo(text));
+            // Leaving or disbanding ends the own membership right away, as ReceiveGuildResult in the original client.
+            // OpenMU also does not send GuildMemberLeftGuild (0x5D) to the members of a disbanded guild
+            // (GameServer.GuildDeletedAsync removes the guild before iterating its players).
+            if (result is GuildKickResponse.GuildKickSuccess.GuildDisband or GuildKickResponse.GuildKickSuccess.GuildMemberWithdrawn)
+                Guilds.RemovePlayer(_characterState.Id, isSelf: true);
+
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                Guilds.RaiseGuildKickResult((byte)result);
+                RequestDialog.ShowInfo(text);
+            });
             return Task.CompletedTask;
         }
 
@@ -239,6 +260,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             var error = result.Error;
             MuGame.ScheduleOnMainThread(() =>
             {
+                Guilds.RaiseGuildCreationResult(success, (byte)error);
                 (MuGame.Instance?.ActiveScene as GameScene)?.GuildCreate?.OnCreationResult(success);
                 RequestDialog.ShowInfo(success
                     ? "Your guild has been created."

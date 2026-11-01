@@ -339,6 +339,7 @@ namespace Client.Main.Scenes
             _friendManager.NewLetterReceived += OnNewLetterReceived;
             _friendManager.FriendCameOnline += OnFriendCameOnline;
             _guildManager.GuildMasterDialogRequested += OnGuildMasterDialogRequested;
+            _guildManager.GuildJoinRequestReceived += OnGuildJoinRequestReceived;
             _guildManager.GuildCreationDialogRequested += OnGuildCreationDialogRequested;
             _windowCloseController = new GameSceneWindowCloseController(_inventoryControl, _logger);
 
@@ -1403,6 +1404,17 @@ namespace Client.Main.Scenes
 
         private void OnGuildCreationDialogRequested() => GuildCreate?.Show();
 
+        /// <summary>GuildJoinRequest (0x50): another player asks to join the own guild.</summary>
+        private void OnGuildJoinRequestReceived(ushort requesterId, string requesterName)
+        {
+            var service = MuGame.Network?.GetCharacterService();
+            if (service == null) return;
+            RequestDialog.Show(
+                $"{requesterName} wants to join your guild.",
+                onAccept: () => _ = service.SendGuildJoinResponseAsync(true, requesterId),
+                onReject: () => _ = service.SendGuildJoinResponseAsync(false, requesterId));
+        }
+
         private readonly System.Collections.Generic.List<ChatRoomWindow> _chatRooms = new();
 
         private void OnFriendRequestReceived(string requester)
@@ -1467,6 +1479,7 @@ namespace Client.Main.Scenes
             if (_guildManager != null)
             {
                 _guildManager.GuildMasterDialogRequested -= OnGuildMasterDialogRequested;
+                _guildManager.GuildJoinRequestReceived -= OnGuildJoinRequestReceived;
                 _guildManager.GuildCreationDialogRequested -= OnGuildCreationDialogRequested;
             }
             _pendingWorldActivation = null;

@@ -88,6 +88,18 @@ namespace Client.Main.Core.Client
         /// <summary>Raised when the server wants the guild creation window shown (0x55).</summary>
         public event Action? GuildCreationDialogRequested;
 
+        /// <summary>A player asks the (own) guild master to join the guild (0x50): (requester id, requester name).</summary>
+        public event Action<ushort, string>? GuildJoinRequestReceived;
+
+        /// <summary>Result of the own join request (0x51), GuildJoinRequestResult value.</summary>
+        public event Action<byte>? GuildJoinResult;
+
+        /// <summary>Result of kick / leave / disband (0x53), GuildKickSuccess value.</summary>
+        public event Action<byte>? GuildKickResult;
+
+        /// <summary>Result of the guild creation (0x56): (success, error).</summary>
+        public event Action<bool, byte>? GuildCreationResult;
+
         /// <summary>Guild of the local character, 0 when none.</summary>
         public uint OwnGuildId { get; private set; }
         public GuildMemberRole OwnRole { get; private set; } = GuildMemberRole.Undefined;
@@ -215,6 +227,10 @@ namespace Client.Main.Core.Client
         }
 
         internal void RaiseGuildMasterDialog() => GuildMasterDialogRequested?.Invoke();
+        internal void RaiseGuildJoinRequest(ushort requesterId, string requesterName) => GuildJoinRequestReceived?.Invoke(requesterId, requesterName);
+        internal void RaiseGuildJoinResult(byte result) => GuildJoinResult?.Invoke(result);
+        internal void RaiseGuildKickResult(byte result) => GuildKickResult?.Invoke(result);
+        internal void RaiseGuildCreationResult(bool success, byte error) => GuildCreationResult?.Invoke(success, error);
         internal void RaiseGuildCreationDialog() => GuildCreationDialogRequested?.Invoke();
 
         public static int RoleRank(GuildMemberRole role) => role switch

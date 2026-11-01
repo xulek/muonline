@@ -137,7 +137,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 ushort mapId = 0;
                 byte x = 0, y = 0;
                 ulong currentExp = 0, nextExp = 1;
-                ushort level = 1, levelUpPoints = 0;
+                // CharacterInformation has no level field: keep the level from the character list.
+                ushort level = Math.Max((ushort)1, _characterState.Level), levelUpPoints = 0;
                 uint initialHp = 0, maxHp = 1;
                 uint initialSd = 0, maxSd = 0;
                 uint initialMana = 0, maxMana = 1;
