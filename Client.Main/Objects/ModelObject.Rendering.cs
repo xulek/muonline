@@ -605,16 +605,38 @@ namespace Client.Main.Objects
                     drewBlobShadow = true;
                 }
             }
+            else if (Constants.ENABLE_MERGED_MESH_SHADOWS)
+            {
+                // Mesh groups are split by render state (texture), but the shadow only needs the
+                // silhouette: draw it once per draw invocation for all opaque meshes of the object.
+                if (_meshShadowInvocationId == _drawModelInvocationId)
+                    return;
+                _meshShadowInvocationId = _drawModelInvocationId;
+                DrawMeshesShadow(CollectOpaqueShadowMeshes(), shadowMatrix, view, projection, shadowOpacity);
+            }
             else
             {
                 DrawMeshesShadow(meshIndices, shadowMatrix, view, projection, shadowOpacity);
             }
         }
 
+        private int _meshShadowInvocationId = -1;
+        private readonly List<int> _opaqueShadowMeshes = new();
+
+        private List<int> CollectOpaqueShadowMeshes()
+        {
+            _opaqueShadowMeshes.Clear();
+            foreach (var group in GetMeshRenderPlan(false).Values)
+                _opaqueShadowMeshes.AddRange(group);
+            return _opaqueShadowMeshes;
+        }
+
         internal void DrawQueuedCrowdInstancingSidePasses(GameTime gameTime)
         {
             if (!Visible)
                 return;
+
+            _drawModelInvocationId = ++_drawModelInvocationCounter;
 
             DrawBoundingBox3D();
             SetDrawShaderTimeSeconds((float)gameTime.TotalGameTime.TotalSeconds);
@@ -1374,13 +1396,42 @@ namespace Client.Main.Objects
 
         private void DrawMeshesShadow(List<int> meshIndices, Matrix shadowMatrix, Matrix view, Matrix projection, float shadowOpacity)
         {
-            for (int n = 0; n < meshIndices.Count; n++)
+            long diagStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+            // Render state is set once for all meshes of the object; only texture and matrix change per mesh.
+            bool begun = false;
+            bool merged = false;
+            ShadowMeshBatchState state = default;
+            try
             {
-                int meshIndex = meshIndices[n];
-                if (IsStaticMapMeshQueuedForInstancing(meshIndex))
-                    continue;
+                for (int n = 0; n < meshIndices.Count; n++)
+                {
+                    int meshIndex = meshIndices[n];
+                    if (IsStaticMapMeshQueuedForInstancing(meshIndex))
+                        continue;
 
-                DrawShadowMesh(meshIndex, view, projection, shadowMatrix, shadowOpacity);
+                    if (!begun)
+                    {
+                        if (!TryBeginShadowMeshBatch(view, projection, shadowMatrix, shadowOpacity, out state))
+                            return;
+                        begun = true;
+                        merged = TryDrawMergedTerrainShadow(meshIndices, shadowMatrix, in state);
+                    }
+
+                    if (merged && IsTerrainShadowMeshMerged(meshIndex))
+                        continue;
+
+                    DrawShadowMeshInBatch(meshIndex, shadowMatrix, in state);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("Error in DrawMeshesShadow: {Message}", ex.Message);
+            }
+            finally
+            {
+                if (begun)
+                    EndShadowMeshBatch(in state);
+                DiagShadowDrawTicks += System.Diagnostics.Stopwatch.GetTimestamp() - diagStarted;
             }
         }
 

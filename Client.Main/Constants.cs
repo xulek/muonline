@@ -94,6 +94,11 @@ namespace Client.Main
         /// Adds plain weapons of crowd-instanced walkers to the same instanced batch as their body.
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_CHILD_INSTANCING = true;
+
+        /// <summary>
+        /// Draws the opaque meshes of an object's projected terrain shadow as one merged draw call.
+        /// </summary>
+        public static bool ENABLE_MERGED_MESH_SHADOWS = true;
         public static bool ENABLE_CROWD_SPATIAL_CULLING;
         public static bool ENABLE_ANIMATION_THROTTLING;
         public static bool ENABLE_SHARED_ANIMATION_PALETTES;

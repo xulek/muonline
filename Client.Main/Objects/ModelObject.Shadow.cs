@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -123,6 +124,10 @@ namespace Client.Main.Objects
             public bool HasLastShadowWorld;
             /// <summary>Translation applied when drawing a cached shadow of an object that only moved.</summary>
             public Vector3 DrawOffset;
+            /// <summary>Incremented whenever the projected vertices or <see cref="DrawOffset"/> change.</summary>
+            public int Version;
+            /// <summary>Projected vertices changed and are not uploaded to <see cref="VertexBuffer"/> yet.</summary>
+            public bool GpuStale;
             public object LastSnowSurface;
             public long LastSnowSurfaceVersion;
             public bool IsValid;
@@ -401,109 +406,385 @@ namespace Client.Main.Objects
             }
         }
 
+        /// <summary>
+        /// The opaque meshes of one object merged into a single terrain-conformed shadow draw. Their textures
+        /// have no alpha channel, so the shadow shader's alpha mask is 1 for all of them and one texture fits.
+        /// </summary>
+        private sealed class TerrainShadowObjectCache : IDisposable
+        {
+            public int[] MeshIndices = Array.Empty<int>();
+            public int MeshCount;
+            public int[] SourceVersions = Array.Empty<int>();
+            public TerrainShadowTopology[] Topologies;
+            public VertexPositionTexture[] Vertices = Array.Empty<VertexPositionTexture>();
+            public DynamicVertexBuffer VertexBuffer;
+            public IndexBuffer IndexBuffer;
+            public int VertexCount;
+            public int PrimitiveCount;
+            public bool Uploaded;
+
+            public void Dispose()
+            {
+                VertexBuffer?.Dispose();
+                VertexBuffer = null;
+                IndexBuffer?.Dispose();
+                IndexBuffer = null;
+                Uploaded = false;
+            }
+        }
+
+        private Dictionary<int, TerrainShadowObjectCache> _terrainShadowObjectCaches;
+        private int[] _terrainShadowMergedTags;
+        private int _terrainShadowMergeStamp;
+        private int[] _terrainShadowMergeCandidates = Array.Empty<int>();
+
+        /// <summary>Diagnostics: merged object shadow draws and the meshes they replaced.</summary>
+        public static long DiagShadowMergedDraws, DiagShadowMergedMeshes;
+
+        /// <summary>
+        /// Draws the opaque, terrain-conformed meshes of <paramref name="meshIndices"/> as one merged shadow and
+        /// tags them so the caller skips them. Returns false when nothing was merged.
+        /// </summary>
+        private bool TryDrawMergedTerrainShadow(List<int> meshIndices, Matrix shadowWorld, in ShadowMeshBatchState state)
+        {
+            if (!Constants.ENABLE_MERGED_MESH_SHADOWS || meshIndices.Count < 2 || _meshes == null ||
+                Model?.Meshes == null || !CanUseCachedTerrainConformedShadowPath())
+                return false;
+
+            var terrain = World?.Terrain;
+            if (terrain == null)
+                return false;
+
+            if (_terrainShadowMergeCandidates.Length < meshIndices.Count)
+                _terrainShadowMergeCandidates = new int[Math.Max(meshIndices.Count, 16)];
+
+            int candidateCount = 0;
+            int signature = 17;
+            Texture2D texture = null;
+            for (int n = 0; n < meshIndices.Count; n++)
+            {
+                int mesh = meshIndices[n];
+                if ((uint)mesh >= (uint)_meshes.Length || IsHiddenMesh(mesh) || IsStaticMapMeshQueuedForInstancing(mesh))
+                    continue;
+
+                var ms = _meshes[mesh];
+                if (ms?.Texture == null || ms.IsRgba)
+                    continue;
+
+                if (!TryGetOrCreateTerrainShadowMeshCache(mesh, out TerrainShadowMeshCache meshCache) ||
+                    !TryUpdateTerrainShadowMeshCache(meshCache, shadowWorld, terrain) ||
+                    !meshCache.IsValid)
+                    continue;
+
+                _terrainShadowMergeCandidates[candidateCount++] = mesh;
+                signature = signature * 31 + mesh;
+                texture ??= ms.Texture;
+            }
+
+            if (candidateCount < 2)
+                return false;
+
+            _terrainShadowObjectCaches ??= new Dictionary<int, TerrainShadowObjectCache>(2);
+            if (!_terrainShadowObjectCaches.TryGetValue(signature, out TerrainShadowObjectCache objectCache))
+            {
+                objectCache = new TerrainShadowObjectCache();
+                _terrainShadowObjectCaches[signature] = objectCache;
+            }
+
+            if (!EnsureTerrainShadowObjectTopology(objectCache, candidateCount))
+                return false;
+
+            bool changed = !objectCache.Uploaded;
+            for (int i = 0; i < candidateCount; i++)
+            {
+                var meshCache = _terrainShadowMeshCaches[_terrainShadowMergeCandidates[i]];
+                if (objectCache.SourceVersions[i] != meshCache.Version)
+                {
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (changed)
+            {
+                int offset = 0;
+                for (int i = 0; i < candidateCount; i++)
+                {
+                    var meshCache = _terrainShadowMeshCaches[_terrainShadowMergeCandidates[i]];
+                    int count = meshCache.Topology.VertexCount;
+                    Vector3 shift = meshCache.DrawOffset;
+                    var source = meshCache.UploadVertices;
+                    for (int v = 0; v < count; v++)
+                    {
+                        var vertex = source[v];
+                        vertex.Position += shift;
+                        objectCache.Vertices[offset + v] = vertex;
+                    }
+                    offset += count;
+                    objectCache.SourceVersions[i] = meshCache.Version;
+                }
+
+                try
+                {
+                    objectCache.VertexBuffer.SetData(objectCache.Vertices, 0, objectCache.VertexCount, SetDataOptions.Discard);
+                    objectCache.Uploaded = true;
+                }
+                catch
+                {
+                    objectCache.Dispose();
+                    return false;
+                }
+            }
+
+            _terrainShadowMergeStamp++;
+            if (_terrainShadowMergedTags == null || _terrainShadowMergedTags.Length < _meshes.Length)
+                _terrainShadowMergedTags = new int[_meshes.Length];
+            for (int i = 0; i < candidateCount; i++)
+                _terrainShadowMergedTags[_terrainShadowMergeCandidates[i]] = _terrainShadowMergeStamp;
+
+            state.Bindings.ShadowTexture?.SetValue(texture);
+            state.Bindings.WorldViewProjection?.SetValue(state.ViewProjection);
+            state.Effect.CurrentTechnique.Passes[0].Apply();
+            GraphicsDevice.SetVertexBuffer(objectCache.VertexBuffer);
+            GraphicsDevice.Indices = objectCache.IndexBuffer;
+            GraphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, objectCache.PrimitiveCount);
+            DiagShadowMergedDraws++;
+            DiagShadowMergedMeshes += candidateCount;
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool IsTerrainShadowMeshMerged(int mesh) =>
+            _terrainShadowMergedTags != null &&
+            (uint)mesh < (uint)_terrainShadowMergedTags.Length &&
+            _terrainShadowMergedTags[mesh] == _terrainShadowMergeStamp;
+
+        private bool EnsureTerrainShadowObjectTopology(TerrainShadowObjectCache objectCache, int candidateCount)
+        {
+            bool sameMeshes = objectCache.MeshCount == candidateCount &&
+                              objectCache.VertexBuffer != null && !objectCache.VertexBuffer.IsDisposed &&
+                              objectCache.IndexBuffer != null && !objectCache.IndexBuffer.IsDisposed;
+            for (int i = 0; sameMeshes && i < candidateCount; i++)
+            {
+                if (objectCache.MeshIndices[i] != _terrainShadowMergeCandidates[i] ||
+                    !ReferenceEquals(_terrainShadowMeshCaches[_terrainShadowMergeCandidates[i]].Topology,
+                        objectCache.Topologies?[i]))
+                    sameMeshes = false;
+            }
+
+            if (sameMeshes)
+                return true;
+
+            objectCache.Dispose();
+            int vertexCount = 0;
+            int indexCount = 0;
+            var topologies = new TerrainShadowTopology[candidateCount];
+            for (int i = 0; i < candidateCount; i++)
+            {
+                var topology = _terrainShadowMeshCaches[_terrainShadowMergeCandidates[i]].Topology;
+                topologies[i] = topology;
+                vertexCount += topology.VertexCount;
+                indexCount += topology.IndexCount;
+            }
+
+            if (vertexCount == 0 || indexCount == 0)
+                return false;
+
+            bool use32 = vertexCount > ushort.MaxValue;
+            try
+            {
+                objectCache.VertexBuffer = new DynamicVertexBuffer(
+                    GraphicsDevice, VertexPositionTexture.VertexDeclaration, vertexCount, BufferUsage.WriteOnly);
+                objectCache.IndexBuffer = new IndexBuffer(
+                    GraphicsDevice, use32 ? IndexElementSize.ThirtyTwoBits : IndexElementSize.SixteenBits, indexCount, BufferUsage.WriteOnly);
+
+                int baseVertex = 0;
+                int written = 0;
+                if (use32)
+                {
+                    var indices = new int[indexCount];
+                    foreach (var topology in topologies)
+                    {
+                        for (int k = 0; k < topology.IndexCount; k++)
+                            indices[written++] = baseVertex + (topology.Uses32BitIndices ? topology.Indices32[k] : topology.Indices16[k]);
+                        baseVertex += topology.VertexCount;
+                    }
+                    objectCache.IndexBuffer.SetData(indices);
+                }
+                else
+                {
+                    var indices = new ushort[indexCount];
+                    foreach (var topology in topologies)
+                    {
+                        for (int k = 0; k < topology.IndexCount; k++)
+                            indices[written++] = (ushort)(baseVertex + (topology.Uses32BitIndices ? topology.Indices32[k] : topology.Indices16[k]));
+                        baseVertex += topology.VertexCount;
+                    }
+                    objectCache.IndexBuffer.SetData(indices);
+                }
+            }
+            catch
+            {
+                objectCache.Dispose();
+                return false;
+            }
+
+            objectCache.MeshIndices = new int[candidateCount];
+            Array.Copy(_terrainShadowMergeCandidates, objectCache.MeshIndices, candidateCount);
+            objectCache.Topologies = topologies;
+            objectCache.MeshCount = candidateCount;
+            objectCache.SourceVersions = new int[candidateCount];
+            for (int i = 0; i < candidateCount; i++)
+                objectCache.SourceVersions[i] = int.MinValue;
+            objectCache.Vertices = new VertexPositionTexture[vertexCount];
+            objectCache.VertexCount = vertexCount;
+            objectCache.PrimitiveCount = indexCount / 3;
+            objectCache.Uploaded = false;
+            return true;
+        }
+
+        /// <summary>Render state of a projected mesh shadow pass, set once for all meshes of an object.</summary>
+        private struct ShadowMeshBatchState
+        {
+            public Effect Effect;
+            public ModelEffectBindings Bindings;
+            public Matrix ViewProjection;
+            public BlendState PreviousBlend;
+            public DepthStencilState PreviousDepth;
+            public RasterizerState PreviousRasterizer;
+            public EffectTechnique PreviousTechnique;
+        }
+
         public virtual void DrawShadowMesh(int mesh, Matrix view, Matrix projection, Matrix shadowWorld, float shadowOpacity)
         {
             try
             {
-                // Skip shadow rendering if shadows are disabled for this world.
-                if (MuGame.Instance.ActiveScene?.World is WorldControl world && !world.EnableShadows)
+                if (!TryBeginShadowMeshBatch(view, projection, shadowWorld, shadowOpacity, out ShadowMeshBatchState state))
                     return;
-
-                if (IsHiddenMesh(mesh) || _meshes == null)
-                    return;
-
-                if (!ValidateWorldMatrix(WorldPosition) || !ValidateWorldMatrix(shadowWorld))
-                {
-                    _logger?.LogDebug("Invalid shadow matrix detected - skipping shadow rendering");
-                    return;
-                }
-
-                var effect = GraphicsManager.Instance.ShadowEffect;
-                if (effect == null || _meshes?[mesh]?.Texture == null)
-                    return;
-
-                ModelEffectBindings bindings = GetModelEffectBindings(effect);
-                EffectTechnique shadowTechnique = TryGetTechnique(effect, "Shadow");
-                if (shadowTechnique == null)
-                    return;
-
-                var previousBlendState = GraphicsDevice.BlendState;
-                var previousDepthState = GraphicsDevice.DepthStencilState;
-                var previousRasterizerState = GraphicsDevice.RasterizerState;
-                var previousTechnique = effect.CurrentTechnique;
-
-                float constBias = 1f / (1 << 24);
-                RasterizerState shadowRasterizer = GraphicsManager.GetCachedRasterizerState(
-                    constBias * -20,
-                    CullMode.None);
-
-                GraphicsDevice.BlendState = Blendings.ShadowBlend;
-                GraphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
-                GraphicsDevice.RasterizerState = shadowRasterizer;
-                effect.CurrentTechnique = shadowTechnique;
 
                 try
                 {
-                    Matrix viewProjection = view * projection;
-                    bindings.ShadowTint?.SetValue(new Vector4(0f, 0f, 0f, shadowOpacity));
-                    bindings.ShadowTexture?.SetValue(_meshes[mesh].Texture);
-
-                    // Preferred path: persistent topology and buffers avoid rebuilding or
-                    // tessellating the mesh. The vertex buffer follows the source animation in
-                    // the same frame; only unchanged poses/transforms are skipped.
-                    if (TryPrepareTerrainConformedShadowMesh(
-                        mesh,
-                        shadowWorld,
-                        out DynamicVertexBuffer conformedVertexBuffer,
-                        out IndexBuffer conformedIndexBuffer,
-                        out int conformedPrimitiveCount,
-                        out Vector3 conformedOffset))
-                    {
-                        bindings.WorldViewProjection?.SetValue(conformedOffset == Vector3.Zero
-                            ? viewProjection
-                            : Matrix.CreateTranslation(conformedOffset) * viewProjection);
-                        effect.CurrentTechnique.Passes[0].Apply();
-                        GraphicsDevice.SetVertexBuffer(conformedVertexBuffer);
-                        GraphicsDevice.Indices = conformedIndexBuffer;
-                        GraphicsDevice.DrawIndexedPrimitives(
-                            PrimitiveType.TriangleList,
-                            0,
-                            0,
-                            conformedPrimitiveCount);
-
-                        return;
-                    }
-
-                    // Compatibility fallback for malformed models or unavailable terrain data.
-                    VertexBuffer vertexBuffer = _meshes[mesh].CpuVertexBuffer;
-                    IndexBuffer indexBuffer = _meshes[mesh].CpuIndexBuffer;
-                    if (vertexBuffer == null || indexBuffer == null)
-                        return;
-
-                    bindings.WorldViewProjection?.SetValue(shadowWorld * viewProjection);
-                    int primitiveCount = indexBuffer.IndexCount / 3;
-                    effect.CurrentTechnique.Passes[0].Apply();
-                    GraphicsDevice.SetVertexBuffer(vertexBuffer);
-                    GraphicsDevice.Indices = indexBuffer;
-                    GraphicsDevice.DrawIndexedPrimitives(
-                        PrimitiveType.TriangleList,
-                        0,
-                        0,
-                        primitiveCount);
+                    DrawShadowMeshInBatch(mesh, shadowWorld, in state);
                 }
                 finally
                 {
-                    GraphicsDevice.BlendState = previousBlendState;
-                    GraphicsDevice.DepthStencilState = previousDepthState;
-                    GraphicsDevice.RasterizerState = previousRasterizerState;
-                    if (previousTechnique != null)
-                        effect.CurrentTechnique = previousTechnique;
+                    EndShadowMeshBatch(in state);
                 }
             }
             catch (Exception ex)
             {
                 _logger?.LogDebug("Error in DrawShadowMesh: {Message}", ex.Message);
             }
+        }
+
+        private bool TryBeginShadowMeshBatch(
+            Matrix view,
+            Matrix projection,
+            Matrix shadowWorld,
+            float shadowOpacity,
+            out ShadowMeshBatchState state)
+        {
+            state = default;
+
+            // Skip shadow rendering if shadows are disabled for this world.
+            if (MuGame.Instance.ActiveScene?.World is WorldControl world && !world.EnableShadows)
+                return false;
+
+            if (_meshes == null)
+                return false;
+
+            if (!ValidateWorldMatrix(WorldPosition) || !ValidateWorldMatrix(shadowWorld))
+            {
+                _logger?.LogDebug("Invalid shadow matrix detected - skipping shadow rendering");
+                return false;
+            }
+
+            var effect = GraphicsManager.Instance.ShadowEffect;
+            if (effect == null)
+                return false;
+
+            EffectTechnique shadowTechnique = TryGetTechnique(effect, "Shadow");
+            if (shadowTechnique == null)
+                return false;
+
+            state.Effect = effect;
+            state.Bindings = GetModelEffectBindings(effect);
+            state.ViewProjection = view * projection;
+            state.PreviousBlend = GraphicsDevice.BlendState;
+            state.PreviousDepth = GraphicsDevice.DepthStencilState;
+            state.PreviousRasterizer = GraphicsDevice.RasterizerState;
+            state.PreviousTechnique = effect.CurrentTechnique;
+
+            float constBias = 1f / (1 << 24);
+            GraphicsDevice.BlendState = Blendings.ShadowBlend;
+            GraphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
+            GraphicsDevice.RasterizerState = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
+            effect.CurrentTechnique = shadowTechnique;
+            state.Bindings.ShadowTint?.SetValue(new Vector4(0f, 0f, 0f, shadowOpacity));
+            return true;
+        }
+
+        private void EndShadowMeshBatch(in ShadowMeshBatchState state)
+        {
+            GraphicsDevice.BlendState = state.PreviousBlend;
+            GraphicsDevice.DepthStencilState = state.PreviousDepth;
+            GraphicsDevice.RasterizerState = state.PreviousRasterizer;
+            if (state.PreviousTechnique != null)
+                state.Effect.CurrentTechnique = state.PreviousTechnique;
+        }
+
+        private void DrawShadowMeshInBatch(int mesh, Matrix shadowWorld, in ShadowMeshBatchState state)
+        {
+            if (IsHiddenMesh(mesh) || _meshes?[mesh]?.Texture == null)
+                return;
+
+            var effect = state.Effect;
+            var bindings = state.Bindings;
+            bindings.ShadowTexture?.SetValue(_meshes[mesh].Texture);
+
+            // Preferred path: persistent topology and buffers avoid rebuilding or
+            // tessellating the mesh. The vertex buffer follows the source animation in
+            // the same frame; only unchanged poses/transforms are skipped.
+            if (TryPrepareTerrainConformedShadowMesh(
+                mesh,
+                shadowWorld,
+                out DynamicVertexBuffer conformedVertexBuffer,
+                out IndexBuffer conformedIndexBuffer,
+                out int conformedPrimitiveCount,
+                out Vector3 conformedOffset))
+            {
+                DiagShadowDraws++;
+                bindings.WorldViewProjection?.SetValue(conformedOffset == Vector3.Zero
+                    ? state.ViewProjection
+                    : Matrix.CreateTranslation(conformedOffset) * state.ViewProjection);
+                effect.CurrentTechnique.Passes[0].Apply();
+                GraphicsDevice.SetVertexBuffer(conformedVertexBuffer);
+                GraphicsDevice.Indices = conformedIndexBuffer;
+                GraphicsDevice.DrawIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    0,
+                    0,
+                    conformedPrimitiveCount);
+
+                return;
+            }
+
+            // Compatibility fallback for malformed models or unavailable terrain data.
+            VertexBuffer vertexBuffer = _meshes[mesh].CpuVertexBuffer;
+            IndexBuffer indexBuffer = _meshes[mesh].CpuIndexBuffer;
+            if (vertexBuffer == null || indexBuffer == null)
+                return;
+
+            bindings.WorldViewProjection?.SetValue(shadowWorld * state.ViewProjection);
+            int primitiveCount = indexBuffer.IndexCount / 3;
+            effect.CurrentTechnique.Passes[0].Apply();
+            GraphicsDevice.SetVertexBuffer(vertexBuffer);
+            GraphicsDevice.Indices = indexBuffer;
+            GraphicsDevice.DrawIndexedPrimitives(
+                PrimitiveType.TriangleList,
+                0,
+                0,
+                primitiveCount);
         }
 
         private bool CanUseCachedTerrainConformedShadowPath()
@@ -537,6 +818,24 @@ namespace Client.Main.Objects
 
             if (!TryUpdateTerrainShadowMeshCache(cache, shadowWorld, terrain))
                 return false;
+
+            if (cache.GpuStale)
+            {
+                try
+                {
+                    cache.VertexBuffer.SetData(
+                        cache.UploadVertices,
+                        0,
+                        cache.Topology.VertexCount,
+                        SetDataOptions.Discard);
+                    cache.GpuStale = false;
+                }
+                catch
+                {
+                    cache.IsValid = false;
+                    return false;
+                }
+            }
 
             vertexBuffer = cache.VertexBuffer;
             indexBuffer = cache.IndexBuffer;
@@ -786,11 +1085,37 @@ namespace Client.Main.Objects
             return shadowVertexSlot;
         }
 
+        /// <summary>Diagnostics: terrain shadow cache rebuilds, shifts and draws since the last reset.</summary>
+        public static long DiagShadowRebuilds, DiagShadowRebuildTicks, DiagShadowShifts, DiagShadowDraws, DiagShadowDrawTicks;
+
         private bool TryUpdateTerrainShadowMeshCache(
             TerrainShadowMeshCache cache,
             Matrix shadowWorld,
             TerrainControl terrain)
         {
+            long diagStarted = Stopwatch.GetTimestamp();
+            bool rebuilt = false;
+            try
+            {
+                return TryUpdateTerrainShadowMeshCacheCore(cache, shadowWorld, terrain, out rebuilt);
+            }
+            finally
+            {
+                if (rebuilt)
+                {
+                    DiagShadowRebuilds++;
+                    DiagShadowRebuildTicks += Stopwatch.GetTimestamp() - diagStarted;
+                }
+            }
+        }
+
+        private bool TryUpdateTerrainShadowMeshCacheCore(
+            TerrainShadowMeshCache cache,
+            Matrix shadowWorld,
+            TerrainControl terrain,
+            out bool rebuilt)
+        {
+            rebuilt = false;
             Matrix[] bones = GetEffectiveBoneTransforms();
             if (bones == null || bones.Length == 0)
                 return cache.IsValid;
@@ -823,6 +1148,8 @@ namespace Client.Main.Objects
                 if (float.IsFinite(lastHeight) && float.IsFinite(height))
                 {
                     cache.DrawOffset = new Vector3(shift.X, shift.Y, height - lastHeight);
+                    cache.Version++;
+                    DiagShadowShifts++;
                     return true;
                 }
             }
@@ -831,6 +1158,8 @@ namespace Client.Main.Objects
             var mesh = topology?.MeshReference;
             if (mesh?.Vertices == null || topology == null || !topology.IsValid)
                 return cache.IsValid;
+
+            rebuilt = true;
 
             Vector3 min = new(float.MaxValue, float.MaxValue, 0f);
             Vector3 max = new(float.MinValue, float.MinValue, 0f);
@@ -903,19 +1232,8 @@ namespace Client.Main.Objects
                 cache.UploadVertices[i].Position = cache.ProjectedPositions[sourceSlot];
             }
 
-            try
-            {
-                cache.VertexBuffer.SetData(
-                    cache.UploadVertices,
-                    0,
-                    topology.VertexCount,
-                    SetDataOptions.Discard);
-            }
-            catch
-            {
-                cache.IsValid = false;
-                return false;
-            }
+            cache.GpuStale = true;
+            cache.Version++;
 
             cache.LastBoneSource = bones;
             cache.LastPoseVersion = poseVersion;
@@ -1188,6 +1506,13 @@ namespace Client.Main.Objects
 
             for (int i = 0; i < _terrainShadowMeshCaches.Length; i++)
                 _terrainShadowMeshCaches[i]?.Dispose();
+
+            if (_terrainShadowObjectCaches != null)
+            {
+                foreach (var objectCache in _terrainShadowObjectCaches.Values)
+                    objectCache.Dispose();
+                _terrainShadowObjectCaches = null;
+            }
 
             _terrainShadowMeshCaches = null;
         }
