@@ -1548,7 +1548,9 @@ namespace Client.Main.Objects
                 return false;
             }
 
-            if (TotalAlpha < 0.999f || EnableCustomShader || HasVisibleTransparentMapMesh())
+            // RGBA cutout and blend meshes do not reject the object: ShouldQueueWalkerCrowdMesh leaves
+            // them out of the instanced batch and DrawAfter renders them from the transparent plan.
+            if (TotalAlpha < 0.999f || EnableCustomShader)
             {
                 reason = WalkerCrowdRejectionReason.Material;
                 return false;
@@ -1642,33 +1644,6 @@ namespace Client.Main.Objects
             string blendingMode = Model.Meshes[meshIndex].BlendingMode;
             return string.IsNullOrEmpty(blendingMode) ||
                    string.Equals(blendingMode, "Opaque", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private bool HasVisibleTransparentMapMesh()
-        {
-            if (Model?.Meshes == null)
-                return false;
-
-            for (int meshIndex = 0; meshIndex < Model.Meshes.Length; meshIndex++)
-            {
-                if (IsHiddenMesh(meshIndex))
-                    continue;
-
-                bool isBlend = IsBlendMesh(meshIndex);
-                bool isRGBA = _meshes != null &&
-                              (uint)meshIndex < (uint)_meshes.Length &&
-                              _meshes[meshIndex].IsRgba;
-
-                if (isBlend || isRGBA)
-                    return true;
-
-                string blendingMode = Model.Meshes[meshIndex].BlendingMode;
-                if (!string.IsNullOrEmpty(blendingMode) &&
-                    !string.Equals(blendingMode, "Opaque", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
         }
 
         private bool ShouldQueueWalkerCrowdMesh(int meshIndex)

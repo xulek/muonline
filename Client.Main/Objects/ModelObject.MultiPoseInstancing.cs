@@ -440,10 +440,72 @@ namespace Client.Main.Objects
             {
                 _walkerCrowdMultiPoseRejectedObjectThisFrame++;
                 RegisterWalkerCrowdObjectRejection(rejectionReason);
-                RegisterWalkerCrowdRejectionForType(rejectionReason.ToString());
+                RegisterWalkerCrowdRejectionForType(rejectionReason == WalkerCrowdRejectionReason.Material
+                    ? $"Material:{(TotalAlpha < 0.999f ? $"alpha={TotalAlpha:F2} " : "")}{(EnableCustomShader ? "customShader" : "")}"
+                    : rejectionReason.ToString());
                 return false;
             }
 
+            if (!TryQueueWalkerCrowdMultiPoseMeshes(GetEffectiveBonePoseVersion()))
+                return false;
+
+            _walkerCrowdMultiPoseObjectsThisFrame++;
+            _walkerCrowdMultiPoseQueuedObjectsThisFrame++;
+            QueueWalkerCrowdChildrenForInstancing();
+            return true;
+        }
+
+        /// <summary>Frame in which this child object was added to its parent's crowd batch.</summary>
+        private uint _walkerCrowdChildQueuedFrame = uint.MaxValue;
+
+        internal bool IsWalkerCrowdChildQueuedThisFrame => _walkerCrowdChildQueuedFrame == (uint)MuGame.FrameIndex;
+
+        /// <summary>
+        /// Plain weapons of a crowd-instanced walker are added to the same multi-pose batch (with their own
+        /// palette row, or the parent's one for LinkParentAnimation) instead of being drawn one by one in the
+        /// crowd side pass.
+        /// </summary>
+        private void QueueWalkerCrowdChildrenForInstancing()
+        {
+            if (Children.Count == 0)
+                return;
+
+            var objects = Children.GetSnapshotArray();
+            for (int i = 0; i < objects.Length; i++)
+            {
+                if (objects[i] is ModelObject child &&
+                    ReferenceEquals(child.Parent, this) &&
+                    child.CanUseWalkerCrowdChildInstancing() &&
+                    child.TryQueueWalkerCrowdMultiPoseMeshes(child.LinkParentAnimation
+                        ? GetEffectiveBonePoseVersion()
+                        : child.GetEffectiveBonePoseVersion()))
+                {
+                    child._walkerCrowdChildQueuedFrame = (uint)MuGame.FrameIndex;
+                }
+
+            }
+        }
+
+        private bool CanUseWalkerCrowdChildInstancing()
+        {
+            return Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING &&
+                   GetType() == typeof(Player.WeaponObject) &&
+                   Visible && !Hidden &&
+                   Status == Models.GameControlStatus.Ready &&
+                   Model?.Meshes != null && Model.Meshes.Length > 0 && _meshes != null &&
+                   SpecialItemSpec == null &&
+                   !UsesMutableMeshData &&
+                   !EnableCustomShader &&
+                   TotalAlpha >= 0.999f &&
+                   !IsMouseHover;
+        }
+
+        /// <summary>
+        /// Validates and queues the opaque meshes of this object into the multi-pose crowd batches.
+        /// Nothing is queued when any mesh cannot be instanced, so the caller can draw the object normally.
+        /// </summary>
+        private bool TryQueueWalkerCrowdMultiPoseMeshes(uint poseVersion)
+        {
             int meshCount = Model.Meshes.Length;
             bool queuedAnyMesh = false;
             int requiredBoneCount = 0;
@@ -497,7 +559,7 @@ namespace Client.Main.Objects
 
             int paletteRow = RegisterWalkerCrowdPose(
                 bones,
-                GetEffectiveBonePoseVersion(),
+                poseVersion,
                 requiredBoneCount);
             if (paletteRow < 0)
             {
@@ -549,8 +611,6 @@ namespace Client.Main.Objects
                 _walkerCrowdMultiPoseMeshInstancesThisFrame++;
             }
 
-            _walkerCrowdMultiPoseObjectsThisFrame++;
-            _walkerCrowdMultiPoseQueuedObjectsThisFrame++;
             return true;
         }
 

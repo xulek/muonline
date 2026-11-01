@@ -691,7 +691,30 @@ namespace Client.Main.Objects
                 }
             }
 
-            DrawChildrenOnly(gameTime);
+            DrawCrowdChildren(gameTime);
+        }
+
+        /// <summary>
+        /// DrawChildrenOnly for a crowd-instanced parent: children already in the instanced batch only get
+        /// their side passes (shadow, highlight and their own children).
+        /// </summary>
+        private void DrawCrowdChildren(GameTime gameTime)
+        {
+            var objects = Children.GetSnapshotArray();
+            for (int i = 0; i < objects.Length; i++)
+            {
+                var child = objects[i];
+                if (child.Status == Models.GameControlStatus.Disposed || !ReferenceEquals(child.Parent, this))
+                    continue;
+
+                if (World?.TryQueueLateEffectDraw(child) == true)
+                    continue;
+
+                if (child is ModelObject model && model.IsWalkerCrowdChildQueuedThisFrame)
+                    model.DrawQueuedCrowdInstancingSidePasses(gameTime);
+                else
+                    child.Draw(gameTime);
+            }
         }
 
         public override void Draw(GameTime gameTime)

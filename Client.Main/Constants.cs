@@ -89,6 +89,11 @@ namespace Client.Main
         /// drawn by the crowd side pass (DrawQueuedCrowdInstancingSidePasses → DrawChildrenOnly).
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = true;
+
+        /// <summary>
+        /// Adds plain weapons of crowd-instanced walkers to the same instanced batch as their body.
+        /// </summary>
+        public static bool ENABLE_WALKER_CROWD_CHILD_INSTANCING = true;
         public static bool ENABLE_CROWD_SPATIAL_CULLING;
         public static bool ENABLE_ANIMATION_THROTTLING;
         public static bool ENABLE_SHARED_ANIMATION_PALETTES;
