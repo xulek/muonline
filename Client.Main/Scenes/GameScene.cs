@@ -1368,8 +1368,19 @@ namespace Client.Main.Scenes
             if (service == null) return;
             RequestDialog.Show(
                 "Do you want to create a guild?",
-                onAccept: () => _ = service.SendGuildMasterAnswerAsync(true),
+                onAccept: () => _ = AcceptGuildMasterDialogAsync(service),
                 onReject: () => _ = service.SendGuildMasterAnswerAsync(false));
+        }
+
+        /// <summary>
+        /// OpenMU only shows the creation dialog when the player is back in the EnteredWorld state
+        /// (GuildMasterAnswerAction), while talking to the NPC leaves it in NpcDialogOpened. Closing the
+        /// NPC dialog first (0x31) makes the "create" answer work; the original server accepted it directly.
+        /// </summary>
+        private static async System.Threading.Tasks.Task AcceptGuildMasterDialogAsync(Client.Main.Networking.Services.CharacterService service)
+        {
+            await service.SendCloseNpcRequestAsync();
+            await service.SendGuildMasterAnswerAsync(true);
         }
 
         private void OnGuildCreationDialogRequested() => GuildCreate?.Show();

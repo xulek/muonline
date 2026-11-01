@@ -257,7 +257,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 {
                     // e.g. IllusionTemple, LugardDoppelgangerEntry, JerintGaionEvententry, SeedMaster,
                     // Lahap, PetTrainer – the NPC talk succeeded but the client has no window for it yet.
-                    _logger.LogInformation("NPC window {Window} ({Id}) has no client UI yet.", resp.Window, (byte)resp.Window);
+                    _logger.LogInformation("NPC window {Window} ({Id}) has no client UI yet; closing the NPC dialog.", resp.Window, (byte)resp.Window);
+                    // The server is now in NpcDialogOpened and rejects talking to other NPCs until the dialog is
+                    // closed. The original client sends CloseNpcRequest from every NPC window's ClosingProcess.
+                    _ = MuGame.Network?.GetCharacterService()?.SendCloseNpcRequestAsync();
                 }
             }
             catch (Exception ex)

@@ -390,6 +390,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 // Trigger UI update
                 _networkManager.ProcessCharacterRespawn(mapId, x, y, direction);
 
+            // As InitGame() in the original WSclient.cpp: entering a map ends any NPC conversation.
+            // OpenMU keeps the NPC dialog state across warps, which would block talking to the next NPC.
+            _ = _networkManager.GetCharacterService()?.SendCloseNpcRequestAsync();
+
                 // Heuristic: Some servers don't send CharacterInformation after selection
                 if (_networkManager.CurrentState == ClientConnectionState.SelectingCharacter)
                 {
