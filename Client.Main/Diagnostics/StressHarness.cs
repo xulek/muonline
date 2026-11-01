@@ -22,7 +22,8 @@ namespace Client.Main.Diagnostics
     /// <para>
     /// Environment: MU_STRESS=1, MU_STRESS_TYPES=3,2,40 (monster types), MU_STRESS_COUNT=80, MU_STRESS_WARMUP=6,
     /// MU_STRESS_SECONDS=8, MU_STRESS_OUT=path.csv, MU_STRESS_LABEL=text, MU_STRESS_CHILDREN=0/1
-    /// (Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN), MU_STRESS_CROWD=0/1 (walker crowd instancing).
+    /// (Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN), MU_STRESS_CROWD=0/1 (walker crowd instancing),
+    /// MU_STRESS_WEAPONS=0/1 (Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING), MU_STRESS_TRACE=1 (per-second trace).
     /// </para>
     /// </summary>
     public static class StressHarness
@@ -67,6 +68,8 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_WEAPONS") is { } weapons)
+                Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING = weapons == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_CROWD") is { } crowd)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING = crowd == "1";
             Constants.UNLIMITED_FPS = true;
@@ -138,11 +141,14 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Warmup:
+                    Wander(game);
                     if (elapsed >= _warmupSeconds) Next(Phase.Measure);
                     break;
 
                 case Phase.Measure:
                     Accumulate(game, frame);
+                    Trace(elapsed, frame);
+                    Wander(game);
                     if (elapsed >= _measureSeconds)
                     {
                         WriteRow(game, elapsed);
@@ -166,6 +172,45 @@ namespace Client.Main.Diagnostics
         {
             _phase = phase;
             PhaseClock.Restart();
+        }
+
+        // MU_STRESS_TRACE=1: one line per second of the measured phase, to find periodic drops.
+        private static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("MU_STRESS_TRACE") == "1";
+        private static int _traceSecond = -1, _traceFrames, _traceDirty, _tracePoses, _traceGc0, _traceGc1, _traceGc2;
+        private static double _traceWorstMs;
+        private static int _traceSlow;
+        private static double _traceUpd, _traceDraw, _traceWobj, _traceTerr, _traceAfter, _tracePost, _traceFw;
+        private static readonly System.Diagnostics.Stopwatch TraceClock = System.Diagnostics.Stopwatch.StartNew();
+        private static long _traceBytes, _traceAlloc;
+
+        private static void Trace(double elapsed, FrameProfiler.Snapshot frame)
+        {
+            if (!TraceEnabled) return;
+            int second = (int)elapsed;
+            if (second != _traceSecond)
+            {
+                if (_traceSecond >= 0 && _traceFrames > 0)
+                {
+                    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2}"));
+                }
+                _traceSecond = second; _traceFrames = 0; _traceDirty = 0; _tracePoses = 0; _traceBytes = 0; _traceWorstMs = 0; _traceSlow = 0;
+                _traceUpd = _traceDraw = _traceWobj = _traceTerr = _traceAfter = _tracePost = _traceFw = 0;
+                _traceGc0 = GC.CollectionCount(0); _traceGc1 = GC.CollectionCount(1); _traceGc2 = GC.CollectionCount(2);
+                _traceAlloc = GC.GetTotalAllocatedBytes();
+            }
+            _traceFrames++;
+            double frameMs = TraceClock.Elapsed.TotalMilliseconds;
+            TraceClock.Restart();
+            _traceWorstMs = Math.Max(_traceWorstMs, frameMs);
+            if (frameMs > 15) _traceSlow++;
+            _traceDirty += ModelObject.LastFrameWalkerCrowdMultiPoseDirtyRows;
+            var passes = RenderPassProfiler.Current;
+            _traceUpd += frame.UpdateMs; _traceDraw += frame.DrawMs; _traceWobj += passes.WorldObjectsMs;
+            _traceTerr += passes.TerrainOpaqueMs; _traceAfter += passes.SceneAfterMs; _tracePost += passes.PostProcessMs;
+            _traceFw += passes.FrameworkDrawMs;
+            _tracePoses += ModelObject.LastFrameWalkerCrowdMultiPoseUniquePoses;
+            _traceBytes += ModelObject.LastFrameWalkerCrowdMultiPosePaletteBytes;
         }
 
         private static void Accumulate(MuGame game, FrameProfiler.Snapshot frame)
@@ -283,6 +328,32 @@ namespace Client.Main.Diagnostics
                 data[o + 9] = 0;
             }
             return data;
+        }
+
+        // MU_STRESS_WALK=1: like the server's monster AI, every few seconds half of the monsters walk a short
+        // distance (ObjectWalked without a packet), so walking animations are part of the measurement.
+        private static readonly bool WalkEnabled = Environment.GetEnvironmentVariable("MU_STRESS_WALK") == "1";
+        private static readonly Stopwatch WalkClock = Stopwatch.StartNew();
+        private static readonly Random WalkRandom = new(1234);
+        private static int _walkCycle;
+
+        private static void Wander(MuGame game)
+        {
+            if (!WalkEnabled || _typeIndex < 0 || WalkClock.Elapsed.TotalSeconds < 3)
+                return;
+            WalkClock.Restart();
+            var world = game.ActiveScene?.World;
+            if (world == null) return;
+            _walkCycle++;
+            int side = (int)Math.Ceiling(Math.Sqrt(_count));
+            for (int i = 0; i < _count; i++)
+            {
+                if ((i + _walkCycle) % 2 != 0) continue;
+                if (!world.TryGetWalkerById((ushort)(FirstMonsterId + i), out var walker) || walker == null) continue;
+                int x = HeroX - side + (i % side) * 2 + WalkRandom.Next(-2, 3);
+                int y = HeroY - side + (i / side) * 2 + WalkRandom.Next(-2, 3);
+                walker.MoveTo(new Vector2(x, y), sendToServer: false, usePathfinding: false);
+            }
         }
 
         private static byte[] BuildDespawnPacket(int count)
