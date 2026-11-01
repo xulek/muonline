@@ -363,12 +363,32 @@ namespace Client.Main.Content
             string.IsNullOrWhiteSpace(path) ? null :
             _textures.TryGetValue(NormalizePathKey(path), out var value) ? TouchAndReturn(value).Script : null;
 
+        /// <summary><see cref="Get"/> for an already normalized key, without allocating.</summary>
+        public TextureData GetByKey(string normalizedKey) =>
+            string.IsNullOrEmpty(normalizedKey) ? null :
+            _textures.TryGetValue(normalizedKey, out var value) ? TouchAndReturn(value).Info : null;
+
+        /// <summary><see cref="GetScript"/> for an already normalized key, without allocating.</summary>
+        public TextureScript GetScriptByKey(string normalizedKey) =>
+            string.IsNullOrEmpty(normalizedKey) ? null :
+            _textures.TryGetValue(normalizedKey, out var value) ? TouchAndReturn(value).Script : null;
+
         public Texture2D GetTexture2D(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return null;
 
-            string normalizedKey = NormalizePathKey(path);
+            return GetTexture2DByKey(NormalizePathKey(path));
+        }
+
+        /// <summary>Normalized key accepted by <see cref="GetTexture2DByKey"/>; callers can cache it.</summary>
+        public static string NormalizeTextureKey(string path) => NormalizePathKey(path);
+
+        /// <summary><see cref="GetTexture2D"/> for an already normalized key, without allocating.</summary>
+        public Texture2D GetTexture2DByKey(string normalizedKey)
+        {
+            if (string.IsNullOrEmpty(normalizedKey))
+                return null;
 
             if (!_textures.TryGetValue(normalizedKey, out ClientTexture clientTexture))
                 return null;
@@ -394,7 +414,7 @@ namespace Client.Main.Content
                     // Generated mip data normally arrives from the background decode path.
                     // Rebuild it here only if a previously uploaded GPU texture was externally
                     // disposed and needs to be recreated.
-                    PrepareMipData(textureInfo, path);
+                    PrepareMipData(textureInfo, normalizedKey);
 
                     Texture2D texture;
                     bool isCompressed = textureInfo.IsCompressed;
@@ -420,7 +440,7 @@ namespace Client.Main.Content
                     }
                     else
                     {
-                        texture = CreateColorTexture(textureInfo, path);
+                        texture = CreateColorTexture(textureInfo, normalizedKey);
                         if (texture == null)
                             return null;
                     }
@@ -440,7 +460,7 @@ namespace Client.Main.Content
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Failed creating Texture2D for {Path}", path);
+                    _logger?.LogError(ex, "Failed creating Texture2D for {Path}", normalizedKey);
                     return null;
                 }
             }

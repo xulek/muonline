@@ -34,6 +34,12 @@ namespace Client.Main.Objects
             public TextureScript Script;
             public TextureData Data;
             public string TexturePath;
+            /// <summary>Normalized texture cache key of <see cref="TexturePath"/>.</summary>
+            public string TextureKey;
+            /// <summary>Model whose texture path map has no entry for this mesh.</summary>
+            public Client.Data.BMD.BMD TexturePathMissingFor;
+            public int TexturePathMissingFrame;
+            public int TexturePrepareRequestFrame;
 
             public bool IsRgba;
             public bool HiddenByScript;

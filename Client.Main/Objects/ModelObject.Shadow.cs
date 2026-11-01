@@ -121,6 +121,8 @@ namespace Client.Main.Objects
             public uint LastPoseVersion = uint.MaxValue;
             public Matrix LastShadowWorld;
             public bool HasLastShadowWorld;
+            /// <summary>Translation applied when drawing a cached shadow of an object that only moved.</summary>
+            public Vector3 DrawOffset;
             public object LastSnowSurface;
             public long LastSnowSurfaceVersion;
             public bool IsValid;
@@ -454,9 +456,12 @@ namespace Client.Main.Objects
                         shadowWorld,
                         out DynamicVertexBuffer conformedVertexBuffer,
                         out IndexBuffer conformedIndexBuffer,
-                        out int conformedPrimitiveCount))
+                        out int conformedPrimitiveCount,
+                        out Vector3 conformedOffset))
                     {
-                        bindings.WorldViewProjection?.SetValue(viewProjection);
+                        bindings.WorldViewProjection?.SetValue(conformedOffset == Vector3.Zero
+                            ? viewProjection
+                            : Matrix.CreateTranslation(conformedOffset) * viewProjection);
                         effect.CurrentTechnique.Passes[0].Apply();
                         GraphicsDevice.SetVertexBuffer(conformedVertexBuffer);
                         GraphicsDevice.Indices = conformedIndexBuffer;
@@ -511,11 +516,13 @@ namespace Client.Main.Objects
             Matrix shadowWorld,
             out DynamicVertexBuffer vertexBuffer,
             out IndexBuffer indexBuffer,
-            out int primitiveCount)
+            out int primitiveCount,
+            out Vector3 drawOffset)
         {
             vertexBuffer = null;
             indexBuffer = null;
             primitiveCount = 0;
+            drawOffset = Vector3.Zero;
 
             var terrain = World?.Terrain;
             if (terrain == null ||
@@ -534,6 +541,7 @@ namespace Client.Main.Objects
             vertexBuffer = cache.VertexBuffer;
             indexBuffer = cache.IndexBuffer;
             primitiveCount = cache.Topology?.PrimitiveCount ?? 0;
+            drawOffset = cache.DrawOffset;
             return vertexBuffer != null && !vertexBuffer.IsDisposed &&
                    indexBuffer != null && !indexBuffer.IsDisposed &&
                    primitiveCount > 0;
@@ -800,6 +808,25 @@ namespace Client.Main.Objects
                 ReferenceEquals(cache.LastSnowSurface, snowSurface) && cache.LastSnowSurfaceVersion == snowVersion)
                 return true;
 
+            // A walking object changes its shadow matrix every frame, while its pose only changes at the
+            // animation rate. Rebuilding (skinning + terrain sampling + upload) on each of those frames made
+            // crowds of walking monsters with mesh shadows expensive. When only the translation changed, the
+            // projected shadow moves by exactly that XY delta; the cached mesh is shifted and lifted by the
+            // terrain height difference until the next pose change rebuilds it.
+            if (cache.IsValid && !poseChanged && transformChanged && vertexDeformer == null &&
+                snowSurface == null && cache.LastSnowSurface == null &&
+                TryGetTerrainShadowTranslationDelta(cache.LastShadowWorld, shadowWorld, out Vector2 shift))
+            {
+                Vector3 last = cache.LastShadowWorld.Translation;
+                float lastHeight = terrain.RequestTerrainHeight(last.X, last.Y);
+                float height = terrain.RequestTerrainHeight(last.X + shift.X, last.Y + shift.Y);
+                if (float.IsFinite(lastHeight) && float.IsFinite(height))
+                {
+                    cache.DrawOffset = new Vector3(shift.X, shift.Y, height - lastHeight);
+                    return true;
+                }
+            }
+
             TerrainShadowTopology topology = cache.Topology;
             var mesh = topology?.MeshReference;
             if (mesh?.Vertices == null || topology == null || !topology.IsValid)
@@ -894,6 +921,7 @@ namespace Client.Main.Objects
             cache.LastPoseVersion = poseVersion;
             cache.LastShadowWorld = shadowWorld;
             cache.HasLastShadowWorld = true;
+            cache.DrawOffset = Vector3.Zero;
             cache.LastSnowSurface = snowSurface;
             cache.LastSnowSurfaceVersion = snowVersion;
             cache.IsValid = true;
@@ -1019,6 +1047,25 @@ namespace Client.Main.Objects
                 return parentModel.GetTerrainShadowEffectivePoseVersion();
 
             return GetEffectiveBonePoseVersion();
+        }
+
+        /// <summary>Largest walk (world units) a cached shadow may be shifted before it is rebuilt.</summary>
+        private const float MaxTerrainShadowShift = 60f;
+
+        private static bool TryGetTerrainShadowTranslationDelta(in Matrix previous, in Matrix current, out Vector2 shift)
+        {
+            shift = default;
+            // Rotation, scale and projection parts (M11..M34) must be identical; only M41/M42/M43 may differ.
+            for (int i = 0; i < 12; i++)
+            {
+                if (previous[i] != current[i])
+                    return false;
+            }
+            if (previous.M44 != current.M44)
+                return false;
+
+            shift = new Vector2(current.M41 - previous.M41, current.M42 - previous.M42);
+            return shift.LengthSquared() <= MaxTerrainShadowShift * MaxTerrainShadowShift;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -1741,7 +1741,7 @@ namespace Client.Main.Content
                 result = fullTexturePath;
 
             if (result == null)
-                _logger?.LogDebug($"Texture path not found: {texturePath}");
+                _logger?.LogDebug("Texture path not found: {TexturePath}", texturePath);
 
             return result;
         }

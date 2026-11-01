@@ -323,6 +323,12 @@ namespace Client.Main.Objects
             if (ShouldUseBlobShadowForCurrentPass())
                 return false;
 
+            // Projected mesh shadows of walkers (e.g. ForceMonsterMeshShadows) use the same
+            // terrain-conformed path as actor shadows: it skins the shadow vertices from the bones.
+            // A complete CPU-skinned model copy per pose change is only needed for its fallback.
+            if (this is WalkerObject)
+                return !CanUseCachedTerrainConformedShadowPath();
+
             return true;
         }
 
@@ -514,6 +520,8 @@ namespace Client.Main.Objects
             return true;
         }
 
+        private const int MissingTexturePathRetryFrames = 120;
+
         private bool EnsureMeshTextureLoaded(int meshIndex, BMDTextureMesh mesh, bool allowLazyLoad)
         {
             if (_meshes == null || mesh == null || Model == null ||
@@ -538,17 +546,34 @@ namespace Client.Main.Objects
 
             if (string.IsNullOrEmpty(texturePath))
             {
+                // A texture missing from the model's path map keeps the texture flag dirty, so this runs
+                // on every buffer update. Retry the lookup (and its string allocations) only occasionally.
+                if (ReferenceEquals(ms.TexturePathMissingFor, Model) &&
+                    (uint)(MuGame.FrameIndex - ms.TexturePathMissingFrame) < MissingTexturePathRetryFrames)
+                    return false;
+
                 texturePath = BMDLoader.Instance.GetTexturePath(Model, mesh.TexturePath);
                 ms.TexturePath = texturePath;
+                ms.TextureKey = null;
+                ms.TexturePathMissingFor = string.IsNullOrEmpty(texturePath) ? Model : null;
+                ms.TexturePathMissingFrame = MuGame.FrameIndex;
             }
 
             if (string.IsNullOrEmpty(texturePath))
                 return false;
 
-            if (allowLazyLoad && ms.Texture == null)
+            // Prepare is idempotent but allocates; a texture that does not load would otherwise be
+            // requested again on every buffer update.
+            if (allowLazyLoad && ms.Texture == null &&
+                (ms.TexturePrepareRequestFrame == 0 ||
+                 (uint)(MuGame.FrameIndex - ms.TexturePrepareRequestFrame) >= MissingTexturePathRetryFrames))
+            {
+                ms.TexturePrepareRequestFrame = MuGame.FrameIndex | 1;
                 _ = TextureLoader.Instance.Prepare(texturePath);
+            }
 
-            var resolvedTexture = TextureLoader.Instance.GetTexture2D(texturePath);
+            ms.TextureKey ??= TextureLoader.NormalizeTextureKey(texturePath);
+            var resolvedTexture = TextureLoader.Instance.GetTexture2DByKey(ms.TextureKey);
             if (!ReferenceEquals(ms.Texture, resolvedTexture))
             {
                 ms.Texture = resolvedTexture;
@@ -559,8 +584,8 @@ namespace Client.Main.Objects
             if (!needsMetadataRefresh)
                 return ms.Texture != null;
 
-            var script = TextureLoader.Instance.GetScript(texturePath);
-            var data = TextureLoader.Instance.Get(texturePath);
+            var script = TextureLoader.Instance.GetScriptByKey(ms.TextureKey);
+            var data = TextureLoader.Instance.GetByKey(ms.TextureKey);
             bool isRgba = data?.Components == 4;
             bool hiddenByScript = script?.HiddenMesh ?? false;
             bool blendByScript = script?.Bright ?? false;
