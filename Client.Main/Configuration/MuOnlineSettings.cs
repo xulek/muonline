@@ -24,6 +24,8 @@ namespace Client.Main.Configuration
         public int AnimationUpdateFps { get; set; } = 23;
         public bool EnableCrowdSpatialCulling { get; set; } = true;
         public bool EnableWalkerCrowdInstancing { get; set; } = true;
+        /// <summary>Crowd-instance monster bodies that carry child objects (weapons, eye glows, bone effects).</summary>
+        public bool EnableWalkerCrowdInstancingWithChildren { get; set; } = true;
         public bool EnableAnimationThrottling { get; set; } = true;
         public bool EnableSharedAnimationPalettes { get; set; } = true;
         public bool EnableBmdMeshBatching { get; set; } = true;

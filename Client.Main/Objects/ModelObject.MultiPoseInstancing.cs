@@ -253,6 +253,38 @@ namespace Client.Main.Objects
         public static int LastFrameWalkerCrowdMultiPoseRejectedAnimation { get; private set; }
         public static int LastFrameWalkerCrowdMultiPoseRejectedOneShot { get; private set; }
         public static int LastFrameWalkerCrowdMultiPoseRejectedMaterial { get; private set; }
+
+        /// <summary>Diagnostics: the object types rejected most often last frame, e.g. "Spider x24 (Children)".</summary>
+        public static string LastFrameWalkerCrowdTopRejections { get; private set; } = string.Empty;
+
+        private static readonly Dictionary<(Type Type, string Reason), int> _walkerCrowdRejectionsByTypeThisFrame = new();
+
+        private void RegisterWalkerCrowdRejectionForType(string reason)
+        {
+            var key = (GetType(), reason);
+            _walkerCrowdRejectionsByTypeThisFrame.TryGetValue(key, out int count);
+            _walkerCrowdRejectionsByTypeThisFrame[key] = count + 1;
+        }
+
+        private static void PublishWalkerCrowdRejectionsByType()
+        {
+            if (_walkerCrowdRejectionsByTypeThisFrame.Count == 0)
+            {
+                LastFrameWalkerCrowdTopRejections = string.Empty;
+                return;
+            }
+
+            var top = new List<KeyValuePair<(Type Type, string Reason), int>>(_walkerCrowdRejectionsByTypeThisFrame);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < top.Count && i < 3; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append(top[i].Key.Type.Name).Append(" x").Append(top[i].Value).Append(" (").Append(top[i].Key.Reason).Append(')');
+            }
+            LastFrameWalkerCrowdTopRejections = sb.ToString();
+            _walkerCrowdRejectionsByTypeThisFrame.Clear();
+        }
         public static bool IsWalkerCrowdMultiPoseActive => IsWalkerCrowdMultiPoseInstancingSupported();
 
         private static void BeginFrameWalkerCrowdMultiPoseMetrics()
@@ -280,6 +312,7 @@ namespace Client.Main.Objects
             LastFrameWalkerCrowdMultiPoseRejectedAnimation = _walkerCrowdMultiPoseRejectedAnimationThisFrame;
             LastFrameWalkerCrowdMultiPoseRejectedOneShot = _walkerCrowdMultiPoseRejectedOneShotThisFrame;
             LastFrameWalkerCrowdMultiPoseRejectedMaterial = _walkerCrowdMultiPoseRejectedMaterialThisFrame;
+            PublishWalkerCrowdRejectionsByType();
 
             _walkerCrowdMultiPoseObjectsThisFrame = 0;
             _walkerCrowdMultiPoseMeshInstancesThisFrame = 0;
@@ -407,6 +440,7 @@ namespace Client.Main.Objects
             {
                 _walkerCrowdMultiPoseRejectedObjectThisFrame++;
                 RegisterWalkerCrowdObjectRejection(rejectionReason);
+                RegisterWalkerCrowdRejectionForType(rejectionReason.ToString());
                 return false;
             }
 
@@ -424,6 +458,7 @@ namespace Client.Main.Objects
                 if (!CanUseWalkerCrowdMeshForInstancing(meshIndex))
                 {
                     _walkerCrowdMultiPoseRejectedMeshThisFrame++;
+                    RegisterWalkerCrowdRejectionForType($"Mesh{meshIndex}:{DescribeWalkerCrowdMeshRejection(meshIndex)}");
                     return false;
                 }
 
@@ -437,6 +472,7 @@ namespace Client.Main.Objects
                     boneCount > MaxGpuSkinBones)
                 {
                     _walkerCrowdMultiPoseRejectedBuffersThisFrame++;
+                    RegisterWalkerCrowdRejectionForType($"Buffers bones={boneCount}");
                     return false;
                 }
 
@@ -455,6 +491,7 @@ namespace Client.Main.Objects
             if (bones == null || bones.Length == 0 || bones.Length > MaxGpuSkinBones)
             {
                 _walkerCrowdMultiPoseRejectedBonesThisFrame++;
+                RegisterWalkerCrowdRejectionForType($"Bones {bones?.Length ?? 0}");
                 return false;
             }
 

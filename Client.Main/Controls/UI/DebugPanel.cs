@@ -501,7 +501,19 @@ namespace Client.Main.Controls.UI
                 .Append("  ·  dirty ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseDirtyRows)
                 .Append('\n')
                 .Append("Atlas cache  hits ").Append(ModelObject.LastFrameWalkerCrowdMultiPosePaletteCacheHits)
-                .Append("  ·  ").Append(ModelObject.LastFrameWalkerCrowdMultiPosePaletteBytes / 1024L).Append(" KB");
+                .Append("  ·  ").Append(ModelObject.LastFrameWalkerCrowdMultiPosePaletteBytes / 1024L).Append(" KB")
+                .AppendLine()
+                .Append("Crowd rejected  obj ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedObject)
+                .Append(" (child ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedChildren)
+                .Append(" mat ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedMaterial)
+                .Append(" anim ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedAnimation)
+                .Append(" 1shot ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedOneShot)
+                .Append(" type ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedTypeOrRenderer)
+                .Append(")  mesh ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedMesh)
+                .Append("  buf ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedBuffers)
+                .Append("  bones ").Append(ModelObject.LastFrameWalkerCrowdMultiPoseRejectedBones)
+                .AppendLine()
+                .Append("Top rejected  ").Append(string.IsNullOrEmpty(ModelObject.LastFrameWalkerCrowdTopRejections) ? "-" : ModelObject.LastFrameWalkerCrowdTopRejections);
             SetLabelTextIfChanged(_instancingStatusLabel, _sb.ToString());
         }
 

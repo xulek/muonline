@@ -84,6 +84,11 @@ namespace Client.Main
         public static bool ENABLE_FAST_MATERIAL_SHADERS;
         public static bool ENABLE_PARTICLE_BATCHING;
         public static bool ENABLE_WALKER_CROWD_INSTANCING;
+        /// <summary>
+        /// Monsters with child objects (weapons, eye glows, bone effects) are crowd-instanced too; the children are
+        /// drawn by the crowd side pass (DrawQueuedCrowdInstancingSidePasses → DrawChildrenOnly).
+        /// </summary>
+        public static bool ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = true;
         public static bool ENABLE_CROWD_SPATIAL_CULLING;
         public static bool ENABLE_ANIMATION_THROTTLING;
         public static bool ENABLE_SHARED_ANIMATION_PALETTES;

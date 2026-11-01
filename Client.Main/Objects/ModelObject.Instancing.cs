@@ -1502,7 +1502,9 @@ namespace Client.Main.Objects
                 return false;
             }
 
-            if (Children.Count > 0)
+            // Children (weapons, eye glows, bone effects) do not block instancing of the body: the crowd side
+            // pass draws them after the batch. The option allows switching back to per-object rendering.
+            if (Children.Count > 0 && !Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN)
             {
                 reason = WalkerCrowdRejectionReason.Children;
                 return false;
@@ -1579,6 +1581,19 @@ namespace Client.Main.Objects
                 return false;
 
             return shaderSelection.UseDynamicLighting;
+        }
+
+        /// <summary>Diagnostics for the debug panel: why a mesh cannot be crowd-instanced.</summary>
+        private string DescribeWalkerCrowdMeshRejection(int meshIndex)
+        {
+            if (_meshes == null || meshIndex >= _meshes.Length || _meshes[meshIndex].Texture == null)
+                return "NoTexture";
+            var shaderSelection = DetermineShaderForMesh(meshIndex);
+            if (shaderSelection.UseItemMaterial) return "ItemMaterial";
+            if (shaderSelection.UseMonsterMaterial) return "MonsterMaterial";
+            if (!ReferenceEquals(GetMeshBlendState(meshIndex, false), BlendState.Opaque)) return "Blend";
+            if (!shaderSelection.UseDynamicLighting) return "NoDynamicLighting";
+            return "Other";
         }
 
         private bool CanUseWalkerCrowdMeshForInstancing(int meshIndex)
