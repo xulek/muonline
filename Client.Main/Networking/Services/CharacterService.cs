@@ -398,7 +398,7 @@ namespace Client.Main.Networking.Services
         /// <summary>
         /// Sends a guild packet built by <paramref name="write"/>; returns false when it could not be sent.
         /// </summary>
-        private async Task<bool> SendGuildPacketAsync(string description, Func<int> write)
+        private async Task<bool> SendSimplePacketAsync(string description, Func<int> write)
         {
             if (!_connectionManager.IsConnected)
             {
@@ -419,9 +419,108 @@ namespace Client.Main.Networking.Services
             }
         }
 
+        // ─────────────────────────── Messenger ───────────────────────────
+
+        private int _nextLetterId;
+
+        /// <summary>Asks another character to become a friend (0xC1).</summary>
+        public Task<bool> SendFriendAddRequestAsync(string friendName)
+            => SendSimplePacketAsync($"friend add request ({friendName})", () =>
+            {
+                var packet = new FriendAddRequest(_connectionManager.Connection.Output.GetMemory(FriendAddRequest.Length).Slice(0, FriendAddRequest.Length));
+                packet.FriendName = friendName;
+                return FriendAddRequest.Length;
+            });
+
+        /// <summary>Answers a friend request (0xC2).</summary>
+        public Task<bool> SendFriendAddResponseAsync(bool accepted, string requesterName)
+            => SendSimplePacketAsync("friend add response", () =>
+            {
+                var packet = new FriendAddResponse(_connectionManager.Connection.Output.GetMemory(FriendAddResponse.Length).Slice(0, FriendAddResponse.Length));
+                packet.Accepted = accepted;
+                packet.FriendRequesterName = requesterName;
+                return FriendAddResponse.Length;
+            });
+
+        /// <summary>Removes a friend from the friend list (0xC3).</summary>
+        public Task<bool> SendFriendDeleteAsync(string friendName)
+            => SendSimplePacketAsync($"friend delete ({friendName})", () =>
+            {
+                var packet = new FriendDelete(_connectionManager.Connection.Output.GetMemory(FriendDelete.Length).Slice(0, FriendDelete.Length));
+                packet.FriendName = friendName;
+                return FriendDelete.Length;
+            });
+
+        /// <summary>Shows the own character online or offline in the friend lists of others (0xC4).</summary>
+        public Task<bool> SendSetFriendOnlineStateAsync(bool online)
+            => SendSimplePacketAsync("friend online state", () =>
+            {
+                var packet = new SetFriendOnlineState(_connectionManager.Connection.Output.GetMemory(SetFriendOnlineState.Length).Slice(0, SetFriendOnlineState.Length));
+                packet.OnlineState = online;
+                return SetFriendOnlineState.Length;
+            });
+
+        /// <summary>Sends a letter (0xC5). Rotation/animation describe the sender pose shown to the receiver.</summary>
+        public Task<bool> SendLetterAsync(string receiver, string title, string message, byte rotation = 0, byte animation = 0)
+        {
+            uint letterId = (uint)System.Threading.Interlocked.Increment(ref _nextLetterId);
+            message ??= string.Empty;
+            return SendSimplePacketAsync($"letter to {receiver}", () =>
+            {
+                int length = LetterSendRequest.GetRequiredSize(message);
+                var packet = new LetterSendRequest(_connectionManager.Connection.Output.GetMemory(length).Slice(0, length));
+                packet.LetterId = letterId;
+                packet.Receiver = receiver;
+                packet.Title = title ?? string.Empty;
+                packet.Rotation = rotation;
+                packet.Animation = animation;
+                packet.MessageLength = (ushort)System.Text.Encoding.UTF8.GetByteCount(message);
+                packet.Message = message;
+                return length;
+            });
+        }
+
+        /// <summary>Requests the text of a letter (0xC7).</summary>
+        public Task<bool> SendLetterReadRequestAsync(ushort letterIndex)
+            => SendSimplePacketAsync($"letter read ({letterIndex})", () =>
+            {
+                var packet = new LetterReadRequest(_connectionManager.Connection.Output.GetMemory(LetterReadRequest.Length).Slice(0, LetterReadRequest.Length));
+                packet.LetterIndex = letterIndex;
+                return LetterReadRequest.Length;
+            });
+
+        /// <summary>Deletes a letter (0xC8).</summary>
+        public Task<bool> SendLetterDeleteRequestAsync(ushort letterIndex)
+            => SendSimplePacketAsync($"letter delete ({letterIndex})", () =>
+            {
+                var packet = new LetterDeleteRequest(_connectionManager.Connection.Output.GetMemory(LetterDeleteRequest.Length).Slice(0, LetterDeleteRequest.Length));
+                packet.LetterIndex = letterIndex;
+                return LetterDeleteRequest.Length;
+            });
+
+        /// <summary>Opens a chat room with an online friend (0xCA); answered with ChatRoomConnectionInfo.</summary>
+        public Task<bool> SendChatRoomCreateRequestAsync(string friendName)
+            => SendSimplePacketAsync($"chat room create ({friendName})", () =>
+            {
+                var packet = new ChatRoomCreateRequest(_connectionManager.Connection.Output.GetMemory(ChatRoomCreateRequest.Length).Slice(0, ChatRoomCreateRequest.Length));
+                packet.FriendName = friendName;
+                return ChatRoomCreateRequest.Length;
+            });
+
+        /// <summary>Invites another friend into an existing chat room (0xCB).</summary>
+        public Task<bool> SendChatRoomInvitationAsync(string friendName, ushort roomId, uint requestId)
+            => SendSimplePacketAsync($"chat room invitation ({friendName})", () =>
+            {
+                var packet = new ChatRoomInvitationRequest(_connectionManager.Connection.Output.GetMemory(ChatRoomInvitationRequest.Length).Slice(0, ChatRoomInvitationRequest.Length));
+                packet.FriendName = friendName;
+                packet.RoomId = roomId;
+                packet.RequestId = requestId;
+                return ChatRoomInvitationRequest.Length;
+            });
+
         /// <summary>Requests name and mark of a guild that is not cached yet (0x66).</summary>
         public Task<bool> SendGuildInfoRequestAsync(uint guildId)
-            => SendGuildPacketAsync($"guild info request ({guildId})", () =>
+            => SendSimplePacketAsync($"guild info request ({guildId})", () =>
             {
                 var packet = new GuildInfoRequest(_connectionManager.Connection.Output.GetMemory(GuildInfoRequest.Length).Slice(0, GuildInfoRequest.Length));
                 packet.GuildId = guildId;
@@ -430,7 +529,7 @@ namespace Client.Main.Networking.Services
 
         /// <summary>Requests the member list of the own guild (0x52).</summary>
         public Task<bool> SendGuildListRequestAsync()
-            => SendGuildPacketAsync("guild list request", () =>
+            => SendSimplePacketAsync("guild list request", () =>
             {
                 _ = new GuildListRequest(_connectionManager.Connection.Output.GetMemory(GuildListRequest.Length).Slice(0, GuildListRequest.Length));
                 return GuildListRequest.Length;
@@ -440,7 +539,7 @@ namespace Client.Main.Networking.Services
         /// Kicks a member (guild master), leaves the guild (own name) or disbands it (guild master, own name) (0x53).
         /// </summary>
         public Task<bool> SendGuildKickPlayerAsync(string playerName, string securityCode)
-            => SendGuildPacketAsync("guild kick request", () =>
+            => SendSimplePacketAsync("guild kick request", () =>
             {
                 securityCode ??= string.Empty;
                 int length = GuildKickPlayerRequest.GetRequiredSize(securityCode);
@@ -452,7 +551,7 @@ namespace Client.Main.Networking.Services
 
         /// <summary>Answers the guild master NPC dialog: proceed to the creation window or cancel (0x54).</summary>
         public Task<bool> SendGuildMasterAnswerAsync(bool showCreationDialog)
-            => SendGuildPacketAsync("guild master answer", () =>
+            => SendSimplePacketAsync("guild master answer", () =>
             {
                 var packet = new GuildMasterAnswer(_connectionManager.Connection.Output.GetMemory(GuildMasterAnswer.Length).Slice(0, GuildMasterAnswer.Length));
                 packet.ShowCreationDialog = showCreationDialog;
@@ -461,7 +560,7 @@ namespace Client.Main.Networking.Services
 
         /// <summary>Creates a guild with the given name and packed 32-byte mark (0x55).</summary>
         public Task<bool> SendGuildCreateAsync(string guildName, byte[] packedMark)
-            => SendGuildPacketAsync("guild create request", () =>
+            => SendSimplePacketAsync("guild create request", () =>
             {
                 var packet = new GuildCreateRequest(_connectionManager.Connection.Output.GetMemory(GuildCreateRequest.Length).Slice(0, GuildCreateRequest.Length));
                 packet.GuildName = guildName;
@@ -471,7 +570,7 @@ namespace Client.Main.Networking.Services
 
         /// <summary>Cancels the guild creation window (0x57).</summary>
         public Task<bool> SendCancelGuildCreationAsync()
-            => SendGuildPacketAsync("guild creation cancel", () =>
+            => SendSimplePacketAsync("guild creation cancel", () =>
             {
                 _ = new CancelGuildCreation(_connectionManager.Connection.Output.GetMemory(CancelGuildCreation.Length).Slice(0, CancelGuildCreation.Length));
                 return CancelGuildCreation.Length;

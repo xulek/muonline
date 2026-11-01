@@ -45,6 +45,7 @@ namespace Client.Main.Networking.PacketHandling
         private readonly BloodCastleHandler _bloodCastleHandler;
         private readonly MiniGameHandler _miniGameHandler;
         private readonly GuildHandler _guildHandler;
+        private readonly MessengerHandler _messengerHandler;
         private readonly PetHandler _petHandler;
         private readonly BuffManager _buffManager;
 
@@ -97,6 +98,7 @@ namespace Client.Main.Networking.PacketHandling
             _bloodCastleHandler = new BloodCastleHandler(loggerFactory, characterState, networkManager);
             _miniGameHandler = new MiniGameHandler(loggerFactory);
             _guildHandler = new GuildHandler(loggerFactory, characterState, characterService, networkManager);
+            _messengerHandler = new MessengerHandler(loggerFactory, characterService, networkManager);
             _petHandler = new PetHandler(loggerFactory);
 
             RegisterAttributeBasedHandlers();
@@ -159,6 +161,7 @@ namespace Client.Main.Networking.PacketHandling
             {
                 _characterState?.ResetAfterDisconnect();
                 _networkManager?.GetGuildManager()?.Reset();
+                _networkManager?.GetFriendManager()?.Reset();
             }
 
             return Task.CompletedTask;
@@ -268,6 +271,7 @@ namespace Client.Main.Networking.PacketHandling
                 _bloodCastleHandler,
                 _miniGameHandler,
                 _guildHandler,
+                _messengerHandler,
                 _petHandler
             };
 

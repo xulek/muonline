@@ -20,6 +20,8 @@ namespace Client.Main.Controls.UI.Game
         private readonly ButtonControl _duelButton;
         private readonly ButtonControl _storeButton;
         private readonly ButtonControl _whisperButton;
+        private readonly ButtonControl _friendButton;
+        private readonly ButtonControl _guildButton;
 
         private ushort _targetPlayerId;
         private string _targetPlayerName;
@@ -30,7 +32,7 @@ namespace Client.Main.Controls.UI.Game
         public PlayerContextMenu()
         {
             AutoViewSize = false;
-            ControlSize = new Point(170, 150);
+            ControlSize = new Point(170, 206);
             ViewSize = ControlSize;
             BackgroundColor = new Color(30, 30, 50, 240);
             BorderColor = new Color(100, 100, 150, 255);
@@ -44,18 +46,24 @@ namespace Client.Main.Controls.UI.Game
             _duelButton = buttons.duel;
             _storeButton = buttons.store;
             _whisperButton = buttons.whisper;
+            _friendButton = buttons.friend;
+            _guildButton = buttons.guild;
 
             _partyButton.Click += OnPartyInviteClicked;
             _tradeButton.Click += OnTradeRequestClicked;
             _duelButton.Click += OnDuelRequestClicked;
             _storeButton.Click += OnStoreRequestClicked;
             _whisperButton.Click += OnWhisperClicked;
+            _friendButton.Click += OnAddFriendClicked;
+            _guildButton.Click += OnGuildJoinClicked;
 
             Controls.Add(_partyButton);
             Controls.Add(_tradeButton);
             Controls.Add(_duelButton);
             Controls.Add(_storeButton);
             Controls.Add(_whisperButton);
+            Controls.Add(_friendButton);
+            Controls.Add(_guildButton);
         }
 
         /// <summary>
@@ -91,6 +99,28 @@ namespace Client.Main.Controls.UI.Game
             Y = Math.Clamp(Y, 0, maxY);
 
             Visible = true;
+        }
+
+        /// <summary>
+        /// Adds the player to the friend list (FriendAddRequest 0xC1); the other player has to accept.
+        /// </summary>
+        private void OnAddFriendClicked(object sender, EventArgs e)
+        {
+            var characterService = MuGame.Network?.GetCharacterService();
+            if (characterService != null && !string.IsNullOrEmpty(_targetPlayerName))
+                _ = characterService.SendFriendAddRequestAsync(_targetPlayerName);
+            Visible = false;
+        }
+
+        /// <summary>
+        /// Asks the player (a guild master) to join their guild (GuildJoinRequest 0x50).
+        /// </summary>
+        private void OnGuildJoinClicked(object sender, EventArgs e)
+        {
+            var characterService = MuGame.Network?.GetCharacterService();
+            if (characterService != null)
+                _ = characterService.SendGuildJoinRequestAsync(_targetPlayerId);
+            Visible = false;
         }
 
         /// <summary>
@@ -175,7 +205,7 @@ namespace Client.Main.Controls.UI.Game
             return true;
         }
 
-        private (ButtonControl party, ButtonControl trade, ButtonControl duel, ButtonControl store, ButtonControl whisper) CreateButtons()
+        private (ButtonControl party, ButtonControl trade, ButtonControl duel, ButtonControl store, ButtonControl whisper, ButtonControl friend, ButtonControl guild) CreateButtons()
         {
             int x = 5;
             int y = 5;
@@ -205,8 +235,10 @@ namespace Client.Main.Controls.UI.Game
             var duel = Make("Duel Request", y + height * 2);
             var store = Make("View Store", y + height * 3);
             var whisper = Make("Whisper", y + height * 4);
+            var friend = Make("Add Friend", y + height * 5);
+            var guild = Make("Join Guild", y + height * 6);
 
-            return (party, trade, duel, store, whisper);
+            return (party, trade, duel, store, whisper, friend, guild);
         }
     }
 }

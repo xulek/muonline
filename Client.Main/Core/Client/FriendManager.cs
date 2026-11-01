@@ -1,82 +1,229 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace Client.Main.Core.Client
 {
     /// <summary>
-    /// Friend list entry matching SourceMain friend system.
+    /// Friend list entry (0xC0 / 0xC1 / 0xC4).
     /// </summary>
-    public class FriendEntry
+    public sealed class FriendEntry
     {
-        public string Name { get; set; } = string.Empty;
-        public bool IsOnline { get; set; }
-        public byte ServerId { get; set; }
+        public const byte OfflineServerId = 0xFF;
+
+        public string Name { get; init; } = string.Empty;
+
+        /// <summary>Game server the friend is connected to, or <see cref="OfflineServerId"/>.</summary>
+        public byte ServerId { get; set; } = OfflineServerId;
+
+        public bool IsOnline => ServerId != OfflineServerId;
     }
 
     /// <summary>
-    /// Manages friend list state.
-    /// Equivalent to SourceMain NewUIFriendWindow backend.
+    /// Letter header of the mailbox (0xC6 AddLetter); the text is filled by 0xC7 OpenLetter.
     /// </summary>
-    public class FriendManager
+    public sealed class LetterEntry
     {
-        private readonly ILogger<FriendManager> _logger;
-        private readonly List<FriendEntry> _friends = new();
-        private readonly Dictionary<string, string> _friendChatLog = new();
+        public ushort Index { get; init; }
+        public string Sender { get; init; } = string.Empty;
+        public string Timestamp { get; init; } = string.Empty;
+        public string Subject { get; init; } = string.Empty;
+        public bool IsRead { get; set; }
+        public string? Message { get; set; }
+    }
 
-        public event Action? FriendListChanged;
-        public event Action<string, string, string>? FriendMessageReceived; // (senderName, receiverName, message)
+    /// <summary>
+    /// Messenger state of the local character: friend list, mailbox and pending friend requests.
+    /// Equivalent to the original CUIFriendListWindow / CUIMailList backends (UIWindows.cpp) and WSclient ReceiveFriend*/ReceiveLetter*.
+    /// </summary>
+    public sealed class FriendManager
+    {
+        public const int MaxNameLength = 10;
+        public const int MaxSubjectLength = 32;
+        public const int MaxLetterLength = 1000;
+
+        private readonly ILogger<FriendManager> _logger;
+        private readonly object _lock = new();
+        private readonly List<FriendEntry> _friends = new();
+        private readonly List<LetterEntry> _letters = new();
 
         public FriendManager(ILoggerFactory loggerFactory)
         {
             _logger = loggerFactory.CreateLogger<FriendManager>();
         }
 
-        public IReadOnlyList<FriendEntry> GetFriends() => _friends;
+        /// <summary>Raised whenever the friend list or a friend's online state changed.</summary>
+        public event Action? FriendListChanged;
 
-        public void SetFriendList(IEnumerable<FriendEntry> friends)
+        /// <summary>Raised whenever the mailbox changed (letter added, read or removed).</summary>
+        public event Action? LettersChanged;
+
+        /// <summary>Raised when the text of a letter arrived (0xC7).</summary>
+        public event Action<LetterEntry>? LetterOpened;
+
+        /// <summary>Raised when a new letter arrived while playing (AddLetter with state New).</summary>
+        public event Action<LetterEntry>? NewLetterReceived;
+
+        /// <summary>Raised with the result of the own letter send request (0xC5).</summary>
+        public event Action<byte>? LetterSendResult;
+
+        public bool IsInitialized { get; private set; }
+        public int MaxLetters { get; private set; } = 50;
+
+        /// <summary>Own messenger visibility (0xC4 SetFriendOnlineState). The server starts every session online.</summary>
+        public bool IsOnline { get; private set; } = true;
+
+        public IReadOnlyList<FriendEntry> GetFriends()
         {
-            _friends.Clear();
-            _friends.AddRange(friends);
-            _logger?.LogDebug("Friend list updated: {Count} friends", _friends.Count);
-            FriendListChanged?.Invoke();
+            lock (_lock) return _friends.ToList();
         }
 
-        public void UpdateFriendOnlineStatus(string name, bool isOnline, byte serverId)
+        public IReadOnlyList<LetterEntry> GetLetters()
         {
-            var friend = _friends.Find(f => f.Name == name);
-            if (friend != null)
+            lock (_lock) return _letters.ToList();
+        }
+
+        public int UnreadLetterCount
+        {
+            get { lock (_lock) return _letters.Count(l => !l.IsRead); }
+        }
+
+        public bool IsFriend(string name)
+        {
+            lock (_lock) return _friends.Exists(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // ─────────────────────────── Friends ───────────────────────────
+
+        /// <summary>MessengerInitialization (0xC0): the full friend list after entering the game.</summary>
+        public void Initialize(IEnumerable<FriendEntry> friends, int maxLetters)
+        {
+            lock (_lock)
             {
-                friend.IsOnline = isOnline;
-                friend.ServerId = serverId;
-                FriendListChanged?.Invoke();
+                _friends.Clear();
+                _friends.AddRange(friends);
+                SortFriends();
+                _letters.Clear();
+                MaxLetters = maxLetters > 0 ? maxLetters : MaxLetters;
+                IsInitialized = true;
+                IsOnline = true;
             }
+
+            _logger.LogDebug("Messenger initialized: {Count} friends, {Max} letters max.", _friends.Count, MaxLetters);
+            FriendListChanged?.Invoke();
+            LettersChanged?.Invoke();
         }
 
-        public void AddFriend(string name, bool isOnline = false, byte serverId = 0)
+        public void AddOrUpdateFriend(string name, byte serverId)
         {
-            if (_friends.Exists(f => f.Name == name)) return;
-            _friends.Add(new FriendEntry { Name = name, IsOnline = isOnline, ServerId = serverId });
+            if (string.IsNullOrWhiteSpace(name)) return;
+            lock (_lock)
+            {
+                var friend = _friends.Find(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (friend == null) _friends.Add(new FriendEntry { Name = name, ServerId = serverId });
+                else friend.ServerId = serverId;
+                SortFriends();
+            }
+
             FriendListChanged?.Invoke();
+        }
+
+        public void UpdateFriendServer(string name, byte serverId)
+        {
+            bool changed = false;
+            lock (_lock)
+            {
+                var friend = _friends.Find(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (friend != null && friend.ServerId != serverId)
+                {
+                    friend.ServerId = serverId;
+                    SortFriends();
+                    changed = true;
+                }
+            }
+
+            if (changed) FriendListChanged?.Invoke();
         }
 
         public void RemoveFriend(string name)
         {
-            _friends.RemoveAll(f => f.Name == name);
+            int removed;
+            lock (_lock) removed = _friends.RemoveAll(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (removed > 0) FriendListChanged?.Invoke();
+        }
+
+        public void SetOwnOnlineState(bool online)
+        {
+            IsOnline = online;
             FriendListChanged?.Invoke();
         }
 
-        public void AddChatMessage(string sender, string receiver, string message)
+        private void SortFriends()
+            => _friends.Sort((a, b) => a.IsOnline != b.IsOnline ? (a.IsOnline ? -1 : 1) : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
+        // ─────────────────────────── Letters ───────────────────────────
+
+        public void AddLetter(LetterEntry letter, bool isNew)
         {
-            _friendChatLog[$"{sender}->{receiver}"] = message;
-            FriendMessageReceived?.Invoke(sender, receiver, message);
+            lock (_lock)
+            {
+                _letters.RemoveAll(l => l.Index == letter.Index);
+                _letters.Add(letter);
+                _letters.Sort((a, b) => b.Index.CompareTo(a.Index));
+            }
+
+            LettersChanged?.Invoke();
+            if (isNew) NewLetterReceived?.Invoke(letter);
         }
 
-        public void Clear()
+        public void SetLetterText(ushort index, string message)
         {
-            _friends.Clear();
-            _friendChatLog.Clear();
+            LetterEntry? letter;
+            lock (_lock)
+            {
+                letter = _letters.Find(l => l.Index == index);
+                if (letter != null)
+                {
+                    letter.Message = message;
+                    letter.IsRead = true;
+                }
+            }
+
+            if (letter == null)
+            {
+                _logger.LogDebug("Letter text for unknown index {Index}.", index);
+                return;
+            }
+
+            LettersChanged?.Invoke();
+            LetterOpened?.Invoke(letter);
+        }
+
+        /// <summary>RemoveLetter (0xC8). The server keeps the indexes of the remaining letters.</summary>
+        public void RemoveLetter(ushort index)
+        {
+            int removed;
+            lock (_lock) removed = _letters.RemoveAll(l => l.Index == index);
+            if (removed > 0) LettersChanged?.Invoke();
+        }
+
+        public void RaiseLetterSendResult(byte result) => LetterSendResult?.Invoke(result);
+
+        /// <summary>Drops everything tied to the current session (disconnect / character change).</summary>
+        public void Reset()
+        {
+            lock (_lock)
+            {
+                _friends.Clear();
+                _letters.Clear();
+                IsInitialized = false;
+                IsOnline = true;
+            }
+
+            FriendListChanged?.Invoke();
+            LettersChanged?.Invoke();
         }
     }
 }

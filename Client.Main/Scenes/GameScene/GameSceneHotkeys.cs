@@ -174,6 +174,7 @@ namespace Client.Main.Scenes
             hotkeys.OnKeyPressed(Keys.C, ToggleCharacterInfo, when: WhenCharacterInfoToggle);
             hotkeys.OnKeyPressed(Keys.M, ToggleMoveCommand, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.G, ToggleGuildWindow, when: WhenNotUiInput);
+            hotkeys.OnKeyPressed(Keys.F, ToggleFriendWindow, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.Tab, ToggleMiniMap, when: WhenMiniMapToggle);
             hotkeys.OnKeyPressed(Keys.Enter, OpenChatInput, when: WhenNotUiInput);
         }
@@ -264,6 +265,11 @@ namespace Client.Main.Scenes
             {
                 SoundController.Instance.PlayBuffer("Sound/iCreateWindow.wav");
             }
+        }
+
+        private void ToggleFriendWindow(HotkeyContext context)
+        {
+            _scene.FriendList?.Toggle();
         }
 
         private void ToggleGuildWindow(HotkeyContext context)

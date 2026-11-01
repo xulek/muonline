@@ -1030,22 +1030,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             return Task.CompletedTask;
         }
 
-        [PacketHandler(0xC0, PacketRouter.NoSubCode)]  // MessengerInitialization
-        public Task HandleMessengerInitializationAsync(Memory<byte> packet)
-        {
-            try
-            {
-                var init = new MessengerInitialization(packet);
-                _logger.LogInformation(
-                    "Messenger initialized: {Letters}/{MaxLetters} letters, {Friends} friends",
-                    init.LetterCount, init.MaximumLetterCount, init.FriendCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error parsing MessengerInitialization packet.");
-            }
-            return Task.CompletedTask;
-        }
+        // MessengerInitialization (0xC0) is handled by MessengerHandler.
 
         [PacketHandler(0xA0, PacketRouter.NoSubCode)]  // LegacyQuestStateList
         public Task HandleLegacyQuestStateListAsync(Memory<byte> packet)

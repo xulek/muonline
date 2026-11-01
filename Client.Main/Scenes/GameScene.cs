@@ -17,6 +17,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Controls.UI.Game.Guild;
+using Client.Main.Controls.UI.Game.Friends;
 using Client.Main.Controls.UI.Game.Map;
 using Client.Main.Controls.UI.Game.Party;
 using Client.Main.Controls.UI.Game.PauseMenu;
@@ -59,6 +60,9 @@ namespace Client.Main.Scenes
         internal OwnPlayerShopControl OwnPlayerShop { get; private set; }
         internal GuildInfoWindow GuildInfo { get; private set; }
         internal GuildCreateWindow GuildCreate { get; private set; }
+        internal FriendListWindow FriendList { get; private set; }
+        internal LetterReadWindow LetterRead { get; private set; }
+        internal LetterComposeWindow LetterCompose { get; private set; }
         private Client.Main.Core.Client.GuildManager _guildManager;
         private Controls.UI.NotificationManager _notificationManager;
         private PartyPanelControl _partyPanel;
@@ -320,6 +324,13 @@ namespace Client.Main.Scenes
             Controls.Add(GuildInfo);
             GuildCreate = new GuildCreateWindow();
             Controls.Add(GuildCreate);
+            var friendManager = MuGame.Network.GetFriendManager();
+            FriendList = new FriendListWindow(friendManager);
+            Controls.Add(FriendList);
+            LetterRead = new LetterReadWindow(friendManager);
+            Controls.Add(LetterRead);
+            LetterCompose = new LetterComposeWindow(friendManager);
+            Controls.Add(LetterCompose);
             _guildManager.GuildMasterDialogRequested += OnGuildMasterDialogRequested;
             _guildManager.GuildCreationDialogRequested += OnGuildCreationDialogRequested;
             _windowCloseController = new GameSceneWindowCloseController(_inventoryControl, _logger);
@@ -1384,6 +1395,35 @@ namespace Client.Main.Scenes
         }
 
         private void OnGuildCreationDialogRequested() => GuildCreate?.Show();
+
+        private readonly System.Collections.Generic.List<ChatRoomWindow> _chatRooms = new();
+
+        /// <summary>
+        /// ChatRoomConnectionInfo (0xCA): connects to the chat server and opens a chat window for the room
+        /// (or shows the existing one).
+        /// </summary>
+        internal async void OpenChatRoom(string host, ushort roomId, uint token, string friendName)
+        {
+            _chatRooms.RemoveAll(w => w.Status == Models.GameControlStatus.Disposed || w.Parent == null);
+            foreach (var existing in _chatRooms)
+            {
+                if (existing.RoomId == roomId)
+                {
+                    existing.Show();
+                    return;
+                }
+            }
+
+            var session = new Client.Main.Networking.ChatRoomSession(MuGame.AppLoggerFactory, roomId, token, friendName);
+            string ownName = MuGame.Network?.GetCharacterState()?.Name ?? string.Empty;
+            var window = new ChatRoomWindow(session, ownName);
+            Controls.Add(window);
+            _chatRooms.Add(window);
+            window.Show();
+
+            if (!await session.ConnectAsync(host))
+                ChatLog?.AddMessage("System", $"Could not connect to the chat server ({host}).", Models.MessageType.Error);
+        }
 
         public override void Dispose()
         {
