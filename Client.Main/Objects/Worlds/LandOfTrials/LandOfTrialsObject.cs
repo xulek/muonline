@@ -18,7 +18,7 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
     /// </summary>
     public class LandOfTrialsObject : MapTileObject
     {
-        private readonly Controls.DynamicLight? _warmLight;
+        private Controls.DynamicLight? _warmLight;
 
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool AllowMapObjectInstancing => false;
@@ -26,20 +26,23 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
 
         public LandOfTrialsObject()
         {
-            if (Type == 42)
-            {
-                _warmLight = new Controls.DynamicLight
-                {
-                    Owner = this,
-                    Radius = Constants.TERRAIN_SCALE * 4f,
-                    Intensity = 1f
-                };
-            }
         }
 
         public override async Task Load()
         {
             await base.Load();
+
+            // Type is assigned by the map object factory after construction, so the light is created here.
+            if (Type == 42 && _warmLight == null)
+            {
+                _warmLight = new Controls.DynamicLight
+                {
+                    Owner = this,
+                    Position = WorldPosition.Translation,
+                    Radius = Constants.TERRAIN_SCALE * 4f,
+                    Intensity = 1f
+                };
+            }
 
             if (_warmLight != null && World?.Terrain != null)
                 World.Terrain.AddDynamicLight(_warmLight);

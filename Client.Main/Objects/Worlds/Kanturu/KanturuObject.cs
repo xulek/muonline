@@ -18,7 +18,7 @@ namespace Client.Main.Objects.Worlds.Kanturu
     {
         private const float LegacyFramesPerSecond = 50f;
 
-        private readonly Controls.DynamicLight? _furnaceLight;
+        private Controls.DynamicLight? _furnaceLight;
         private KanturuCoreGlowEmitter? _coreGlow;
 
         protected override bool RequiresPerFrameAnimation => true;
@@ -28,21 +28,23 @@ namespace Client.Main.Objects.Worlds.Kanturu
         public KanturuObject()
         {
             BlendMeshState = BlendState.Additive;
-
-            if (Type == 70)
-            {
-                _furnaceLight = new Controls.DynamicLight
-                {
-                    Owner = this,
-                    Radius = Constants.TERRAIN_SCALE * 4f,
-                    Intensity = 1f
-                };
-            }
         }
 
         public override async Task Load()
         {
             await base.Load();
+
+            // Type is assigned by the map object factory after construction, so the light is created here.
+            if (Type == 70 && _furnaceLight == null)
+            {
+                _furnaceLight = new Controls.DynamicLight
+                {
+                    Owner = this,
+                    Position = WorldPosition.Translation,
+                    Radius = Constants.TERRAIN_SCALE * 4f,
+                    Intensity = 1f
+                };
+            }
 
             if (_furnaceLight != null && World?.Terrain != null)
                 World.Terrain.AddDynamicLight(_furnaceLight);

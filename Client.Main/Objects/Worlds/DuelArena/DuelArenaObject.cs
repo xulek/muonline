@@ -21,7 +21,7 @@ namespace Client.Main.Objects.Worlds.DuelArena
         private const string SmokeTexturePath = "Effect/smoke02.tga";
         private const string FireTexturePath = "Effect/Fire01.jpg";
 
-        private readonly Controls.DynamicLight? _brazierLight;
+        private Controls.DynamicLight? _brazierLight;
         private DuelArenaPuffEmitter? _puffEmitter;
         private Texture2D? _fireTexture;
 
@@ -31,20 +31,23 @@ namespace Client.Main.Objects.Worlds.DuelArena
 
         public DuelArenaObject()
         {
-            if (Type == 34)
-            {
-                _brazierLight = new Controls.DynamicLight
-                {
-                    Owner = this,
-                    Radius = Constants.TERRAIN_SCALE * 4f,
-                    Intensity = 1f
-                };
-            }
         }
 
         public override async Task Load()
         {
             await base.Load();
+
+            // Type is assigned by the map object factory after construction, so the light is created here.
+            if (Type == 34 && _brazierLight == null)
+            {
+                _brazierLight = new Controls.DynamicLight
+                {
+                    Owner = this,
+                    Position = WorldPosition.Translation,
+                    Radius = Constants.TERRAIN_SCALE * 4f,
+                    Intensity = 1f
+                };
+            }
 
             if (_brazierLight != null && World?.Terrain != null)
                 World.Terrain.AddDynamicLight(_brazierLight);
