@@ -20,12 +20,14 @@ namespace Client.Main.Scenes
 
         public void OnHeroMoved(object sender, EventArgs e)
         {
+            bool npcClosed = false;
             if (NpcShopControl.Instance.Visible)
             {
                 _logger?.LogInformation("Hero moved, closing NPC shop window.");
                 NpcShopControl.Instance.Visible = false;
                 CloseInventoryIfVisible();
                 SendCloseNpcRequestAsync();
+                npcClosed = true;
             }
 
             if (VaultControl.Instance.Visible)
@@ -34,6 +36,7 @@ namespace Client.Main.Scenes
                 VaultControl.Instance.CloseWindow();
                 CloseInventoryIfVisible();
                 SendCloseNpcRequestAsync();
+                npcClosed = true;
             }
 
             if (ChaosMixControl.Instance.Visible)
@@ -44,6 +47,14 @@ namespace Client.Main.Scenes
                 {
                     CloseInventoryIfVisible();
                 }
+            }
+
+            // Any other NPC conversation the server still considers open (dialogs without a window,
+            // guild master dialog, ...) ends when the hero walks away, as in the original client.
+            if (!npcClosed && MuGame.Network?.GetCharacterService()?.IsNpcDialogOpen == true)
+            {
+                _logger?.LogInformation("Hero moved, ending NPC conversation.");
+                SendCloseNpcRequestAsync();
             }
 
             if (TradeControl.Instance.Visible)

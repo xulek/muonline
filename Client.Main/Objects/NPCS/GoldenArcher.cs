@@ -1,37 +1,28 @@
 using Client.Main.Content;
-using Client.Main.Core.Utilities;
-using Client.Main.Models;
-using Client.Main.Objects.Monsters;
 using Client.Main.Extensions;
-using System;
+using Client.Main.Models;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.NPCS
 {
+    /// <summary>
+    /// Golden Archer (Lucky Coin / Rena exchange NPC). A talkable NPC that reuses the player skeleton
+    /// with the bow idle pose and the golden monster material, like the original MODEL_PLAYER based NPC.
+    /// </summary>
     [NpcInfo(236, "Golden Archer")]
-    public class GoldenArcher : MonsterObject
+    public class GoldenArcher : NPCObject
     {
+        // The skeleton model only needs the idle pose: action 0 = player standing (male).
+        private static readonly IReadOnlyDictionary<int, int> ActionMap = new Dictionary<int, int>
+        {
+            { 0, (int)PlayerAction.PlayerStopMale },
+        };
+
         public GoldenArcher()
         {
             AnimationSpeed = 25f; // Uses Player.bmd animations, needs player animation speed
         }
-
-        private static readonly Dictionary<MonsterActionType, PlayerAction> _actionMap = new()
-        {
-            { MonsterActionType.Stop1,   PlayerAction.PlayerStopMale },
-            { MonsterActionType.Stop2,   PlayerAction.PlayerStopMale },
-            { MonsterActionType.Walk,    PlayerAction.PlayerWalkMale },
-            { MonsterActionType.Attack1, PlayerAction.PlayerAttackBow },
-            { MonsterActionType.Attack2, PlayerAction.PlayerAttackBow },
-            { MonsterActionType.Shock,   PlayerAction.PlayerShock },
-            { MonsterActionType.Die,     PlayerAction.PlayerDie1 },
-            { MonsterActionType.Appear,  PlayerAction.PlayerComeUp },
-            { MonsterActionType.Attack3, PlayerAction.PlayerAttackBow },
-            { MonsterActionType.Attack4, PlayerAction.PlayerAttackBow },
-            { MonsterActionType.Run,     PlayerAction.PlayerRun }
-        };
 
         public override async Task Load()
         {
@@ -40,23 +31,25 @@ namespace Client.Main.Objects.NPCS
 
             if (skeletonModel != null && playerModel != null)
             {
-                int count = Enum.GetValues(typeof(MonsterActionType)).Length;
-                var map = _actionMap.ToDictionary(
-                    p => (int)p.Key,
-                    p => (int)p.Value);
-
-                skeletonModel.Actions = BuildActionArray(playerModel, count, map);
-                skeletonModel.Bones = BuildBoneArray(playerModel, count, map);
+                skeletonModel.Actions = MonsterObject.BuildActionArray(playerModel, ActionMap.Count, ActionMap);
+                skeletonModel.Bones = MonsterObject.BuildBoneArray(playerModel, ActionMap.Count, ActionMap);
             }
 
             Model = skeletonModel;
 
             await base.Load();
-            CurrentAction = (int)PlayerAction.PlayerStopMale;
+            CurrentAction = 0;
 
             this.SetGoldGlow(0.8f);
         }
-        // protected override void HandleClick() { }
 
+        protected override void HandleClick()
+        {
+            var svc = MuGame.Network?.GetCharacterService();
+            if (svc != null)
+            {
+                _ = svc.SendTalkToNpcRequestAsync(NetworkId);
+            }
+        }
     }
 }

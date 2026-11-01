@@ -418,7 +418,7 @@ namespace Client.Main.Objects
             }
         }
 
-        protected static BMDTextureAction[] BuildActionArray(
+        protected internal static BMDTextureAction[] BuildActionArray(
             BMD srcModel,
             int dstCount,
             IReadOnlyDictionary<int, int> map)
@@ -511,7 +511,7 @@ namespace Client.Main.Objects
             };
         }
 
-        protected static BMDTextureBone[] BuildBoneArray(
+        protected internal static BMDTextureBone[] BuildBoneArray(
             BMD srcModel,
             int actionCount,
             IReadOnlyDictionary<int, int> map)

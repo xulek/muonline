@@ -1135,6 +1135,14 @@ namespace Client.Main.Networking.Services
             }
         }
 
+        private volatile bool _npcDialogOpen;
+
+        /// <summary>
+        /// True between a talk-to-NPC request and the next close-NPC request. The server keeps the player in
+        /// its NpcDialogOpened state meanwhile, so the client has to end the conversation (e.g. when walking away).
+        /// </summary>
+        public bool IsNpcDialogOpen => _npcDialogOpen;
+
         /// <summary>
         /// Sends a talk-to-NPC request to the server for the specified NPC network id (masked).
         /// </summary>
@@ -1159,6 +1167,7 @@ namespace Client.Main.Networking.Services
                     packet.NpcId = masked; // BigEndian is handled by the struct
                     return len;
                 });
+                _npcDialogOpen = true;
                 _logger.LogInformation("TalkToNpcRequest sent for NPC {NpcId:X4}.", masked);
             }
             catch (Exception ex)
@@ -1352,6 +1361,7 @@ namespace Client.Main.Networking.Services
                 return;
             }
 
+            _npcDialogOpen = false;
             _logger.LogInformation("Sending CloseNpcRequest (0x31) ...");
             try
             {
