@@ -131,7 +131,11 @@ namespace Client.Main.Scenes
                 {
                     if (!registry.TryAdd((byte)attr.MapId, type))
                     {
-                        // Optionally log a warning about duplicate MapId
+                        // A duplicate MapId makes the registry pick an arbitrary class and leaves
+                        // the intended map unreachable (it falls back to Lorencia), so surface it.
+                        MuGame.AppLoggerFactory?.CreateLogger<GameScene>().LogWarning(
+                            "Duplicate WorldInfo MapId {MapId}: {Type} ignored, {Existing} already registered.",
+                            attr.MapId, type.Name, registry[(byte)attr.MapId].Name);
                     }
                 }
             }
@@ -540,7 +544,7 @@ namespace Client.Main.Scenes
                 if (MapWorldRegistry.TryGetValue((byte)charState.MapId, out Type mappedType))
                     initialWorldType = mappedType;
                 else
-                    _logger?.LogDebug("Unknown MapId {MapId}. Defaulting to Lorencia.", charState.MapId);
+                    _logger?.LogWarning("Unknown MapId {MapId}. Defaulting to Lorencia.", charState.MapId);
 
                 await MuGame.YieldToNextFrameAsync(
                     $"GameScene.Load.CreateWorld.{initialWorldType.Name}",

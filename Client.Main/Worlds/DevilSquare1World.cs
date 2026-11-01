@@ -6,12 +6,12 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Worlds
 {
-    [WorldInfo(9, "Devil Square")]
+    [WorldInfo(32, "Devil Square 5-7")]
     public class DevilSquare1World : S6EventWorldBase
     {
         private EventRainSystem _rainSystem;
 
-        public DevilSquare1World() : base(worldIndex: 10, name: "Devil Square") // WD_9DEVILSQUARE
+        public DevilSquare1World() : base(worldIndex: 10, name: "Devil Square 5-7") // map 32 reuses the World10 terrain
         {
             AmbientSoundPath = "Sound/aRain.wav";
         }
