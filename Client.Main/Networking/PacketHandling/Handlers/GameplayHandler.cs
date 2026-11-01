@@ -252,6 +252,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             {
                 case 0:  // fireworks at (x, y)
                 case 59: // christmas fireworks
+                    _logger.LogInformation("Fireworks ({Type}) at ({X}, {Y}).", type, p1, p2);
                     SoundController.Instance.PlayBuffer("Sound/eFirecracker1.wav");
                     SpawnCelebrationAt(p1, p2);
                     break;

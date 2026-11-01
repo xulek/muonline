@@ -125,6 +125,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 uint score = BinaryPrimitives.ReadUInt32LittleEndian(span[17..]);
                 uint exp = BinaryPrimitives.ReadUInt32LittleEndian(span[21..]);
                 uint zen = BinaryPrimitives.ReadUInt32LittleEndian(span[25..]);
+                // Blood Castle and Chaos Castle (OpenMU IBloodCastleScoreTableViewPlugin) use this layout.
+                _logger.LogInformation("Event score (0x93): success {Success}, score {Score}, exp {Exp}, zen {Zen}.", success, score, exp, zen);
                 MuGame.ScheduleOnMainThread(() => BloodCastleResultControl.Instance?.ShowResult(success, exp, (int)zen, (int)score));
                 return Task.CompletedTask;
             }
@@ -143,6 +145,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     BinaryPrimitives.ReadUInt32LittleEndian(item[20..])));
             }
 
+            _logger.LogInformation("Mini game score table (0x93): rank {Rank}, {Count} entries.", rank, entries.Count);
             ushort map = _characterState.MapId;
             string title = map is >= 18 and <= 23 or 53 ? "CHAOS CASTLE" : map is 9 or 32 ? "DEVIL SQUARE" : "EVENT RESULT";
             MuGame.ScheduleOnMainThread(() => (MuGame.Instance?.ActiveScene as GameScene)?.MiniGameScore?.ShowResults(title, rank, entries));
