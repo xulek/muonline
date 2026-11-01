@@ -754,7 +754,7 @@ namespace Client.Main
 #if PERFORMANCE_RELEASE
             return false;
 #else
-            if (ActiveScene?.DebugPanel?.Visible == true)
+            if (ActiveScene?.DebugPanel?.Visible == true || Client.Main.Diagnostics.StressHarness.Enabled)
                 return true;
 
             if (_telemetryPublisher is { Enabled: true, IsConnected: true })
@@ -797,6 +797,13 @@ namespace Client.Main
                     _logger?.LogDebug("Player idle pose data loaded successfully for inventory");
             });
             // --- END PLAYER IDLE POSE DATA ---
+
+            // --- OFFLINE CROWD STRESS SCENES (MU_STRESS=1) ---
+            if (Client.Main.Diagnostics.StressHarness.Enabled && Network != null)
+            {
+                Client.Main.Diagnostics.StressHarness.Start(this);
+                return;
+            }
 
             // --- START NETWORK CONNECTION ---
             // Start connecting to the Connect Server when the game loads
@@ -913,6 +920,8 @@ namespace Client.Main
                 if (publishTelemetry)
                     _telemetryPublisher?.PublishSnapshot(this);
 #endif
+                if (Client.Main.Diagnostics.StressHarness.Enabled)
+                    Client.Main.Diagnostics.StressHarness.OnFrame(this, _frameProfiler.Current);
             }
         }
 
@@ -1333,6 +1342,8 @@ namespace Client.Main
                 }
                 catch (Exception ex)
                 {
+                    if (Client.Main.Diagnostics.StressHarness.Enabled)
+                        Console.WriteLine($"[stress] scene initialization failed: {ex}");
                     if (ReferenceEquals(ActiveScene, newScene))
                         ActiveScene = null;
 

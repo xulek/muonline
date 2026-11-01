@@ -81,6 +81,13 @@ namespace Client.Main.Networking
         public ScopeManager GetScopeManager() => _scopeManager;
         public PartyManager GetPartyManager() => _partyManager;
         public GuildManager GetGuildManager() => _guildManager;
+
+        /// <summary>Diagnostics only (offline stress scenes): routes a server packet as if it was received.</summary>
+        internal Task InjectPacketForDiagnosticsAsync(byte[] packet)
+        {
+            _packetRouter.SetRoutingMode(false);
+            return _packetRouter.RoutePacketAsync(new System.Buffers.ReadOnlySequence<byte>(packet));
+        }
         public FriendManager GetFriendManager() => _friendManager;
         public TargetProtocolVersion TargetVersion => _packetRouter.TargetVersion;
         public string CurrentHost => _currentHost;
