@@ -753,13 +753,9 @@ namespace Client.Main.Objects
             }
         }
 
-        private static readonly bool TmpSkipParts = System.Environment.GetEnvironmentVariable("MU_TMP_SKIP_PARTS") == "1";
-
         public override void Draw(GameTime gameTime)
         {
             if (!Visible)
-                return;
-            if (TmpSkipParts && (this is Player.PlayerHelmObject || this is Player.PlayerPantObject || this is Player.PlayerGloveObject || this is Player.PlayerBootObject))
                 return;
 
             SetDrawShaderTimeSeconds((float)gameTime.TotalGameTime.TotalSeconds);
