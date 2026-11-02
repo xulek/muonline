@@ -119,6 +119,10 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_THROTTLE") is { } shadowThrottle)
+                Constants.ENABLE_SHADOW_REBUILD_THROTTLE = shadowThrottle == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_ITEM_MATERIAL") is { } itemMaterial)
+                Constants.ENABLE_ITEM_MATERIAL_SHADER = itemMaterial == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_ACTOR_SHADOWS") is { } actorShadows)
                 Constants.ENABLE_ACTOR_MERGED_SHADOWS = actorShadows == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_MAP_CROWD") is { } mapCrowd)
@@ -313,6 +317,7 @@ namespace Client.Main.Diagnostics
         }
 
         // MU_STRESS_TRACE=1: one line per second of the measured phase, to find periodic drops.
+        private static readonly int MU_TYPES_TOP = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_TYPES_TOP"), out int top) ? top : 8;
         private static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("MU_STRESS_TRACE") == "1";
         private static readonly bool TypeTraceEnabled = ObjectTypeProfiler.Enabled = TraceEnabled;
         private static int _traceSecond = -1, _traceFrames, _traceDirty, _tracePoses, _traceGc0, _traceGc1, _traceGc2;
@@ -428,7 +433,7 @@ namespace Client.Main.Diagnostics
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
                     ModelObject.DiagActorShadowDraws = ModelObject.DiagActorShadowMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
-                    Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(8, _traceFrames)}");
+                    Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(MU_TYPES_TOP, _traceFrames)}");
                 }
                 _traceSecond = second; _traceFrames = 0; _traceDirty = 0; _tracePoses = 0; _traceBytes = 0; _traceWorstMs = 0; _traceSlow = 0;
                 _traceScene = _traceWbase = _traceShadow = 0;
@@ -505,9 +510,48 @@ namespace Client.Main.Diagnostics
             Rows.Add(row);
             Console.WriteLine($"[stress] {row}");
             SaveScreenshot(game, $"{_label}_{type}");
+            if (Environment.GetEnvironmentVariable("MU_STRESS_DRAWBENCH") == "1")
+                DrawBench(game);
         }
 
         /// <summary>MU_STRESS_SHOTS=directory saves the back buffer of every measured scene as PNG.</summary>
+        // MU_STRESS_DRAWBENCH=1: per-draw cost of player part meshes with and without state changes
+        // (shader switch, palette switch between players, texture switch), printed after each scene.
+        private static void DrawBench(MuGame game)
+        {
+            var worldObjects = game.ActiveScene?.World?.Objects;
+            if (worldObjects == null) return;
+            var players = new List<Objects.Player.PlayerObject>();
+            foreach (var obj in worldObjects)
+                if (obj is Objects.Player.PlayerObject p && p.Armor?.Model != null && p.Helm?.Model != null && p.Pants?.Model != null) players.Add(p);
+            if (players.Count < 2) return;
+
+            ModelObject itemPart = null, plainPart = null;
+            foreach (var p in players)
+            {
+                if (itemPart == null && p.Armor.ItemLevel >= 7) itemPart = p.Armor;
+                if (plainPart == null && p.Armor.ItemLevel < 3) plainPart = p.Armor;
+            }
+
+            void Bench(string name, Action<int> draw)
+            {
+                for (int round = 0; round < 2; round++)
+                {
+                    long start = Stopwatch.GetTimestamp();
+                    for (int i = 0; i < 400; i++) draw(i);
+                    double f = 1_000_000.0 / Stopwatch.Frequency / 400;
+                    double us = (Stopwatch.GetTimestamp() - start) * f;
+                    Console.WriteLine($"[bench] {name} {us:F1} us/draw");
+                }
+            }
+
+            Bench("same mesh", i => players[0].Armor.DrawMesh(0));
+            if (itemPart != null) Bench("same itemMaterial mesh", i => itemPart.DrawMesh(0));
+            if (itemPart != null && plainPart != null) Bench("alternate shaders", i => (i % 2 == 0 ? itemPart : plainPart).DrawMesh(0));
+            Bench("alternate players same part", i => players[i % 2].Pants.DrawMesh(0));
+            Bench("alternate textures one player", i => (i % 2 == 0 ? (ModelObject)players[0].Pants : players[0].Armor).DrawMesh(0));
+        }
+
         internal static void SaveScreenshot(MuGame game, string name)
         {
             string dir = Environment.GetEnvironmentVariable("MU_STRESS_SHOTS");
