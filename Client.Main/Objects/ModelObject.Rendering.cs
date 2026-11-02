@@ -450,12 +450,6 @@ namespace Client.Main.Objects
                 return false;
 
             ShaderSelection selection = DetermineShaderForMesh(mesh);
-#if NATIVE_BACKEND
-            // Native SM6 material effects currently lose meshes in their BoneMatrices
-            // techniques. Keep the material pixel shader, but feed it CPU-skinned geometry.
-            if (selection.UseItemMaterial || selection.UseMonsterMaterial)
-                return false;
-#endif
             if (selection.UseItemMaterial)
             {
                 return TryGetTechnique(

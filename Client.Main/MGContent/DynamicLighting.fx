@@ -50,8 +50,12 @@
 
 #if SM6
     #define UNIFORM_DEFAULT(type, name, value) type name
+    // Native backends (DX12/Vulkan) bind textures and samplers by register; without explicit
+    // slots the Vulkan reflection reports slots outside the device collections.
+    #define SM6_REGISTER(r) : register(r)
 #else
     #define UNIFORM_DEFAULT(type, name, value) type name = value
+    #define SM6_REGISTER(r)
 #endif
 
 #ifndef SHADOW_AFFECTS_DYNAMIC_LIGHTS
@@ -72,7 +76,7 @@ float4x4 ViewProjection;      // Shared by instanced paths whose World varies pe
 // GPU skinning bones come from a per-frame palette texture (1024 float4 texels per row, four texels per
 // bone, one matrix row each). BonePaletteBase is the first texel of the drawn palette; a palette never
 // crosses a row. Keeps the 16 KB bone array out of the constant buffer uploaded on every draw.
-Texture2D BonePaletteTexture;
+Texture2D BonePaletteTexture SM6_REGISTER(t4);
 float BonePaletteBase;
 
 float4x4 LoadBone(int boneIndex)
@@ -88,12 +92,21 @@ float4x4 LoadBone(int boneIndex)
 // Multi-pose crowd skinning stores one palette per texture row.
 // The row width is selected per flush (32/64/128/256 bones), and each bone
 // occupies four consecutive float4 texels (one texel per matrix row).
-Texture2D CrowdBonePaletteTexture;
+Texture2D CrowdBonePaletteTexture SM6_REGISTER(t5);
 UNIFORM_DEFAULT(float, CrowdBonePaletteRowCount, 1.0);
 #endif
 
 
 // Texture
+#if SM6
+Texture2D DiffuseTexture : register(t0);
+SamplerState SamplerState0 : register(s0)
+{
+    Filter = Linear;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+#else
 Texture2D DiffuseTexture;
 sampler SamplerState0 = sampler_state
 {
@@ -104,12 +117,21 @@ sampler SamplerState0 = sampler_state
     MagFilter = Linear;
     MipFilter = Linear;
 };
+#endif
 
-Texture2D SnowOverlayTexture;
+Texture2D SnowOverlayTexture SM6_REGISTER(t1);
 float2 SnowBaseUvScale;
 float2 SnowOverlayUvScale;
 float SnowOverlayEnabled;
 float SnowAmbientLight;
+#if SM6
+SamplerState SnowOverlaySampler : register(s1)
+{
+    Filter = Linear;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+#else
 sampler SnowOverlaySampler = sampler_state
 {
     Texture = <SnowOverlayTexture>;
@@ -119,9 +141,19 @@ sampler SnowOverlaySampler = sampler_state
     MagFilter = Linear;
     MipFilter = Linear;
 };
+#endif
 
 // Baked powder/grain slopes, edge breakup and albedo variation. Mips replace
 // procedural octaves and screen-space grain filtering in the pixel shader.
+#if SM6
+Texture2D SnowMaterialTexture : register(t2);
+SamplerState SnowMaterialSampler : register(s2)
+{
+    Filter = Linear;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+#else
 Texture2D SnowMaterialTexture;
 sampler SnowMaterialSampler = sampler_state
 {
@@ -132,6 +164,7 @@ sampler SnowMaterialSampler = sampler_state
     MagFilter = Linear;
     MipFilter = Linear;
 };
+#endif
 
 // Lighting parameters
 UNIFORM_DEFAULT(float3, AmbientLight, float3(0.8, 0.8, 0.8));
@@ -157,6 +190,15 @@ UNIFORM_DEFAULT(float, ShadowsEnabled, 0.0);
 // cut-outs. Skips the texture fetch + clip in ShadowPS. Default 0 = old behaviour.
 UNIFORM_DEFAULT(float, ShadowOpaqueCaster, 0.0);
 
+#if SM6
+Texture2D ShadowMap : register(t3);
+SamplerState ShadowSampler : register(s3)
+{
+    Filter = Linear;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+#else
 Texture2D ShadowMap;
 sampler ShadowSampler = sampler_state
 {
@@ -167,6 +209,7 @@ sampler ShadowSampler = sampler_state
     MagFilter = Linear;
     MipFilter = Point;
 };
+#endif
 
 #if SM6
 float4 SampleSamplerState0(float2 uv) { return DiffuseTexture.Sample(SamplerState0, uv); }

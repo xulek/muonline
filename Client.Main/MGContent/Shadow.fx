@@ -15,6 +15,20 @@
 
 float4x4 WorldViewProjection;
 float4   ShadowTint;
+#if SM6
+// Native backends (DX12/Vulkan) bind resources by register; without explicit slots the Vulkan
+// reflection reports a sampler slot outside the device sampler collection and Apply() throws.
+Texture2D ShadowTexture : register(t0);
+SamplerState ShadowSampler : register(s0)
+{
+    Filter = Linear;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+
+float4 SampleShadowTexture(float2 uv) { return ShadowTexture.Sample(ShadowSampler, uv); }
+#define tex2D(s, uv) SampleShadowTexture(uv)
+#else
 Texture2D ShadowTexture;
 
 sampler ShadowSampler = sampler_state
@@ -24,10 +38,6 @@ sampler ShadowSampler = sampler_state
     MagFilter = Linear;
     MipFilter = Linear;
 };
-
-#if SM6
-float4 SampleShadowTexture(float2 uv) { return ShadowTexture.Sample(ShadowSampler, uv); }
-#define tex2D(s, uv) SampleShadowTexture(uv)
 #endif
 
 //---------------- VS -------------------------

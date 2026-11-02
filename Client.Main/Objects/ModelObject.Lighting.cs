@@ -141,6 +141,12 @@ namespace Client.Main.Objects
                     return cached;
 
                 EffectTechnique resolved = null;
+                if (IsUnsupportedTechnique(name))
+                {
+                    _techniques[name] = null;
+                    return null;
+                }
+
                 var techniques = _effect.Techniques;
                 for (int i = 0; i < techniques.Count; i++)
                 {
@@ -162,6 +168,21 @@ namespace Client.Main.Objects
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ModelEffectBindings GetModelEffectBindings(Effect effect) =>
             effect == null ? null : _modelEffectBindings.GetValue(effect, static value => new ModelEffectBindings(value));
+
+        /// <summary>
+        /// Techniques the current backend cannot run. The native DX12 runtime fails to create the pipeline state
+        /// of the skinned material techniques (E_INVALIDARG) and those meshes would vanish; without the technique
+        /// every path falls back to CPU-skinned geometry with the same material pixel shader.
+        /// </summary>
+        private static bool IsUnsupportedTechnique(string name)
+        {
+#if WINDOWS_DX12
+            return name is "BasicColorDrawing_Skinned" or "BasicColorDrawing_UpgradeFast_Skinned" or
+                "MonsterMaterialDrawing_Skinned" or "MonsterMaterialDrawing_Basic_Skinned";
+#else
+            return false;
+#endif
+        }
 
         private static EffectTechnique TryGetTechnique(Effect effect, string name) =>
             GetModelEffectBindings(effect)?.GetTechnique(name);

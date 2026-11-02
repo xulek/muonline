@@ -166,12 +166,6 @@ namespace Client.Main.Graphics
             {
                 Constants.ENABLE_TERRAIN_GPU_LIGHTING = false;
             }
-
-#if WINDOWS_DX12 || DESKTOP_VK
-            // Native terrain and dynamic-lighting effects still need their fallback path.
-            Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = false;
-            Constants.ENABLE_TERRAIN_GPU_LIGHTING = false;
-#endif
         }
 
         private static GraphicsAdapterInfo GetAdapterInfo(GraphicsAdapter adapter)
