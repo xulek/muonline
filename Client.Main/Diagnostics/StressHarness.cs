@@ -135,6 +135,8 @@ namespace Client.Main.Diagnostics
                 Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING = weapons == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_CROWD") is { } crowd)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING = crowd == "1";
+            if (float.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_RENDER_SCALE"), NumberStyles.Float, CultureInfo.InvariantCulture, out float renderScale))
+                Constants.RENDER_SCALE = renderScale;
             Constants.UNLIMITED_FPS = true;
             Constants.DISABLE_VSYNC = true;
             game.ApplyGraphicsOptions();
