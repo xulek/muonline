@@ -818,6 +818,8 @@ namespace Client.Main.Objects
                 return;
 
             ReleaseTerrainShadowResources();
+            _playerComposite?.Dispose();
+            _playerComposite = null;
             Model = null;
             BoneTransform = null;
             _sharedAnimationRenderBones = null;

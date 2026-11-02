@@ -119,6 +119,8 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_COMPOSITE") is { } composite)
+                Constants.ENABLE_PLAYER_COMPOSITE = composite == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_THROTTLE") is { } shadowThrottle)
                 Constants.ENABLE_SHADOW_REBUILD_THROTTLE = shadowThrottle == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_ITEM_MATERIAL") is { } itemMaterial)
@@ -185,6 +187,13 @@ namespace Client.Main.Diagnostics
         {
             if (!Enabled || _phase == Phase.Done) return;
             FlickerStressLights();
+            // MU_STRESS_SPIN_US: extra busy CPU time per frame. A CPU-bound frame slows down by that amount,
+            // a GPU-bound one hides it while waiting for the GPU.
+            if (SpinMicroseconds > 0)
+            {
+                long spinUntil = Stopwatch.GetTimestamp() + SpinMicroseconds * Stopwatch.Frequency / 1_000_000;
+                while (Stopwatch.GetTimestamp() < spinUntil) { }
+            }
             double elapsed = PhaseClock.Elapsed.TotalSeconds;
 
             switch (_phase)
@@ -318,8 +327,9 @@ namespace Client.Main.Diagnostics
 
         // MU_STRESS_TRACE=1: one line per second of the measured phase, to find periodic drops.
         private static readonly int MU_TYPES_TOP = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_TYPES_TOP"), out int top) ? top : 8;
+        private static readonly long SpinMicroseconds = long.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_SPIN_US"), out long spin) ? spin : 0;
         private static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("MU_STRESS_TRACE") == "1";
-        private static readonly bool TypeTraceEnabled = ObjectTypeProfiler.Enabled = TraceEnabled;
+        private static readonly bool TypeTraceEnabled = ObjectTypeProfiler.Enabled = TraceEnabled && Environment.GetEnvironmentVariable("MU_STRESS_TYPES_PROFILE") != "0";
         private static int _traceSecond = -1, _traceFrames, _traceDirty, _tracePoses, _traceGc0, _traceGc1, _traceGc2;
         private static double _traceWorstMs;
         private static int _traceSlow;
@@ -429,7 +439,7 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames} shActor={ModelObject.DiagActorShadowDraws / _traceFrames}/{ModelObject.DiagActorShadowMeshes / _traceFrames}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames} shActor={ModelObject.DiagActorShadowDraws / _traceFrames}/{ModelObject.DiagActorShadowMeshes / _traceFrames} composite={ModelObject.LastFramePlayerComposites}/{ModelObject.LastFramePlayerCompositeMeshes}"));
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
                     ModelObject.DiagActorShadowDraws = ModelObject.DiagActorShadowMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;

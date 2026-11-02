@@ -782,6 +782,8 @@ namespace Client.Main.Objects
             GraphicsManager.Instance.AlphaTestEffect3D.Projection = Camera.Instance.Projection;
             GraphicsManager.Instance.AlphaTestEffect3D.World = WorldPosition;
 
+            if (this is PlayerObject)
+                TryDrawPlayerComposite(); // merged ItemMaterial body meshes; covered parts skip them below
             DrawModel(false);   // solid pass
             base.Draw(gameTime);
             FlushActorShadow(); // parts registered their shadow meshes while drawing
@@ -906,6 +908,9 @@ namespace Client.Main.Objects
                         ref drewBlobShadow);
                     if (highlightAllowed)
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
+
+                    if (!isAfterDraw && stateKey.ShaderKind == MeshShaderKind.ItemMaterial && IsCompositeCoveredThisFrame)
+                        continue;
 
                     // Shadow/highlight passes change the active shader; reapply the main effect before fast draws.
                     if (groupUsesAlphaTestEffect)

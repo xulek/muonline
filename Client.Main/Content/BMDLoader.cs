@@ -1205,6 +1205,58 @@ namespace Client.Main.Content
         /// Returns immutable mesh buffers for GPU skinning path.
         /// Buffers store bind-pose positions and per-vertex bone index.
         /// </summary>
+        /// <summary>
+        /// CPU copy of the GPU-skinned geometry of a mesh (same topology and vertex layout as
+        /// <see cref="TryGetGpuSkinnedMeshBuffers"/>), used to build merged player meshes.
+        /// </summary>
+        public bool TryGetSkinnedMeshGeometry(
+            BMD asset,
+            int meshIndex,
+            out SkinnedVertexPositionColorNormalTexture[] vertices,
+            out int[] indices,
+            out int boneCount)
+        {
+            vertices = null;
+            indices = null;
+            boneCount = 0;
+            if (asset?.Meshes == null || meshIndex < 0 || meshIndex >= asset.Meshes.Length)
+                return false;
+
+            var mesh = asset.Meshes[meshIndex];
+            if (mesh?.Triangles == null || mesh.Vertices == null || mesh.Normals == null || mesh.TexCoords == null)
+                return false;
+
+            var cacheKey = new MeshCacheKey(RuntimeHelpers.GetHashCode(asset), meshIndex);
+            MeshTopology topology = GetOrCreateMeshTopology(mesh, cacheKey);
+            if (topology.Vertices.Length == 0 || topology.Indices.Length == 0)
+                return false;
+
+            vertices = new SkinnedVertexPositionColorNormalTexture[topology.Vertices.Length];
+            int maxBoneIndex = 0;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                MeshCorner corner = topology.Vertices[i];
+                var sourceVertex = mesh.Vertices[corner.VertexIndex];
+                int positionBoneIndex = sourceVertex.Node >= 0 ? sourceVertex.Node : 0;
+                int normalBoneIndex = positionBoneIndex;
+                if (TryResolveNormalBoneIndex(mesh, corner.NormalIndex, out int resolvedNormalBone) && resolvedNormalBone >= 0)
+                    normalBoneIndex = resolvedNormalBone;
+
+                maxBoneIndex = Math.Max(maxBoneIndex, Math.Max(positionBoneIndex, normalBoneIndex));
+                var uv = mesh.TexCoords[corner.TexCoordIndex];
+                vertices[i] = new SkinnedVertexPositionColorNormalTexture(
+                    sourceVertex.Position,
+                    Color.White,
+                    mesh.Normals[corner.NormalIndex].Normal,
+                    new Vector2(uv.U, uv.V),
+                    new Vector2(positionBoneIndex, normalBoneIndex));
+            }
+
+            indices = (int[])topology.Indices.Clone();
+            boneCount = maxBoneIndex + 1;
+            return true;
+        }
+
         public bool TryGetGpuSkinnedMeshBuffers(
             BMD asset,
             int meshIndex,

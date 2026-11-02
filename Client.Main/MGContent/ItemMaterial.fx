@@ -379,17 +379,13 @@ float3 ComputeItemLight(float3 worldPos, float3 normal)
     return light * lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
 }
 
-float4 ShadeItem(float3 worldPos, float3 normal, float2 uv)
+// Item shading for an already sampled, alpha-tested diffuse colour. The parameters are uniforms for single
+// items and per-vertex data for merged player meshes (BasicColorDrawing_CompositeSkinned).
+float4 ShadeItemCore(float4 diffuse, float3 worldPos, float3 normal, float itemOptionsValue,
+                     bool isExcellent, bool isAncient, float3 chromeColor, float4 chrome2Tint, float3 ancientColor)
 {
-    float overlayMode = (float)ChromeOverlayMode;
-    if (overlayMode > 0.5)
-        return ShadeOverlay(normal, uv, overlayMode);
 
-    float4 diffuse = tex2D(DiffuseSampler, uv);
-    if (diffuse.a < 0.1)
-        discard;
-
-    float itemOptions = max(0.0, (float)ItemOptions);
+    float itemOptions = max(0.0, itemOptionsValue);
     float level = itemOptions - floor(itemOptions * (1.0 / 16.0)) * 16.0;
 
     float3 light = ComputeItemLight(worldPos, normal);
@@ -436,13 +432,13 @@ float4 ShadeItem(float3 worldPos, float3 normal, float2 uv)
 
         // RENDER_CHROME (Chrome01, GL_REPEAT)
         float2 chromeUv = float2(normal.z * 0.5 + wave, normal.y * 0.5 + wave * 2.0);
-        rgb += tex2D(Chrome01Sampler, chromeUv).rgb * ItemChromeColor;
+        rgb += tex2D(Chrome01Sampler, chromeUv).rgb * chromeColor;
 
         // RENDER_METAL (Shiny01, clamp) from +9
         if (level >= 9.0)
         {
             float2 metalUv = float2(normal.z * 0.5 + 0.2, normal.y * 0.5 + 0.5);
-            rgb += tex2D(Shiny01Sampler, metalUv).rgb * ItemChromeColor;
+            rgb += tex2D(Shiny01Sampler, metalUv).rgb * chromeColor;
         }
 
         // RENDER_CHROME2 (+11/+12) and RENDER_CHROME4 (+13..+15), both Chrome02
@@ -461,24 +457,38 @@ float4 ShadeItem(float3 worldPos, float3 normal, float2 uv)
                 uv2 = float2((normal.z + normal.x) * 0.8 + wave2 * 2.0,
                              (normal.y + normal.x) * 1.0 + wave2 * 3.0);
             }
-            float3 chrome2Color = ItemChrome2Tint.w > 0.5 ? ItemChrome2Tint.xyz : bodyLight * ItemChrome2Tint.xyz;
+            float3 chrome2Color = chrome2Tint.w > 0.5 ? chrome2Tint.xyz : bodyLight * chrome2Tint.xyz;
             rgb += tex2D(Chrome02Sampler, uv2).rgb * chrome2Color;
         }
     }
 
-    if (IsExcellent == true)
+    if (isExcellent)
     {
         float e = sin(Time * 2.0) * 0.5 + 0.5;
         rgb += diffuse.rgb * float3(e, e * 0.3, 1.0 - e);
     }
-    else if (IsAncient == true)
+    else if (isAncient)
     {
         float a = max(0.0, sin(Time) * 0.5 + 0.4);
         float d = dot(normal, LegacyLightVector);
-        rgb += tex2D(Chrome02Sampler, float2(d, 1.0 - d)).rgb * ItemAncientColor * a;
+        rgb += tex2D(Chrome02Sampler, float2(d, 1.0 - d)).rgb * ancientColor * a;
     }
 
     return float4(rgb, diffuse.a * Alpha);
+}
+
+float4 ShadeItem(float3 worldPos, float3 normal, float2 uv)
+{
+    float overlayMode = (float)ChromeOverlayMode;
+    if (overlayMode > 0.5)
+        return ShadeOverlay(normal, uv, overlayMode);
+
+    float4 diffuse = tex2D(DiffuseSampler, uv);
+    if (diffuse.a < 0.1)
+        discard;
+
+    return ShadeItemCore(diffuse, worldPos, normal, (float)ItemOptions, IsExcellent == true, IsAncient == true,
+                         ItemChromeColor, ItemChrome2Tint, ItemAncientColor);
 }
 
 float4 MainPS_UpgradeFast(VertexShaderOutputFast input) : PS_COLOR
@@ -490,6 +500,102 @@ float4 MainPS(VertexShaderOutput input) : PS_COLOR
 {
     return ShadeItem(input.WorldPosition, normalize(input.Normal), input.TextureCoordinate);
 }
+
+#if !OPENGL && !SM6
+// ---------------------------------------------------------------------------
+// Merged player body parts: all ItemMaterial meshes of one player in one draw. Textures come from a shared
+// atlas (power-of-two tiles aligned to their size, so generated mips never mix tiles); per-vertex data
+// selects the tile and the item parameters, and part colours come from small per-draw arrays.
+// ---------------------------------------------------------------------------
+Texture2D AtlasTexture;
+sampler AtlasSampler = sampler_state
+{
+    Texture = <AtlasTexture>;
+    MinFilter = Linear;
+    MagFilter = Linear;
+    MipFilter = Linear;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+float AtlasSize = 2048.0;
+float4 PartChromeColor[16];
+float4 PartChrome2Tint[16];
+float4 PartAncientColor[16];
+
+struct VertexShaderInputComposite
+{
+    float3 Position : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 TextureCoordinate : TEXCOORD0;
+    float4 Color : COLOR0;
+    float2 BoneIndices : TEXCOORD1;
+    float4 AtlasRect : TEXCOORD2;   // xy = tile origin, zw = texture size (atlas UV)
+    float4 ItemData : TEXCOORD3;    // x = item options, y = excellent, z = ancient, w = part index
+};
+
+struct VertexShaderOutputComposite
+{
+    float4 Position : SV_POSITION;
+    float3 WorldPosition : TEXCOORD0;
+    float3 Normal : TEXCOORD1;
+    float2 TextureCoordinate : TEXCOORD2;
+    nointerpolation float4 AtlasRect : TEXCOORD3;
+    nointerpolation float4 ItemData : TEXCOORD4;
+};
+
+VertexShaderOutputComposite MainVS_Composite(in VertexShaderInputComposite input)
+{
+    int positionBoneIndex = min(max((int)input.BoneIndices.x, 0), 255);
+    int normalBoneIndex = min(max((int)input.BoneIndices.y, 0), 255);
+    float4 localPosition = mul(float4(input.Position, 1.0), BoneMatrices[positionBoneIndex]);
+    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[normalBoneIndex]);
+
+    VertexShaderOutputComposite output = (VertexShaderOutputComposite)0;
+    output.Position = mul(localPosition, WorldViewProjection);
+    output.WorldPosition = mul(localPosition, World).xyz;
+    output.Normal = normalize(mul(localNormal, (float3x3)World));
+    output.TextureCoordinate = input.TextureCoordinate;
+    output.AtlasRect = input.AtlasRect;
+    output.ItemData = input.ItemData;
+    return output;
+}
+
+// Wrapped (repeating) texture coordinates inside an atlas tile. The mip level comes from the unwrapped
+// coordinates, and the sample is kept half a texel inside the tile at that level.
+float4 SampleAtlas(float2 uv, float4 rect)
+{
+    float2 tileTexels = rect.zw * AtlasSize;
+    float2 dx = ddx(uv) * tileTexels;
+    float2 dy = ddy(uv) * tileTexels;
+    float lod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-8));
+    float maxLod = max(log2(min(tileTexels.x, tileTexels.y)) - 1.0, 0.0);
+    lod = clamp(lod, 0.0, maxLod);
+    float2 halfTexel = (0.5 * exp2(lod) / AtlasSize).xx;
+    float2 local = clamp(frac(uv) * rect.zw, halfTexel, rect.zw - halfTexel);
+    return tex2Dlod(AtlasSampler, float4(rect.xy + local, 0.0, lod));
+}
+
+float4 MainPS_Composite(VertexShaderOutputComposite input) : PS_COLOR
+{
+    float4 diffuse = SampleAtlas(input.TextureCoordinate, input.AtlasRect);
+    if (diffuse.a < 0.1)
+        discard;
+
+    int part = min(max((int)(input.ItemData.w + 0.5), 0), 15);
+    return ShadeItemCore(diffuse, input.WorldPosition, normalize(input.Normal), input.ItemData.x,
+                         input.ItemData.y > 0.5, input.ItemData.z > 0.5,
+                         PartChromeColor[part].xyz, PartChrome2Tint[part], PartAncientColor[part].xyz);
+}
+
+technique BasicColorDrawing_CompositeSkinned
+{
+    pass P0
+    {
+        VertexShader = compile VS_SHADERMODEL MainVS_Composite();
+        PixelShader = compile PS_SHADERMODEL MainPS_Composite();
+    }
+}
+#endif
 
 technique BasicColorDrawing_UpgradeFast
 {

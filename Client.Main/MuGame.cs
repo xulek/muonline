@@ -845,6 +845,9 @@ namespace Client.Main
                 DynamicBufferPool.BeginFrame(FrameIndex);
                 BMDLoader.Instance.BeginFrame();
                 ModelObject.BeginFrameGpuSkinningMetrics();
+                // Textures requested by merged player meshes are copied into their atlas before the scene
+                // render target is bound.
+                Client.Main.Graphics.PlayerPartAtlas.ProcessPending(GraphicsDevice);
 
                 FPSCounter.Instance.CalcFPS(gameTime);
                 bool recoveredFrame = false;

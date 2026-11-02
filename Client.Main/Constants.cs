@@ -112,6 +112,12 @@ namespace Client.Main
         public static bool ENABLE_SHADOW_REBUILD_THROTTLE = true;
 
         /// <summary>
+        /// Merges the ItemMaterial meshes of a player's body parts into one mesh (texture atlas) drawn in one or
+        /// two calls instead of one per part mesh.
+        /// </summary>
+        public static bool ENABLE_PLAYER_COMPOSITE = true;
+
+        /// <summary>
         /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = true;
