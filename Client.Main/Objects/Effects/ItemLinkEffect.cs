@@ -804,6 +804,12 @@ namespace Client.Main.Objects.Effects
                     if (quads == 0)
                         continue;
 
+                    if (s_worldBatchOpen)
+                    {
+                        AppendToBatch(t, subtract: false, quads);
+                        continue;
+                    }
+
                     _effect.Texture = texture;
                     _effect.CurrentTechnique.Passes[0].Apply();
                     gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, _vertices, 0, quads * 4,
@@ -826,6 +832,11 @@ namespace Client.Main.Objects.Effects
                     }
                     if (quads == 0)
                         continue;
+                    if (s_worldBatchOpen)
+                    {
+                        AppendToBatch(t, subtract: true, quads);
+                        continue;
+                    }
                     _effect.Texture = texture;
                     _effect.CurrentTechnique.Passes[0].Apply();
                     gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, _vertices, 0, quads * 4,
@@ -834,6 +845,95 @@ namespace Client.Main.Objects.Effects
             }
             finally
             {
+                gd.BlendState = previousBlend;
+                gd.DepthStencilState = previousDepth;
+                gd.RasterizerState = previousRasterizer;
+                gd.SamplerStates[0] = previousSampler;
+            }
+        }
+
+        // World batch: every ItemLinkEffect of a DrawAfter pass appends its quads per texture and blend mode,
+        // and the world draws them at once afterwards (additive/subtractive, depth read: order independent).
+        private static bool s_worldBatchOpen;
+        private static readonly VertexPositionColorTexture[][] s_batchVertices = new VertexPositionColorTexture[(int)Fx.Count * 2][];
+        private static readonly int[] s_batchQuads = new int[(int)Fx.Count * 2];
+        private static bool s_batchPending;
+        private static BasicEffect s_batchEffect;
+        private const int MaxQuadsPerBatchDraw = 8000;
+
+        /// <summary>Starts collecting item link effect quads instead of drawing them per effect.</summary>
+        internal static void BeginWorldBatch() => s_worldBatchOpen = true;
+
+        private void AppendToBatch(int texture, bool subtract, int quads)
+        {
+            int bucket = texture * 2 + (subtract ? 1 : 0);
+            int start = s_batchQuads[bucket];
+            int needed = (start + quads) * 4;
+            var buffer = s_batchVertices[bucket];
+            if (buffer == null || buffer.Length < needed)
+            {
+                Array.Resize(ref buffer, Math.Max(needed, Math.Max(256, (buffer?.Length ?? 0) * 2)));
+                s_batchVertices[bucket] = buffer;
+            }
+
+            Array.Copy(_vertices, 0, buffer, start * 4, quads * 4);
+            s_batchQuads[bucket] = start + quads;
+            s_batchPending = true;
+        }
+
+        /// <summary>Draws and clears the collected quads; called by the world after its DrawAfter passes.</summary>
+        internal static void EndWorldBatch(GraphicsDevice gd)
+        {
+            s_worldBatchOpen = false;
+            if (!s_batchPending || gd == null)
+                return;
+
+            s_batchPending = false;
+            s_batchEffect ??= new BasicEffect(gd)
+            {
+                VertexColorEnabled = true,
+                TextureEnabled = true,
+                LightingEnabled = false,
+                World = Matrix.Identity,
+            };
+
+            BlendState previousBlend = gd.BlendState;
+            DepthStencilState previousDepth = gd.DepthStencilState;
+            RasterizerState previousRasterizer = gd.RasterizerState;
+            SamplerState previousSampler = gd.SamplerStates[0];
+            try
+            {
+                gd.DepthStencilState = DepthStencilState.DepthRead;
+                gd.RasterizerState = RasterizerState.CullNone;
+                gd.SamplerStates[0] = SamplerState.LinearClamp;
+                s_batchEffect.View = Camera.Instance.View;
+                s_batchEffect.Projection = Camera.Instance.Projection;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    gd.BlendState = pass == 0 ? Blendings.OneOneAdditive : s_minusBlend;
+                    for (int t = 0; t < (int)Fx.Count; t++)
+                    {
+                        int bucket = t * 2 + pass;
+                        int quads = s_batchQuads[bucket];
+                        Texture2D texture = s_textures[t];
+                        if (quads == 0 || texture == null || texture.IsDisposed)
+                            continue;
+
+                        s_batchEffect.Texture = texture;
+                        s_batchEffect.CurrentTechnique.Passes[0].Apply();
+                        for (int first = 0; first < quads; first += MaxQuadsPerBatchDraw)
+                        {
+                            int count = Math.Min(MaxQuadsPerBatchDraw, quads - first);
+                            gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, s_batchVertices[bucket], first * 4,
+                                count * 4, QuadIndexCache.Get(count), 0, count * 2);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Array.Clear(s_batchQuads);
                 gd.BlendState = previousBlend;
                 gd.DepthStencilState = previousDepth;
                 gd.RasterizerState = previousRasterizer;

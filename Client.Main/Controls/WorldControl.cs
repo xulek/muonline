@@ -1311,6 +1311,7 @@ namespace Client.Main.Controls
             // Attached fire/glow must wait too: RGBA bridge/grass meshes are submitted
             // in DrawAfter and would otherwise paint over effects in front of them.
             _collectLateEffectDraws = true;
+            Client.Main.Objects.Effects.ItemLinkEffect.BeginWorldBatch();
             try
             {
                 DrawDedicatedStaticMapObjects(time);
@@ -1333,6 +1334,14 @@ namespace Client.Main.Controls
             finally
             {
                 _collectLateEffectDraws = false;
+                try
+                {
+                    Client.Main.Objects.Effects.ItemLinkEffect.EndWorldBatch(GraphicsDevice);
+                }
+                catch (Exception ex)
+                {
+                    RecordRenderFailure(null, "DrawAfter.ItemLinkBatch", ex);
+                }
             }
 
             FrameMetrics.DedicatedParticleSystems = _dedicatedParticleSystems.Count;

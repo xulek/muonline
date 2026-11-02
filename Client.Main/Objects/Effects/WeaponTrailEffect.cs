@@ -179,6 +179,15 @@ namespace Client.Main.Objects.Effects
                 _samples[i] = sample;
             }
 
+            // SourceMain5.2 creates weapon blurs (CreateBlur in ZzzCharacter.cpp) only while the owner plays an
+            // attack or skill action. Outside of them the existing samples just fade out.
+            if (!IsOwnerAttacking())
+            {
+                _hasLast = false;
+                base.Update(gameTime);
+                return;
+            }
+
             Vector3 current = SampleCurrent();
 
             if (!_hasLast)
@@ -204,6 +213,17 @@ namespace Client.Main.Objects.Effects
             }
 
             base.Update(gameTime);
+        }
+
+        private bool IsOwnerAttacking()
+        {
+            for (var node = Parent; node != null; node = node.Parent)
+            {
+                if (node is WalkerObject walker)
+                    return walker.IsAttackOrSkillAnimationPlaying();
+            }
+
+            return true;
         }
 
         private Vector3 SampleCurrent()
