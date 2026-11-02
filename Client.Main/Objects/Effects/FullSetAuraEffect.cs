@@ -147,7 +147,6 @@ namespace Client.Main.Objects.Effects
                 player is not IEquippedCharacter gear ||
                 player.Hidden ||
                 player.Model == null ||
-                GraphicsQualityManager.ActivePreset == GraphicsQualityPreset.Low ||
                 player.World == null ||
                 IsChaosCastleMap(player.World.WorldIndex))
             {
@@ -300,9 +299,9 @@ namespace Client.Main.Objects.Effects
             UpdateOrbitParticles(player.IsMoving || player.MovementIntent);
             UpdateTrails(player);
 
-            // Distant/throttled players retain their six skeletal lights but do not emit
-            // the expensive transient layers until they return to normal quality.
-            if (player.LowQuality)
+            // Distant/throttled players, and every player on the Low preset, retain their six skeletal
+            // lights but do not emit the expensive transient layers.
+            if (player.LowQuality || GraphicsQualityManager.ActivePreset == GraphicsQualityPreset.Low)
                 return;
 
             _primeAuraPending = false;

@@ -50,10 +50,18 @@ namespace Client.Main.Graphics
         {
             ColorSourceBlend = Blend.SourceAlpha,
             ColorDestinationBlend = Blend.InverseSourceAlpha,
+            ColorBlendFunction = BlendFunction.Add,
+#if ANDROID
+            // MonoGame's Android (GLES) backend has no Min/Max blend equations: applying Max throws, and every
+            // shadow draw was silently dropped. Keep the destination alpha instead (opaque scene: same result).
+            AlphaSourceBlend = Blend.Zero,
+            AlphaDestinationBlend = Blend.One,
+            AlphaBlendFunction = BlendFunction.Add
+#else
             AlphaSourceBlend = Blend.One,
             AlphaDestinationBlend = Blend.One,
-            ColorBlendFunction = BlendFunction.Add,
             AlphaBlendFunction = BlendFunction.Max
+#endif
         };
 
         public static readonly BlendState ColorState = new()

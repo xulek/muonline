@@ -429,7 +429,10 @@ struct SnowPixelInput
 
 #define TERRAIN_MAX_LIGHTS MAX_LIGHTS
 #if OPENGL
-    #define TERRAIN_LOW_MAX_LIGHTS 2
+    // GL (MojoShader) gives a uniform array only the registers the shader reads. MonoGame still uploads
+    // all MAX_LIGHTS elements, so a shorter loop let the light arrays overwrite the uniforms placed after
+    // them (shadow flag, light count, terrain UV scale, water parameters) and the terrain rendered black.
+    #define TERRAIN_LOW_MAX_LIGHTS MAX_LIGHTS
 #else
     #define TERRAIN_LOW_MAX_LIGHTS 8
 #endif
