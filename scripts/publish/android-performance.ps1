@@ -122,7 +122,10 @@ try {
         "-r", $RuntimeIdentifier,
         "-o", $output,
         "--no-restore",
-        "--disable-build-servers"
+        "--disable-build-servers",
+        # ProjectReference property variants can build shared libraries into the same obj directory.
+        # Keep those compilations sequential to avoid CS2012 file locks.
+        "-m:1"
     ) + $commonProperties)
 
     $expectedExtensions = @()

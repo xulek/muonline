@@ -175,7 +175,7 @@ namespace Client.Main.Diagnostics
             PhaseClock.Restart();
             Console.WriteLine($"[stress] adapter: {game.GraphicsDevice?.Adapter?.Description} profile={game.GraphicsDevice?.GraphicsProfile} backbuffer={game.GraphicsDevice?.PresentationParameters.BackBufferWidth}x{game.GraphicsDevice?.PresentationParameters.BackBufferHeight}");
             foreach (var adapter in Microsoft.Xna.Framework.Graphics.GraphicsAdapter.Adapters)
-                Console.WriteLine($"[stress] available adapter: {adapter.Description} default={adapter.IsDefaultAdapter}");
+                Console.WriteLine($"[stress] available adapter: {adapter.Description} default={ReferenceEquals(adapter, Microsoft.Xna.Framework.Graphics.GraphicsAdapter.DefaultAdapter)}");
             Console.WriteLine($"[stress] start: types {string.Join(",", Types)}, count {_count}, children {Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN}, crowd {Constants.ENABLE_WALKER_CROWD_INSTANCING}");
         }
 
