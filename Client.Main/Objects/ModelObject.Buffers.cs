@@ -544,6 +544,7 @@ namespace Client.Main.Objects
             _meshes[meshIndex].GpuVertexBuffer = vertexBuffer;
             _meshes[meshIndex].GpuIndexBuffer = indexBuffer;
             _meshes[meshIndex].GpuBoneCount = boneCount;
+            _gpuSkinMaxBoneCount = Math.Max(_gpuSkinMaxBoneCount, boneCount);
             _meshes[meshIndex].GpuSkinEnabled = true;
             _meshes[meshIndex].LastGpuCacheTouchFrame = MuGame.FrameIndex;
 

@@ -228,10 +228,6 @@ namespace Client.Main.Objects
             }
         }
 
-        private Matrix[] _gpuSkinBoneUploadBuffer = Array.Empty<Matrix>();
-        private int _gpuSkinBoneUploadCount;
-        private Matrix[] _gpuSkinPreparedBoneSource;
-        private uint _gpuSkinPreparedPoseVersion = uint.MaxValue;
 
         #endregion
 
@@ -842,10 +838,6 @@ namespace Client.Main.Objects
             _lastCachedBoneSource = null;
             _lastCachedBonePoseVersion = uint.MaxValue;
             _boneMatrixCacheValid = false;
-            _gpuSkinBoneUploadBuffer = Array.Empty<Matrix>();
-            _gpuSkinBoneUploadCount = 0;
-            _gpuSkinPreparedBoneSource = null;
-            _gpuSkinPreparedPoseVersion = uint.MaxValue;
             _animationStateValid = false;
             _animationStepAccumulatorSeconds = 0f;
             _animationPoseVersion = 0;

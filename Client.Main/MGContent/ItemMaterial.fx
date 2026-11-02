@@ -25,7 +25,26 @@ static const float GlowIntensityScale = 0.80;
 float4x4 World;
 float4x4 WorldViewProjection;
 #if !OPENGL
-float4x4 BoneMatrices[256];
+// GPU skinning bones come from a per-frame palette texture (1024 float4 texels per row, four texels per
+// bone, one matrix row each). BonePaletteBase is the first texel of the drawn palette; a palette never
+// crosses a row. Keeps the 16 KB bone array out of the constant buffer uploaded on every draw.
+#if SM6
+Texture2D BonePaletteTexture : register(t5);
+#else
+Texture2D BonePaletteTexture;
+#endif
+float BonePaletteBase;
+
+float4x4 LoadBone(int boneIndex)
+{
+    int texel = (int)(BonePaletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
+    int3 p = int3(texel & 1023, texel >> 10, 0);
+    return float4x4(
+        BonePaletteTexture.Load(p),
+        BonePaletteTexture.Load(p + int3(1, 0, 0)),
+        BonePaletteTexture.Load(p + int3(2, 0, 0)),
+        BonePaletteTexture.Load(p + int3(3, 0, 0)));
+}
 #endif
 
 float3 EyePosition;
@@ -246,8 +265,8 @@ VertexShaderOutput MainVS_Skinned(in VertexShaderInputSkinned input)
 {
     int positionBoneIndex = min(max((int)input.BoneIndices.x, 0), 255);
     int normalBoneIndex = min(max((int)input.BoneIndices.y, 0), 255);
-    float4 localPosition = mul(float4(input.Position, 1.0), BoneMatrices[positionBoneIndex]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[normalBoneIndex]);
+    float4 localPosition = mul(float4(input.Position, 1.0), LoadBone(positionBoneIndex));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(normalBoneIndex));
     return BuildMaterialVertex(localPosition, localNormal, input.TextureCoordinate);
 }
 #endif
@@ -273,8 +292,8 @@ VertexShaderOutputFast MainVS_FastSkinned(in VertexShaderInputSkinned input)
 {
     int positionBoneIndex = min(max((int)input.BoneIndices.x, 0), 255);
     int normalBoneIndex = min(max((int)input.BoneIndices.y, 0), 255);
-    float4 localPosition = mul(float4(input.Position, 1.0), BoneMatrices[positionBoneIndex]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[normalBoneIndex]);
+    float4 localPosition = mul(float4(input.Position, 1.0), LoadBone(positionBoneIndex));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(normalBoneIndex));
     return BuildMaterialVertexFast(localPosition, localNormal, input.TextureCoordinate);
 }
 #endif
@@ -547,8 +566,8 @@ VertexShaderOutputComposite MainVS_Composite(in VertexShaderInputComposite input
 {
     int positionBoneIndex = min(max((int)input.BoneIndices.x, 0), 255);
     int normalBoneIndex = min(max((int)input.BoneIndices.y, 0), 255);
-    float4 localPosition = mul(float4(input.Position, 1.0), BoneMatrices[positionBoneIndex]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[normalBoneIndex]);
+    float4 localPosition = mul(float4(input.Position, 1.0), LoadBone(positionBoneIndex));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(normalBoneIndex));
 
     VertexShaderOutputComposite output = (VertexShaderOutputComposite)0;
     output.Position = mul(localPosition, WorldViewProjection);

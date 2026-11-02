@@ -69,7 +69,22 @@ float4x4 World;
 float4x4 WorldViewProjection; // Includes World * View * Projection
 float4x4 ViewProjection;      // Shared by instanced paths whose World varies per instance
 #if !OPENGL
-float4x4 BoneMatrices[256];
+// GPU skinning bones come from a per-frame palette texture (1024 float4 texels per row, four texels per
+// bone, one matrix row each). BonePaletteBase is the first texel of the drawn palette; a palette never
+// crosses a row. Keeps the 16 KB bone array out of the constant buffer uploaded on every draw.
+Texture2D BonePaletteTexture;
+float BonePaletteBase;
+
+float4x4 LoadBone(int boneIndex)
+{
+    int texel = (int)(BonePaletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
+    int3 p = int3(texel & 1023, texel >> 10, 0);
+    return float4x4(
+        BonePaletteTexture.Load(p),
+        BonePaletteTexture.Load(p + int3(1, 0, 0)),
+        BonePaletteTexture.Load(p + int3(2, 0, 0)),
+        BonePaletteTexture.Load(p + int3(3, 0, 0)));
+}
 // Multi-pose crowd skinning stores one palette per texture row.
 // The row width is selected per flush (32/64/128/256 bones), and each bone
 // occupies four consecutive float4 texels (one texel per matrix row).
@@ -560,8 +575,8 @@ int BoneIndex(float v)
 
 PixelInput SkinnedCore(VertexInputSkinned input, bool vertexLit)
 {
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[BoneIndex(input.BoneIndices.y)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(BoneIndex(input.BoneIndices.y)));
 
     float3 worldPos = mul(localPos, World).xyz;
     float3 worldNormal = normalize(mul(localNormal, (float3x3)World));
@@ -584,7 +599,7 @@ PixelInput VS_ObjectsSkinnedVertexLit(VertexInputSkinned input) { return Skinned
 HighlightPixelInput VS_HighlightSkinned(VertexInputSkinned input)
 {
     HighlightPixelInput output;
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
     output.Position = mul(localPos, WorldViewProjection);
     output.TexCoord = input.TexCoord + TextureCoordinateOffset;
     return output;
@@ -593,8 +608,8 @@ HighlightPixelInput VS_HighlightSkinned(VertexInputSkinned input)
 PixelInput SkinnedInstancedCore(VertexInputSkinnedInstanced input, bool vertexLit)
 {
     float4x4 instanceWorld = float4x4(input.InstWorld0, input.InstWorld1, input.InstWorld2, input.InstWorld3);
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[BoneIndex(input.BoneIndices.y)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(BoneIndex(input.BoneIndices.y)));
 
     float4 worldPos = mul(localPos, instanceWorld);
     float3 worldNormal = normalize(mul(localNormal, (float3x3)instanceWorld));
@@ -618,8 +633,8 @@ PixelInput CutoutInstancedCore(VertexInputSkinnedCutoutInstanced input, bool ver
 {
     float4x4 instanceWorld = transpose(float4x4(input.InstWorld0, input.InstWorld1, input.InstWorld2, input.InstWorld3));
     float4x4 instanceWvp = transpose(float4x4(input.InstWvp0, input.InstWvp1, input.InstWvp2, input.InstWvp3));
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
-    float3 localNormal = mul(input.Normal, (float3x3)BoneMatrices[BoneIndex(input.BoneIndices.y)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBone(BoneIndex(input.BoneIndices.y)));
 
     float3 worldPos = mul(localPos, instanceWorld).xyz;
     float3 worldNormal = normalize(mul(localNormal, (float3x3)instanceWorld));
@@ -1150,7 +1165,7 @@ ShadowVertexOutput ShadowVS(VertexInput input)
 ShadowVertexOutput ShadowVS_Skinned(VertexInputSkinned input)
 {
     ShadowVertexOutput output;
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
     float4 worldPos = mul(localPos, World);
     output.Position = mul(worldPos, LightViewProjection);
     output.TexCoord = input.TexCoord + TextureCoordinateOffset;
@@ -1162,7 +1177,7 @@ ShadowVertexOutput ShadowVS_SkinnedInstanced(VertexInputSkinnedInstanced input)
 {
     ShadowVertexOutput output;
     float4x4 instanceWorld = float4x4(input.InstWorld0, input.InstWorld1, input.InstWorld2, input.InstWorld3);
-    float4 localPos = mul(float4(input.Position, 1.0), BoneMatrices[BoneIndex(input.BoneIndices.x)]);
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
     float4 worldPos = mul(localPos, instanceWorld);
     output.Position = mul(worldPos, LightViewProjection);
     output.TexCoord = input.TexCoord + TextureCoordinateOffset;

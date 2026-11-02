@@ -19,7 +19,8 @@ namespace Client.Main.Objects
             public ModelEffectBindings(Effect effect)
             {
                 _effect = effect;
-                BoneMatrices = effect.Parameters["BoneMatrices"];
+                BonePaletteTexture = effect.Parameters["BonePaletteTexture"];
+                BonePaletteBase = effect.Parameters["BonePaletteBase"];
                 CrowdBonePaletteTexture = effect.Parameters["CrowdBonePaletteTexture"];
                 CrowdBonePaletteRowCount = effect.Parameters["CrowdBonePaletteRowCount"];
                 World = effect.Parameters["World"];
@@ -71,7 +72,8 @@ namespace Client.Main.Objects
                 MaterialTint = effect.Parameters["MaterialTint"];
             }
 
-            public EffectParameter BoneMatrices { get; }
+            public EffectParameter BonePaletteTexture { get; }
+            public EffectParameter BonePaletteBase { get; }
             public EffectParameter CrowdBonePaletteTexture { get; }
             public EffectParameter CrowdBonePaletteRowCount { get; }
             public EffectParameter World { get; }
@@ -122,13 +124,13 @@ namespace Client.Main.Objects
             public EffectParameter TextureCoordinateOffset { get; }
             public EffectParameter MaterialTint { get; }
 
-            // Tracks the palette currently resident in this shared Effect instance.
-            // Rendering another object invalidates the owner, while consecutive meshes of
-            // the same object and pose can reuse the existing 256-matrix constant upload.
-            public ModelObject BonePaletteOwner;
+            // Palette currently selected in this shared Effect instance (GpuSkinPalette base and generation);
+            // consecutive meshes of the same pose keep it without touching the parameters.
             public Matrix[] BonePaletteSource;
             public uint BonePalettePoseVersion = uint.MaxValue;
             public int BonePaletteCount;
+            public int BonePaletteGeneration = -1;
+            public Texture2D BonePaletteBoundTexture;
 
             public EffectTechnique GetTechnique(string name)
             {
@@ -170,9 +172,45 @@ namespace Client.Main.Objects
             return bindings != null && TryUploadGpuSkinBoneMatrices(effect, bindings, requiredBoneCount);
         }
 
+        // Largest bone count of this object's GPU-skinned meshes (0 = never GPU-skinned).
+        private int _gpuSkinMaxBoneCount;
+
+        /// <summary>
+        /// Queues the poses of the visible GPU-skinned objects (and their children) into the bone palette texture
+        /// and uploads them in one call, before the first skinned draw of the frame.
+        /// </summary>
+        internal static void PrepareGpuSkinPalettes(GraphicsDevice gd, IReadOnlyList<WorldObject> visibleObjects)
+        {
+            if (gd == null || visibleObjects == null || !Constants.ENABLE_GPU_SKINNING)
+                return;
+
+            for (int i = 0; i < visibleObjects.Count; i++)
+                QueueGpuSkinPalette(gd, visibleObjects[i], 0);
+            GpuSkinPalette.FlushQueued();
+        }
+
+        private static void QueueGpuSkinPalette(GraphicsDevice gd, WorldObject obj, int depth)
+        {
+            if (obj == null || !obj.Visible || depth > 4)
+                return;
+
+            if (obj is ModelObject model && model._gpuSkinMaxBoneCount > 0)
+            {
+                ModelObject paletteOwner = model.LinkParentAnimation && model.Parent is ModelObject parentModel
+                    ? parentModel
+                    : model;
+                Matrix[] bones = paletteOwner.GetEffectiveBoneTransforms();
+                bones = model.GetRenderBoneTransforms(bones) ?? bones;
+                GpuSkinPalette.Queue(gd, bones, paletteOwner.GetEffectiveBonePoseVersion(), model._gpuSkinMaxBoneCount);
+            }
+
+            foreach (WorldObject child in obj.Children)
+                QueueGpuSkinPalette(gd, child, depth + 1);
+        }
+
         private bool TryUploadGpuSkinBoneMatrices(Effect effect, ModelEffectBindings bindings, int requiredBoneCount)
         {
-            if (effect == null || bindings?.BoneMatrices == null ||
+            if (effect == null || bindings?.BonePaletteTexture == null || bindings.BonePaletteBase == null ||
                 requiredBoneCount <= 0 || requiredBoneCount > MaxGpuSkinBones)
             {
                 return false;
@@ -187,66 +225,30 @@ namespace Client.Main.Objects
 
             if (ReferenceEquals(bindings.BonePaletteSource, bones) &&
                 bindings.BonePalettePoseVersion == poseVersion &&
-                bindings.BonePaletteCount >= requiredBoneCount)
+                bindings.BonePaletteCount >= requiredBoneCount &&
+                bindings.BonePaletteGeneration == GpuSkinPalette.Generation &&
+                ReferenceEquals(bindings.BonePaletteBoundTexture, GpuSkinPalette.Texture))
             {
                 return true;
             }
 
-            if (_gpuSkinBoneUploadBuffer == null || _gpuSkinBoneUploadBuffer.Length != MaxGpuSkinBones)
+            // The pose is uploaded once per frame into the shared palette texture; the draw only selects it.
+            if (!GpuSkinPalette.TryGetBase(effect.GraphicsDevice, bones, poseVersion, requiredBoneCount, out int baseTexel))
+                return false;
+
+            Texture2D paletteTexture = GpuSkinPalette.Texture;
+            if (!ReferenceEquals(bindings.BonePaletteBoundTexture, paletteTexture))
             {
-                _gpuSkinBoneUploadBuffer = new Matrix[MaxGpuSkinBones];
-                for (int i = 0; i < MaxGpuSkinBones; i++)
-                    _gpuSkinBoneUploadBuffer[i] = Matrix.Identity;
-                _gpuSkinBoneUploadCount = 0;
-                _gpuSkinPreparedBoneSource = null;
-                _gpuSkinPreparedPoseVersion = uint.MaxValue;
+                bindings.BonePaletteTexture.SetValue(paletteTexture);
+                bindings.BonePaletteBoundTexture = paletteTexture;
             }
 
-            bool paletteChanged = !ReferenceEquals(_gpuSkinPreparedBoneSource, bones) ||
-                                  _gpuSkinPreparedPoseVersion != poseVersion;
-            if (paletteChanged)
-            {
-                if (bones != null && bones.Length > 0)
-                {
-                    int copyCount = Math.Min(MaxGpuSkinBones, bones.Length);
-                    Array.Copy(bones, 0, _gpuSkinBoneUploadBuffer, 0, copyCount);
-
-                    int clearTo = Math.Max(copyCount, _gpuSkinBoneUploadCount);
-                    for (int i = copyCount; i < clearTo && i < MaxGpuSkinBones; i++)
-                        _gpuSkinBoneUploadBuffer[i] = Matrix.Identity;
-
-                    _gpuSkinBoneUploadCount = copyCount;
-                }
-                else if (_gpuSkinBoneUploadCount == 0)
-                {
-                    _gpuSkinBoneUploadCount = requiredBoneCount;
-                }
-
-                _gpuSkinPreparedBoneSource = bones;
-                _gpuSkinPreparedPoseVersion = poseVersion;
-            }
-
-            // EffectParameter.SetValue(Matrix[]) transposes and copies every element it is given; uploading
-            // the full 256-entry buffer for a 40-bone character cost ~10 us per palette switch. Only the
-            // used prefix (rounded to 16) is passed; higher indices are not referenced by these meshes.
-            int uploadCount = Math.Min(MaxGpuSkinBones,
-                (Math.Max(requiredBoneCount, _gpuSkinBoneUploadCount) + 15) & ~15);
-            Matrix[] uploadSlice = GetBoneUploadSlice(uploadCount);
-            Array.Copy(_gpuSkinBoneUploadBuffer, uploadSlice, uploadCount);
-            bindings.BoneMatrices.SetValue(uploadSlice);
-            bindings.BonePaletteOwner = paletteOwner;
+            bindings.BonePaletteBase.SetValue((float)baseTexel);
             bindings.BonePaletteSource = bones;
             bindings.BonePalettePoseVersion = poseVersion;
-            bindings.BonePaletteCount = Math.Max(requiredBoneCount, _gpuSkinBoneUploadCount);
+            bindings.BonePaletteCount = requiredBoneCount;
+            bindings.BonePaletteGeneration = GpuSkinPalette.Generation;
             return true;
-        }
-
-        private static readonly Matrix[][] BoneUploadSlices = new Matrix[MaxGpuSkinBones / 16 + 1][];
-
-        private static Matrix[] GetBoneUploadSlice(int count)
-        {
-            int bucket = count / 16;
-            return BoneUploadSlices[bucket] ??= new Matrix[bucket * 16];
         }
 
         private void PrepareDynamicLightingEffect(Effect effect, bool useGpuSkinning = false, int requiredBoneCount = 0)

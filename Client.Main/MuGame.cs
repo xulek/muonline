@@ -848,6 +848,8 @@ namespace Client.Main
                 // Textures requested by merged player meshes are copied into their atlas before the scene
                 // render target is bound.
                 Client.Main.Graphics.PlayerPartAtlas.ProcessPending(GraphicsDevice);
+                // Bone palettes of the visible skinned objects go up in one texture upload.
+                ModelObject.PrepareGpuSkinPalettes(GraphicsDevice, ActiveScene?.World?.VisibleObjects);
 
                 FPSCounter.Instance.CalcFPS(gameTime);
                 bool recoveredFrame = false;
