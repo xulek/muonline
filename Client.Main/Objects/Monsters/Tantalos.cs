@@ -22,6 +22,7 @@ namespace Client.Main.Objects.Monsters
 
         public Tantalos()
         {
+            AnimationSpeed = 12.5f; // SetActionSpeed doubles the source speed; 2 * 12.5 matches 25 FPS.
             Scale = 1.8f;
             BlendMesh = 2; // Normal blending, not full transparency like Zaikan
             BlendMeshLight = 1.0f;
@@ -54,12 +55,12 @@ namespace Client.Main.Objects.Monsters
             if (weapon != null)
                 _rightHandWeapon.Model = await BMDLoader.Instance.Prepare(weapon.TexturePath);
             await base.Load();
-            SetActionSpeed(MonsterActionType.Stop1, 0.25f);
-            SetActionSpeed(MonsterActionType.Stop2, 0.20f);
-            SetActionSpeed(MonsterActionType.Walk, 0.34f);
+            SetActionSpeed(MonsterActionType.Stop1, 0.25f * 0.4f);
+            SetActionSpeed(MonsterActionType.Stop2, 0.20f * 0.4f);
+            SetActionSpeed(MonsterActionType.Walk, 0.34f * 0.4f);
             SetActionSpeed(MonsterActionType.Attack1, 0.35f);
             SetActionSpeed(MonsterActionType.Attack2, 0.35f);
-            SetActionSpeed(MonsterActionType.Shock, 0.50f);
+            SetActionSpeed(MonsterActionType.Shock, 0.50f * 0.4f);
             SetActionSpeed(MonsterActionType.Die, 0.55f);
             // C++: Models[MODEL_MONSTER01+Type].BoneHead = 20;
         }
@@ -69,25 +70,24 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/jaikan1.wav", Position, listenerPosition); // Sound 145
-            // Consider adding logic for Sound 146 (jaikan2.wav) if desired
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/jaikan1.wav" : "Sound/jaikan2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            if (attackType == 1)
-                SoundController.Instance.PlayBufferWithAttenuation("Sound/jaikan_attack1.wav", Position, listenerPosition); // Sound 147
-            else
-                SoundController.Instance.PlayBufferWithAttenuation("Sound/jaikan_attack2.wav", Position, listenerPosition); // Sound 148
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/jaikan_attack1.wav" : "Sound/jaikan_attack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnReceiveDamage()
         {
             base.OnReceiveDamage();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/jaikan_attack1.wav", Position, listenerPosition);
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/jaikan_attack1.wav" : "Sound/jaikan_attack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

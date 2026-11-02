@@ -104,7 +104,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = attackType == 1 ? "Sound/mKundunAttack1.wav" : "Sound/mKundunAttack2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mKundunAttack1.wav" : "Sound/mKundunAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
 
             if (World == null || !TryConsumeAttackEffectWindow())
@@ -151,7 +151,13 @@ namespace Client.Main.Objects.Monsters
             return (bones[boneIndex] * WorldPosition).Translation;
         }
 
-        public override void OnReceiveDamage() => OnPerformAttack(1);
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mKundunAttack1.wav" : "Sound/mKundunAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+        }
 
         public override void OnDeathAnimationStart()
         {

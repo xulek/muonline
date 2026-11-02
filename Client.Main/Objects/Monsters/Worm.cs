@@ -48,6 +48,13 @@ namespace Client.Main.Objects.Monsters
                                                                                                                   // Index 3 -> Sound 55
         }
 
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mWormDie.wav", Position, listenerPosition);
+        }
+
         public override void OnDeathAnimationStart()
         {
             base.OnDeathAnimationStart();

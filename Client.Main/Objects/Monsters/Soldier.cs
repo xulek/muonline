@@ -52,17 +52,16 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mLizardKing1.wav", Position, listenerPosition); // Sound 138
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLizardKing1.wav" : "Sound/mLizardKing2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            if (attackType == 1)
-                SoundController.Instance.PlayBufferWithAttenuation("Sound/mLizardKing1.wav", Position, listenerPosition); // Sound 138
-            else
-                SoundController.Instance.PlayBufferWithAttenuation("Sound/mLizardKing2.wav", Position, listenerPosition); // Sound 139
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLizardKing1.wav" : "Sound/mLizardKing2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
 
             // SourceMain5.2 AttackEffect: MODEL_SOLDIER fires CreateArrows on attack.
             if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
@@ -71,6 +70,14 @@ namespace Client.Main.Objects.Monsters
                 arrowWorld.Objects.Add(arrow);
                 _ = arrow.Load();
             }
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLizardKing1.wav" : "Sound/mLizardKing2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

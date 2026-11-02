@@ -92,6 +92,13 @@ namespace Client.Main.Objects.Monsters
             }
         }
 
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mHydraAttack1.wav", Position, listenerPosition);
+        }
+
         private Vector3 GetBoneWorldPosition(int boneIndex)
         {
             Matrix[] bones = GetBoneTransforms();

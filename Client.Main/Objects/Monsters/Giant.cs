@@ -20,6 +20,7 @@ namespace Client.Main.Objects.Monsters
         public Giant()
         {
             RenderShadow = true;
+            AnimationSpeed = 12.5f; // SetActionSpeed doubles the source speed; 2 * 12.5 matches 25 FPS.
             Scale = 1.6f;
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
             _rightHandWeapon = new WeaponObject
@@ -52,12 +53,12 @@ namespace Client.Main.Objects.Monsters
             await base.Load();
 
             // SourceMain5.2 ZzzOpenData.cpp: base monster action speeds.
-            SetActionSpeed(MonsterActionType.Stop1, 0.25f);
-            SetActionSpeed(MonsterActionType.Stop2, 0.20f);
-            SetActionSpeed(MonsterActionType.Walk, 0.34f);
-            SetActionSpeed(MonsterActionType.Attack1, 0.33f);
-            SetActionSpeed(MonsterActionType.Attack2, 0.33f);
-            SetActionSpeed(MonsterActionType.Shock, 0.50f);
+            SetActionSpeed(MonsterActionType.Stop1, 0.25f * 0.7f);
+            SetActionSpeed(MonsterActionType.Stop2, 0.20f * 0.7f);
+            SetActionSpeed(MonsterActionType.Walk, 0.34f * 0.7f);
+            SetActionSpeed(MonsterActionType.Attack1, 0.33f * 0.7f);
+            SetActionSpeed(MonsterActionType.Attack2, 0.33f * 0.7f);
+            SetActionSpeed(MonsterActionType.Shock, 0.50f * 0.7f);
             SetActionSpeed(MonsterActionType.Die, 0.55f);
         }
 
@@ -87,6 +88,14 @@ namespace Client.Main.Objects.Monsters
             string sound = MuGame.Random.Next(2) == 0
                 ? "Sound/mGiantAttack1.wav"
                 : "Sound/mGiantAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mGiantAttack1.wav" : "Sound/mGiantAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 

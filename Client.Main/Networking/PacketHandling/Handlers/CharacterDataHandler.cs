@@ -1157,7 +1157,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 {
                     _logger.LogInformation("Ⓜ️ MASTER LEVEL UP! Level {Lvl}, Points {Pts}", mlvl, mpts);
                     Console.WriteLine($"*** MASTER LEVEL UP! You are now master level {mlvl}! ***");
-                    // TODO: Play master level up sound
+                    // SourceMain5.2 plays the level-up sound on the display-effect packet (0x48).
                     MuGame.ScheduleOnMainThread(async () =>
                     {
                         var gameScene = MuGame.Instance?.ActiveScene as Client.Main.Scenes.GameScene;
@@ -1423,6 +1423,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     }
                     else
                     {
+                        // ReceiveMagic resolves both the caster and target before these
+                        // targeted spells reach their original sound/effect handling.
+                        if (skillId is 1 or 3 or 4 or 7 &&
+                            activeScene.World is WalkableWorldControl spellWorld &&
+                            spellWorld.TryGetWalkerById((ushort)(playerId & 0x7FFF), out var caster) &&
+                            caster is Objects.Player.PlayerObject &&
+                            spellWorld.TryGetWalkerById((ushort)(targetId & 0x7FFF), out _))
+                        {
+                            string soundPath = Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
+                            if (!string.IsNullOrEmpty(soundPath))
+                                SoundController.Instance.PlayBuffer(soundPath);
+                        }
+
                         if (ArrowProjectileSpawner.IsArrowSkill(skillId) &&
                             activeScene.World is WalkableWorldControl remoteWorld)
                         {

@@ -55,12 +55,12 @@ namespace Client.Main.Objects.Monsters
             if (_bossHead.Model?.Actions != null && _bossHead.Model.Actions.Length > 1 && _bossHead.Model.Actions[1] != null)
                 _bossHead.Model.Actions[1].PlaySpeed = 0.4f;
 
-            SetActionSpeed(MonsterActionType.Stop1, 0.25f * 0.4f);
+            SetActionSpeed(MonsterActionType.Stop1, 0.25f);
             SetActionSpeed(MonsterActionType.Stop2, 0.8f);
-            SetActionSpeed(MonsterActionType.Walk, 0.34f * 0.4f);
+            SetActionSpeed(MonsterActionType.Walk, 0.34f);
             SetActionSpeed(MonsterActionType.Attack1, 0.5f);
             SetActionSpeed(MonsterActionType.Attack2, 0.7f);
-            SetActionSpeed(MonsterActionType.Shock, 0.50f * 0.4f);
+            SetActionSpeed(MonsterActionType.Shock, 0.50f);
             SetActionSpeed(MonsterActionType.Die, 0.55f);
         }
 

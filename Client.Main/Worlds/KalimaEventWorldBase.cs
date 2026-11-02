@@ -1,4 +1,5 @@
 using Client.Main.Controls;
+using Client.Main.Controllers;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.Kalima;
 using Microsoft.Xna.Framework;
@@ -13,6 +14,7 @@ namespace Client.Main.Worlds
     public abstract class KalimaEventWorldBase : S6EventWorldBase
     {
         private KalimaAmbientManager _ambientManager;
+        private static double _lastAmbientSoundMs;
 
         protected KalimaEventWorldBase(short worldIndex, string name)
             : base(worldIndex, name)
@@ -29,6 +31,16 @@ namespace Client.Main.Worlds
         {
             base.Update(time);
             _ambientManager?.Update(time);
+
+            // GMHellas.cpp MoveHellasObjectSetting uses a shared four-second timer.
+            double nowMs = time.TotalGameTime.TotalMilliseconds;
+            if (Status == Models.GameControlStatus.Ready && Visible && nowMs - _lastAmbientSoundMs > 4000.0)
+            {
+                _lastAmbientSoundMs = nowMs;
+                SoundController.Instance.PlayBuffer(MuGame.Random.Next(2) == 0
+                    ? "Sound/aKalima01.wav"
+                    : "Sound/aKalima02.wav");
+            }
         }
 
         // SourceMain: WD_24HELLAS.. clear color (30/256, 40/256, 40/256)

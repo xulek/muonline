@@ -73,7 +73,6 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
             if (masterLevel > oldLevel)
             {
-                SoundController.Instance.PlayBuffer("Sound/pLevelUp.wav");
                 MuGame.ScheduleOnMainThread(async () =>
                 {
                     if (MuGame.Instance?.ActiveScene is not GameScene scene || scene.World == null || scene.Hero == null) return;
@@ -222,6 +221,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 {
                     case 16: // LevelUp
                     {
+                        SoundController.Instance.PlayBuffer("Sound/pLevelUp.wav");
                         bool master = walker is Objects.Player.PlayerObject player && IsMasterClass(player.CharacterClass);
                         var levelUp = new LevelUpEffect(walker.Position, masterLevel: master, angle: walker.Angle);
                         world.Objects.Add(levelUp);

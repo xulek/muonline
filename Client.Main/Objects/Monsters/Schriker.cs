@@ -107,14 +107,15 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mSvIdle1.wav", Position, listenerPosition);
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mSvIdle1.wav" : "Sound/mSvIdle2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = attackType == 1 ? "Sound/mSvAttack1.wav" : "Sound/mSvAttack2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mSvAttack1.wav" : "Sound/mSvAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 

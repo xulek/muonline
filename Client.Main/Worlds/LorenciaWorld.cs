@@ -183,6 +183,7 @@ namespace Client.Main.Worlds
                 if (!isInPubArea)
                 {
                     isInPubArea = true;
+                    SoundController.Instance.StopAmbientSound();
                     // Stop the current background music and play the pub music
                     SoundController.Instance.StopBackgroundMusic();
                     SoundController.Instance.PlayBackgroundMusic(pubMusicPath);
@@ -194,6 +195,7 @@ namespace Client.Main.Worlds
                 if (isInPubArea)
                 {
                     isInPubArea = false;
+                    SoundController.Instance.PlayAmbientSound(AmbientSoundPath);
                     // Stop the pub music and resume the default background music
                     SoundController.Instance.StopBackgroundMusic();
                     SoundController.Instance.PlayBackgroundMusic(BackgroundMusicPath);

@@ -314,20 +314,19 @@ namespace Client.Data.BMD
             map[24] = "Sound/eRaidShoot.wav";            // Triple Shot (ID 24)
 
             // WIZARD SKILLS
-            map[4] = "Sound/sMagic.wav";                 // Fireball (ID 4)
+            map[4] = "Sound/eMeteorite.wav";             // Fireball (ID 4)
             map[11] = "Sound/sMagic.wav";                // Power Wave (ID 11)
             map[3] = "Sound/eThunder.wav";               // Lightning (ID 3)
             map[6] = "Sound/eTelekinesis.wav";           // Teleport (ID 6)
-            map[2] = "Sound/eMeteorite.wav";             // Meteorite (ID 2)
+            // Meteorite (ID 2) plays its sound when ScrollOfMeteoriteEffect is initialized.
             map[7] = "Sound/sIce.wav";                   // Ice (ID 7)
-            map[1] = "Sound/sEvil.wav";                  // Poison (ID 1)
+            map[1] = "Sound/pHeartBeat.wav";              // Poison (ID 1)
             map[5] = "Sound/sFlame.wav";                 // Flame (ID 5)
-            map[8] = "Sound/sTornado.wav";               // Twister (ID 8)
-            map[9] = "Sound/sEvil.wav";                  // Evil Spirits (ID 9)
-            map[10] = "Sound/sHellFire.wav";             // Hellfire (ID 10)
-            map[12] = "Sound/sAquaFlash.wav";            // Aqua Beam (ID 12)
+            // Twister (ID 8) and Evil Spirit (ID 9) play sounds from their effects.
+            // Hellfire (ID 10) plays its sound from ScrollOfHellFireEffect.
+            // Aqua Beam (ID 12) plays its sound from ScrollOfAquaBeamEffect.
             map[13] = "Sound/eExplosion.wav";            // Cometfall (ID 13)
-            map[14] = "Sound/sFlame.wav";                // Inferno (ID 14)
+            // Inferno (ID 14) plays its sound from ScrollOfInfernoEffect.
             map[15] = "Sound/eTelekinesis.wav";          // Teleport Ally (ID 15)
             map[16] = "Sound/eSoulBarrier.wav";          // Soul Barrier (ID 16)
             map[17] = "Sound/sMagic.wav";                // Energy Ball (ID 17)

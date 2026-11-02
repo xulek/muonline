@@ -21,7 +21,7 @@ namespace Client.Main.Objects.Effects
     {
         private const string EnergyParticleBaseName = "RidingSpear";
         private const string SpikeBaseName = "Spear";
-        private const string SoundAttack = "Sound/eRageBlow_2.wav";
+        private const string SoundAttack = "Sound/sKnightSkill2.wav";
 
         private const float EnergySpawnDistance = 600f;
         private const float EnergyTargetDistance = 300f;
@@ -126,12 +126,12 @@ namespace Client.Main.Objects.Effects
             if (lifeInt >= 8 && lifeInt <= 14)
             {
                 SpawnSpikeEffects();
+            }
 
-                if (lifeInt == 12 && !_soundPlayed)
-                {
-                    SoundController.Instance.PlayBuffer(SoundAttack);
-                    _soundPlayed = true;
-                }
+            if (lifeInt <= 12 && !_soundPlayed)
+            {
+                SoundController.Instance.PlayBuffer(SoundAttack);
+                _soundPlayed = true;
             }
 
             // Phase 3: Target Impact (frame 10)

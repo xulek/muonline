@@ -1,4 +1,5 @@
 using Client.Main.Configuration;
+using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Monsters;
@@ -18,7 +19,7 @@ namespace Client.Main.Worlds
         public NoriaWorld() : base(worldIndex: 4)
         {
             BackgroundMusicPath = "Music/Noria.mp3";
-            AmbientSoundPath = "Sound/aForest.wav"; // Forest atmosphere for Noria
+            AmbientSoundPath = "Sound/aWind.wav"; // SourceMain5.2 loops wind; forest sounds are occasional.
             Name = "Noria";
         }
 
@@ -107,6 +108,10 @@ namespace Client.Main.Worlds
         public override void Update(GameTime time)
         {
             base.Update(time);
+
+            // SourceMain5.2 ZzzScene.cpp: forest sound is an occasional one-shot.
+            if (Status == Models.GameControlStatus.Ready && Visible && FPSCounter.Instance.RandFPSCheck(512))
+                SoundController.Instance.PlayBuffer("Sound/aForest.wav");
 
             // Update butterfly system
             _butterflyManager?.Update(time);

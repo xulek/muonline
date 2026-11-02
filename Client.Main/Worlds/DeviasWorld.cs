@@ -1,4 +1,6 @@
 using Client.Main.Configuration;
+using Client.Data.ATT;
+using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects;
@@ -12,6 +14,8 @@ namespace Client.Main.Worlds
     public class DeviasWorld : WalkableWorldControl
     {
         private DeviasSnowAmbientEffect _snowEffect;
+        private bool _insideBuilding;
+        private bool _churchMusic;
         public DeviasWorld() : base(worldIndex: 3)
         {
             BackgroundMusicPath = "Music/Devias.mp3";
@@ -109,7 +113,36 @@ namespace Client.Main.Worlds
         {
             base.Update(time);
             if (Status == Models.GameControlStatus.Ready)
+            {
+                if (Visible)
+                {
+                    bool insideBuilding = HeroTile == 3 || HeroTile >= 10;
+                    if (_insideBuilding != insideBuilding)
+                    {
+                        _insideBuilding = insideBuilding;
+                        if (insideBuilding)
+                            SoundController.Instance.StopAmbientSound();
+                        else
+                            SoundController.Instance.PlayAmbientSound(AmbientSoundPath);
+                    }
+
+                    if (Walker != null)
+                    {
+                        int x = (int)Walker.Location.X;
+                        int y = (int)Walker.Location.Y;
+                        if (Terrain.RequestTerrainFlag(x, y).HasFlag(TWFlags.SafeZone))
+                        {
+                            bool churchMusic = x >= 205 && x <= 214 && y >= 13 && y <= 31;
+                            if (_churchMusic != churchMusic)
+                            {
+                                _churchMusic = churchMusic;
+                                SoundController.Instance.PlayBackgroundMusic(churchMusic ? "Music/Church.mp3" : BackgroundMusicPath);
+                            }
+                        }
+                    }
+                }
                 Terrain.UpdateDeviasSnow(time, this);
+            }
         }
 
         public override void Dispose()

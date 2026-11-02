@@ -431,14 +431,13 @@ namespace Client.Main.Objects.Effects
             _startPosition = _caster.WorldPosition.Translation;
             _position = _startPosition;
             _initialized = true;
+            if (_playImpactSound)
+                SoundController.Instance.PlayBuffer(SoundStrike1);
         }
 
         private void TriggerImpact()
         {
             _impactTriggered = true;
-
-            if (_playImpactSound)
-                SoundController.Instance.PlayBuffer(SoundStrike1);
 
             Vector3 p = new Vector3(-25f, -80f, 0f);
             Matrix matrix = MathUtils.AngleMatrix(_ownerAngleDeg);

@@ -52,7 +52,7 @@ namespace Client.Main.Objects.Monsters
             SetActionSpeed(MonsterActionType.Attack1, 0.33f * 1.2f);
             SetActionSpeed(MonsterActionType.Attack2, 0.33f * 1.2f);
             SetActionSpeed(MonsterActionType.Shock, 0.50f * 1.2f);
-            SetActionSpeed(MonsterActionType.Die, 0.55f * 1.2f);
+            SetActionSpeed(MonsterActionType.Die, 0.55f);
         }
 
         // Sound mapping based on C++ SetMonsterSound(MODEL_MONSTER01 + Type, 15, 16, 17, 18, 19);

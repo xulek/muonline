@@ -94,6 +94,13 @@ namespace Client.Main.Objects.Monsters
             // degenerate ribbons even in the original. So: sound only, like the original.
         }
 
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mAlquamosAttack1.wav", Position, listenerPosition);
+        }
+
         public override void OnDeathAnimationStart()
         {
             base.OnDeathAnimationStart();

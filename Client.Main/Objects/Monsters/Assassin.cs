@@ -47,16 +47,6 @@ namespace Client.Main.Objects.Monsters
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
-        public override void OnReceiveDamage()
-        {
-            base.OnReceiveDamage();
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = MuGame.Random.Next(2) == 0
-                ? "Sound/mAssassinAttack1.wav"
-                : "Sound/mAssassinAttack2.wav";
-            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
-        }
-
         public override void OnDeathAnimationStart()
         {
             base.OnDeathAnimationStart();

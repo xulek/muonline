@@ -1,4 +1,5 @@
 using Client.Main.Controls;
+using Client.Main.Controllers;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.Events;
 using Microsoft.Xna.Framework;
@@ -14,6 +15,7 @@ namespace Client.Main.Worlds
     public class Karutan2World : WalkableWorldControl
     {
         private ScrollingSmokeOverlay _sandOverlay;
+        private bool _insideKardamahal;
 
         public Karutan2World() : base(worldIndex: 82) // KARUTAN 2
         {
@@ -68,6 +70,22 @@ namespace Client.Main.Worlds
         {
             base.DrawAfter(time);
             _sandOverlay?.DrawOverlay(time);
+        }
+
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            if (Status != Models.GameControlStatus.Ready || !Visible)
+                return;
+
+            bool insideKardamahal = HeroTile == 12;
+            if (_insideKardamahal != insideKardamahal)
+            {
+                _insideKardamahal = insideKardamahal;
+                SoundController.Instance.PlayAmbientSound(insideKardamahal
+                    ? "Sound/Karutan/Kardamahal_entrance_env.wav"
+                    : AmbientSoundPath);
+            }
         }
 
         public override void Dispose()

@@ -41,18 +41,16 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            // Play one of the idle sounds (index 0 or 1)
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mWizard1.wav", Position, listenerPosition); // Index 0 -> Sound 20
-            // SoundController.Instance.PlayBufferWithAttenuation("Sound/mWizard2.wav", Position, listenerPosition); // Index 1 -> Sound 21
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mWizard1.wav" : "Sound/mWizard2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            // Play one of the attack sounds (index 2 or 3)
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mWizardAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 22
-            // SoundController.Instance.PlayBufferWithAttenuation("Sound/mWizardAttack2.wav", Position, listenerPosition); // Index 3 -> Sound 23
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mWizardAttack1.wav" : "Sound/mWizardAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
 
             if (attackType != 2 || World is not WalkableWorldControl world)
                 return;
@@ -72,6 +70,14 @@ namespace Client.Main.Objects.Monsters
             var effect = new ScrollOfMeteoriteEffect(target.WorldPosition.Translation);
             world.Objects.Add(effect);
             _ = effect.Load();
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mWizardAttack1.wav" : "Sound/mWizardAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

@@ -94,7 +94,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = attackType == 1 ? "Sound/mEsisAttack1.wav" : "Sound/mEsisAttack2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mEsisAttack1.wav" : "Sound/mEsisAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 

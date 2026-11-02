@@ -102,7 +102,8 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((Controls.WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mBudge1.wav", Position, listenerPosition);
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mBudge1.wav" : "Sound/mBudgeAttack1.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         protected override void OnStartWalk()

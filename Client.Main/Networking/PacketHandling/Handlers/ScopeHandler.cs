@@ -1824,11 +1824,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         if (MuGame.Instance.ActiveScene?.World is WorldControl world
                           && world.TryGetWalkerById(maskedId, out var walker) && walker is MonsterObject monster)
                         {
-                            if (totalDmg > 0)
+                            if (totalDmg > 0 && !monster.IsDead)
+                            {
                                 monster.SpawnHitEffect();
-                            monster.OnReceiveDamage();
-                            monster.PlayAction((byte)MonsterActionType.Shock);
-                            _logger.LogDebug("Triggering hit animation for {Type} {Id:X4}", walker.GetType().Name, maskedId);
+                                monster.OnReceiveDamage();
+                                // SourceMain5.2 SetPlayerShock keeps either normal attack playing.
+                                if (monster.CurrentAction != (int)MonsterActionType.Attack1 &&
+                                    monster.CurrentAction != (int)MonsterActionType.Attack2 &&
+                                    monster.CurrentAction != (int)MonsterActionType.Shock)
+                                {
+                                    monster.PlayAction((byte)MonsterActionType.Shock);
+                                    _logger.LogDebug("Triggering hit animation for {Type} {Id:X4}", walker.GetType().Name, maskedId);
+                                }
+                            }
                         }
                     });
                 }

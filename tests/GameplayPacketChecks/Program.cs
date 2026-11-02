@@ -11,6 +11,7 @@ using Client.Main.Core.Client;
 using Client.Main.Core.Models;
 using Client.Main.Networking;
 using Client.Main.Networking.PacketHandling;
+using Client.Main.Objects;
 using Microsoft.Extensions.Logging.Abstractions;
 
 var logs = NullLoggerFactory.Instance;
@@ -52,6 +53,12 @@ byte[] C2(byte code, byte[] body)
     body.CopyTo(data, 4);
     return data;
 }
+
+// A hit packet can contain both HP and shield fractions; updating those values
+// must not play hit audio in addition to the packet's single hit reaction.
+var hitProbe = new HitReactionProbe();
+hitProbe.UpdateHealthFractions(0.75f, 0.50f, 10, 5);
+Check(hitProbe.ReactionCount == 0, "HP and shield updates do not duplicate monster hit reactions");
 
 // F3/51 MasterCharacterLevelUpdate (normal, 20 bytes): level 7, +1 point, 5 points, max HP 1234.
 var master = C1(0xF3, 0x51, 7, 0, 1, 0, 5, 0, 200, 0, 0xD2, 0x04, 0x2C, 0x01, 0x64, 0, 0x32, 0);
@@ -149,3 +156,9 @@ Check(unhandled.Count == 0, "All packets were routed to a handler", string.Join(
 
 Console.WriteLine(failures == 0 ? "Gameplay packet checks passed." : $"Gameplay packet checks: {failures} failure(s).");
 return failures == 0 ? 0 : 1;
+
+sealed class HitReactionProbe : MonsterObject
+{
+    public int ReactionCount { get; private set; }
+    public override void OnReceiveDamage() => ReactionCount++;
+}

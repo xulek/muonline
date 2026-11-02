@@ -54,18 +54,24 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            // Play one of the idle sounds (index 0 or 1)
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mHound1.wav", Position, listenerPosition); // Index 0 -> Sound 5
-            // SoundController.Instance.PlayBufferWithAttenuation("Sound/mHound2.wav", Position, listenerPosition); // Index 1 -> Sound 6
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mHound1.wav" : "Sound/mHound2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            // Play one of the attack sounds (index 2 or 3)
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mHoundAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 7
-            // SoundController.Instance.PlayBufferWithAttenuation("Sound/mHoundAttack2.wav", Position, listenerPosition); // Index 3 -> Sound 8
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mHoundAttack1.wav" : "Sound/mHoundAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mHoundAttack1.wav" : "Sound/mHoundAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

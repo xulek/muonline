@@ -344,7 +344,7 @@ namespace Client.Main.Objects
 
         /// <summary>
         /// Minimal health/shield update shim to accept server-provided fractions.
-        /// Triggers damage reactions and death fade when health reaches zero.
+        /// Starts death fade when health reaches zero. Hit reactions are handled by the hit packet.
         /// </summary>
         public void UpdateHealthFractions(float? healthFraction, float? shieldFraction, uint? healthDamage = null, uint? shieldDamage = null)
         {
@@ -357,15 +357,6 @@ namespace Client.Main.Objects
                 {
                     StartDeathFade();
                 }
-                else
-                {
-                    OnReceiveDamage();
-                }
-            }
-
-            if (shieldFraction.HasValue)
-            {
-                OnReceiveDamage();
             }
         }
 

@@ -40,9 +40,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            // Play one of the attack sounds (index 2 or 3)
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mSatanAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 22
-            // SoundController.Instance.PlayBufferWithAttenuation("Sound/mWizardAttack2.wav", Position, listenerPosition); // Index 3 -> Sound 23
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mSatanAttack1.wav", Position, listenerPosition);
 
             if (attackType != 2 || World is not WalkableWorldControl world)
                 return;
@@ -77,6 +75,13 @@ namespace Client.Main.Objects.Monsters
             var effect = new ScrollOfLightningEffect(SourceProvider, TargetProvider);
             world.Objects.Add(effect);
             _ = effect.Load();
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mSatanAttack1.wav", Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

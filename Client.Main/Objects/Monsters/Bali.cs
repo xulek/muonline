@@ -71,8 +71,8 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mBali1.wav", Position, listenerPosition); // Sound 126
-            // Consider adding logic for Sound 127 (mBali2.wav) if desired
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mBali1.wav" : "Sound/mBali2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
@@ -83,6 +83,14 @@ namespace Client.Main.Objects.Monsters
                 SoundController.Instance.PlayBufferWithAttenuation("Sound/mBaliAttack1.wav", Position, listenerPosition); // Sound 128
             else
                 SoundController.Instance.PlayBufferWithAttenuation("Sound/mBaliAttack2.wav", Position, listenerPosition); // Sound 129
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mBaliAttack1.wav" : "Sound/mBaliAttack2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnDeathAnimationStart()

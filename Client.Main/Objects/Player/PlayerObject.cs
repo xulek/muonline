@@ -3949,36 +3949,25 @@ namespace Client.Main.Objects.Player
 
             _footstepTimer = 0f;
 
+            // PlayWalkSound in SourceMain5.2 uses the first terrain mapping layer,
+            // not the visually dominant texture, and only plays for the hero.
+            int tile = world.Terrain.GetHeroTile(Position.X, Position.Y);
+            ushort mapId = world.MapId;
+            bool safeZone = world.Terrain.RequestTerrainFlag((int)Location.X, (int)Location.Y).HasFlag(TWFlags.SafeZone);
             string soundPath;
-            if (mode == MovementMode.Swim)
-            {
+            if (mapId == 2 && tile != 3 && tile < 10)
+                soundPath = "Sound/pWalk(Snow).wav";
+            else if ((mapId == 0 || mapId == 3) && tile == 0)
+                soundPath = "Sound/pWalk(Grass).wav";
+            else if ((mapId == 7 || (mapId >= 24 && mapId <= 29) || mapId == 36 || mapId == 67) && !safeZone)
                 soundPath = "Sound/pSwim.wav";
-            }
+            else if (mapId == 57 || mapId == 58 || mapId == 62 || mapId == 65)
+                soundPath = "Sound/pWalk(Snow).wav";
             else
-            {
-                byte tex = world.Terrain.GetBaseTextureIndexAt((int)Location.X, (int)Location.Y);
-                if (world.Name == "Devias")
-                {
-                    if (tex == 0 || tex == 1)
-                        soundPath = "Sound/pWalk(Snow).wav";
-                    else if (tex == 4)
-                        soundPath = "Sound/pWalk(Soil).wav";
-                    else
-                        soundPath = "Sound/pWalk(Soil).wav";
-                }
-                else
-                {
-                    if (tex == 0 || tex == 1)
-                        soundPath = "Sound/pWalk(Grass).wav";
-                    else if (tex == 4)
-                        soundPath = "Sound/pWalk(Snow).wav";
-                    else
-                        soundPath = "Sound/pWalk(Soil).wav";
-                }
+                soundPath = "Sound/pWalk(Soil).wav";
 
-            }
-
-            SoundController.Instance.PlayBufferWithAttenuation(soundPath, Position, world.Walker.Position);
+            if (IsMainWalker)
+                SoundController.Instance.PlayBufferWithAttenuation(soundPath, Position, world.Walker.Position);
 
             // Goal directive E: soft terrain-tinted dust puff under the feet
             _footstepDust ??= new PlayerFootstepDustEffect();
@@ -3990,9 +3979,9 @@ namespace Client.Main.Objects.Player
             }
 
             var tone = Effects.PlayerFootstepDustEffect.DustTone.Soil;
-            if (soundPath.EndsWith("Grass", StringComparison.Ordinal))
+            if (soundPath == "Sound/pWalk(Grass).wav")
                 tone = Effects.PlayerFootstepDustEffect.DustTone.Grass;
-            else if (soundPath.EndsWith("Snow", StringComparison.Ordinal))
+            else if (soundPath == "Sound/pWalk(Snow).wav")
                 tone = Effects.PlayerFootstepDustEffect.DustTone.Snow;
 
             _footstepDust.EmitFootstep(Position, tone);
