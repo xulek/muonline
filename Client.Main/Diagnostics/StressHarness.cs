@@ -119,6 +119,21 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_GPU_SKIN") is { } gpuSkin)
+                Constants.ENABLE_GPU_SKINNING = gpuSkin == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_VERTEX_LIT") is { } vertexLit)
+                Constants.ENABLE_DISTANCE_VERTEX_LIGHTING = vertexLit == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_PRESET") is { } preset &&
+                System.Enum.TryParse(preset, true, out Graphics.GraphicsQualityPreset qualityPreset))
+                Graphics.GraphicsQualityManager.ApplyPreset(qualityPreset, null, null);
+            if (Environment.GetEnvironmentVariable("MU_STRESS_IGPU") is { } igpu)
+                Constants.OPTIMIZE_FOR_INTEGRATED_GPU = igpu == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_DL_SHADER") is { } dlShader)
+                Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = dlShader == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_GRASS") is { } grass)
+                Constants.DRAW_GRASS = grass == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_TERRAIN_GPU") is { } terrainGpu)
+                Constants.ENABLE_TERRAIN_GPU_LIGHTING = terrainGpu == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_COMPOSITE") is { } composite)
                 Constants.ENABLE_PLAYER_COMPOSITE = composite == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_THROTTLE") is { } shadowThrottle)
@@ -164,11 +179,26 @@ namespace Client.Main.Diagnostics
             // Same data LoadScene prepares before the game scene (gates, skills).
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
-                await Data.GateDataManager.Instance.LoadData();
-                await Core.Utilities.SkillDatabase.Initialize();
+                try
+                {
+                    await Data.GateDataManager.Instance.LoadData();
+                    await Core.Utilities.SkillDatabase.Initialize();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[stress] scene data load failed: {ex}");
+                }
+
                 MuGame.ScheduleOnMainThread(() =>
                 {
-                    game.ChangeScene(new GameScene(("Stress", CharacterClassNumber.DarkKnight, (ushort)400, appearance)));
+                    try
+                    {
+                        game.ChangeScene(new GameScene(("Stress", CharacterClassNumber.DarkKnight, (ushort)400, appearance)));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[stress] scene change failed: {ex}");
+                    }
                     PhaseClock.Restart();
                 });
             });
@@ -176,6 +206,9 @@ namespace Client.Main.Diagnostics
             Console.WriteLine($"[stress] adapter: {game.GraphicsDevice?.Adapter?.Description} profile={game.GraphicsDevice?.GraphicsProfile} backbuffer={game.GraphicsDevice?.PresentationParameters.BackBufferWidth}x{game.GraphicsDevice?.PresentationParameters.BackBufferHeight}");
             foreach (var adapter in Microsoft.Xna.Framework.Graphics.GraphicsAdapter.Adapters)
                 Console.WriteLine($"[stress] available adapter: {adapter.Description} default={ReferenceEquals(adapter, Microsoft.Xna.Framework.Graphics.GraphicsAdapter.DefaultAdapter)}");
+            foreach (var (effectName, error) in GraphicsManager.Instance.EffectLoadErrors)
+                Console.WriteLine($"[stress] effect {effectName} failed to load: {error}");
+            Console.WriteLine($"[stress] graphics: dlShader={Constants.ENABLE_DYNAMIC_LIGHTING_SHADER} terrainGpu={Constants.ENABLE_TERRAIN_GPU_LIGHTING} dynLights={Constants.ENABLE_DYNAMIC_LIGHTS} itemMat={Constants.ENABLE_ITEM_MATERIAL_SHADER} monsterMat={Constants.ENABLE_MONSTER_MATERIAL_SHADER} grass={Constants.DRAW_GRASS} hqTex={Constants.HIGH_QUALITY_TEXTURES} scale={Constants.RENDER_SCALE} msaa={Constants.MSAA_ENABLED} igpu={Constants.OPTIMIZE_FOR_INTEGRATED_GPU} shadowMap={Constants.ENABLE_SHADOW_MAPPING} gpuSkin={Constants.ENABLE_GPU_SKINNING}");
             Console.WriteLine($"[stress] start: types {string.Join(",", Types)}, count {_count}, children {Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN}, crowd {Constants.ENABLE_WALKER_CROWD_INSTANCING}");
         }
 

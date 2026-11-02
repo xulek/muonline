@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Client.Main.Content;
 using Client.Main.Graphics;
 using Microsoft.Extensions.Logging;
@@ -348,6 +349,9 @@ namespace Client.Main.Controllers
             _mainRenderTargetSampleCount = -1;
         }
 
+        /// <summary>Effects that failed to load, with the error (also shown by the stress harness).</summary>
+        public Dictionary<string, string> EffectLoadErrors { get; } = new();
+
         private Effect LoadEffect(string effectName)
         {
             try
@@ -360,6 +364,7 @@ namespace Client.Main.Controllers
             }
             catch (Exception ex)
             {
+                EffectLoadErrors[effectName] = ex.GetBaseException().Message;
                 MuGame.AppLoggerFactory?.CreateLogger<GraphicsManager>().LogWarning(
                     ex, "Could not load effect {EffectName}", effectName);
                 return null;
