@@ -850,6 +850,8 @@ namespace Client.Main
                 Client.Main.Graphics.PlayerPartAtlas.ProcessPending(GraphicsDevice);
                 // Bone palettes of the visible skinned objects go up in one texture upload.
                 ModelObject.PrepareGpuSkinPalettes(GraphicsDevice, ActiveScene?.World?.VisibleObjects);
+                // Projected shadow meshes of visible objects are rebuilt on worker threads.
+                ModelObject.PrepareProjectedShadows(ActiveScene?.World);
 
                 FPSCounter.Instance.CalcFPS(gameTime);
                 bool recoveredFrame = false;
@@ -911,6 +913,8 @@ namespace Client.Main
             }
             finally
             {
+                // Background shadow rebuilds must finish before the next update changes poses.
+                ModelObject.CompleteShadowPrepass();
                 try
                 {
                     GraphicsDevice.SetRenderTarget(null);

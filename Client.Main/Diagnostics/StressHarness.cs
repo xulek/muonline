@@ -136,6 +136,8 @@ namespace Client.Main.Diagnostics
                 Constants.ENABLE_TERRAIN_GPU_LIGHTING = terrainGpu == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_COMPOSITE") is { } composite)
                 Constants.ENABLE_PLAYER_COMPOSITE = composite == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_PREPASS") is { } shadowPrepass)
+                Constants.ENABLE_PARALLEL_SHADOW_PREPASS = shadowPrepass == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_THROTTLE") is { } shadowThrottle)
                 Constants.ENABLE_SHADOW_REBUILD_THROTTLE = shadowThrottle == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_ITEM_MATERIAL") is { } itemMaterial)

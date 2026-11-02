@@ -112,6 +112,11 @@ namespace Client.Main
         public static bool ENABLE_SHADOW_REBUILD_THROTTLE = true;
 
         /// <summary>
+        /// Rebuilds projected terrain-conformed shadow meshes of visible objects on worker threads before drawing.
+        /// </summary>
+        public static bool ENABLE_PARALLEL_SHADOW_PREPASS = true;
+
+        /// <summary>
         /// Merges the ItemMaterial meshes of a player's body parts into one mesh (texture atlas) drawn in one or
         /// two calls instead of one per part mesh.
         /// </summary>

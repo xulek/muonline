@@ -1303,6 +1303,7 @@ namespace Client.Main.Objects
             Matrix shadowWorld,
             TerrainControl terrain)
         {
+            CompleteShadowPrepass();
             long diagStarted = Stopwatch.GetTimestamp();
             bool rebuilt = false;
             try
