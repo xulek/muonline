@@ -119,6 +119,8 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_ACTOR_SHADOWS") is { } actorShadows)
+                Constants.ENABLE_ACTOR_MERGED_SHADOWS = actorShadows == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_MAP_CROWD") is { } mapCrowd)
                 Constants.ENABLE_ANIMATED_MAP_CROWD_INSTANCING = mapCrowd == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_MAP_TRANSPARENT") is { } mapTransparent)
@@ -221,8 +223,10 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Spawn:
-                    if (_typeIndex >= 0)
+                    if (_typeIndex >= 0 && _count > 0)
                         Inject(BuildSpawnPacket(Types[_typeIndex], _count));
+                    if (_typeIndex >= 0)
+                        SpawnPlayers();
                     _sum = default;
                     _frames = 0;
                     Next(Phase.Warmup);
@@ -245,8 +249,10 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Despawn:
-                    if (_typeIndex >= 0)
+                    if (_typeIndex >= 0 && _count > 0)
                         Inject(BuildDespawnPacket(_count));
+                    if (_typeIndex >= 0 && PlayerCount > 0)
+                        Inject(BuildDespawnPacket(PlayerCount, FirstPlayerId));
                     _typeIndex++;
                     if (_typeIndex >= Types.Count)
                         Finish(game, null);
@@ -416,8 +422,9 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames} shActor={ModelObject.DiagActorShadowDraws / _traceFrames}/{ModelObject.DiagActorShadowMeshes / _traceFrames}"));
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
+                    ModelObject.DiagActorShadowDraws = ModelObject.DiagActorShadowMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
                     Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(8, _traceFrames)}");
                 }
@@ -589,7 +596,90 @@ namespace Client.Main.Diagnostics
             }
         }
 
-        private static byte[] BuildDespawnPacket(int count)
+        // MU_STRESS_PLAYERS=N spawns N players (AddCharacterToScopeExtended) with varied classes, sets, weapons,
+        // glow levels and wings around the hero for every scene; MU_STRESS_PLAYER_WINGS=0 removes the wings,
+        // MU_STRESS_PLAYER_SAME=1 gives everybody the same class and equipment. MU_STRESS_COUNT=0: players only.
+        private static readonly int PlayerCount = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_PLAYERS"), out int players) ? players : 0;
+        private static readonly bool PlayerWings = Environment.GetEnvironmentVariable("MU_STRESS_PLAYER_WINGS") != "0";
+        private static readonly bool PlayerSame = Environment.GetEnvironmentVariable("MU_STRESS_PLAYER_SAME") == "1";
+        private const ushort FirstPlayerId = 0x0400;
+
+        private static readonly byte[] PlayerClasses = { 4, 7, 0, 3, 8, 11, 12, 13, 16, 17, 20, 23, 24, 25 };
+        // Wings: 1st/2nd level (0..6), 3rd level (36..43).
+        private static readonly short[] PlayerWingNumbers = { 0, 1, 2, 3, 4, 5, 6, 36, 37, 38, 39, 40, 41, 42, 43 };
+
+        private static void SpawnPlayers()
+        {
+            if (PlayerCount <= 0)
+                return;
+
+            int side = (int)Math.Ceiling(Math.Sqrt(PlayerCount));
+            for (int i = 0; i < PlayerCount; i++)
+            {
+                int v = PlayerSame ? 1 : i;
+                byte classValue = PlayerClasses[v % PlayerClasses.Length];
+                byte x = (byte)(HeroX - side + (i % side) * 2 + 1);
+                byte y = (byte)(HeroY - side + (i / side) * 2 + 1);
+                Inject(BuildPlayerPacket((ushort)(FirstPlayerId + i), x, y, $"Stress{i}", classValue, v));
+            }
+        }
+
+        private static byte[] BuildPlayerPacket(ushort id, byte x, byte y, string name, byte classValue, int variant)
+        {
+            var data = new byte[54];
+            data[0] = 0xC2;
+            data[1] = (byte)(data.Length >> 8);
+            data[2] = (byte)data.Length;
+            data[3] = 0x12;
+            data[4] = (byte)id; data[5] = (byte)(id >> 8);
+            data[6] = x; data[7] = y; data[8] = x; data[9] = y;
+            data[10] = (byte)((variant % 8) << 4);
+            System.Text.Encoding.UTF8.GetBytes(name, 0, Math.Min(name.Length, 10), data, 16);
+            var app = data.AsSpan(26);
+            app[0] = classValue;
+            app[1] = 0;
+            var items = app.Slice(2, 25);
+            byte glow = (byte)(variant % 8);
+            bool excellent = variant % 3 == 1;
+            bool ancient = variant % 5 == 2;
+            int set = 1 + (variant * 7) % 30;
+            // Weapons by class family: swords, staffs, bows, scepters, books, gloves.
+            (byte Group, short Number) weapon = classValue switch
+            {
+                0 or 2 or 3 => ((byte)5, (short)(variant % 10)),
+                8 or 10 or 11 => ((byte)4, (short)(variant % 18)),
+                16 or 17 => ((byte)2, (short)(8 + variant % 6)),
+                20 or 22 or 23 => ((byte)5, (short)(21 + variant % 6)),
+                24 or 25 => ((byte)0, (short)(32 + variant % 4)),
+                _ => ((byte)0, (short)(variant % 21)),
+            };
+            WriteShiny(items[0..3], weapon.Group, weapon.Number, glow, excellent, ancient);
+            WriteShiny(items[3..6], 6, (short)(variant % 15), glow, excellent, ancient);
+            for (int part = 0; part < 5; part++)
+                WriteShiny(items[(6 + part * 3)..(9 + part * 3)], (byte)(7 + part), (short)set, glow, excellent, ancient);
+            if (PlayerWings)
+            {
+                short wing = PlayerWingNumbers[variant % PlayerWingNumbers.Length];
+                items[21] = (byte)((12 << 4) | ((wing >> 8) & 0x0F));
+                items[22] = (byte)wing;
+            }
+            else
+            {
+                items[21] = 0xFF; items[22] = 0xFF;
+            }
+            items[23] = 0xFF; items[24] = 0xFF; // no pet
+            app[27] = 0; // no effects
+            return data;
+        }
+
+        private static void WriteShiny(Span<byte> target, byte group, short number, byte glow, bool excellent, bool ancient)
+        {
+            target[0] = (byte)((group << 4) | ((number >> 8) & 0x0F));
+            target[1] = (byte)number;
+            target[2] = (byte)((glow << 4) | (excellent ? 0x08 : 0) | (ancient ? 0x04 : 0));
+        }
+
+        private static byte[] BuildDespawnPacket(int count, ushort firstId = FirstMonsterId)
         {
             var data = new byte[4 + count * 2];
             data[0] = 0xC1;
@@ -598,7 +688,7 @@ namespace Client.Main.Diagnostics
             data[3] = (byte)count;
             for (int i = 0; i < count; i++)
             {
-                ushort id = (ushort)(FirstMonsterId + i);
+                ushort id = (ushort)(firstId + i);
                 data[4 + i * 2] = (byte)(id >> 8);
                 data[5 + i * 2] = (byte)id;
             }
