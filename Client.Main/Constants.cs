@@ -101,6 +101,11 @@ namespace Client.Main
         public static bool ENABLE_MERGED_MESH_SHADOWS = true;
 
         /// <summary>
+        /// Merges the projected shadows of all parts of a player/NPC (body, armor, weapons, wings) into one draw.
+        /// </summary>
+        public static bool ENABLE_ACTOR_MERGED_SHADOWS = true;
+
+        /// <summary>
         /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = true;

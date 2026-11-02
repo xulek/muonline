@@ -643,6 +643,215 @@ namespace Client.Main.Objects
             return true;
         }
 
+        // Player/NPC actors are drawn from several part objects (body, helm, armor, pants, gloves, boots,
+        // weapons, wings). Their opaque shadow meshes are collected at the actor root during the draw and
+        // drawn as one merged shadow after the parts instead of one draw (and upload) per part.
+        private readonly List<TerrainShadowMeshCache> _actorShadowSources = new();
+        private int _actorShadowFrame = -1;
+        private float _actorShadowOpacity;
+        private Texture2D _actorShadowTexture;
+        private TerrainShadowObjectCache _actorShadowMerged;
+        private TerrainShadowMeshCache[] _actorShadowMergedSources = Array.Empty<TerrainShadowMeshCache>();
+        private readonly List<int> _actorShadowRemaining = new();
+
+        /// <summary>Diagnostics: merged actor shadow draws and the part meshes they contained.</summary>
+        public static long DiagActorShadowDraws, DiagActorShadowMeshes;
+
+        /// <summary>
+        /// Registers the opaque terrain-conformed shadow meshes of this actor part at its actor root. Meshes that
+        /// cannot be merged (RGBA alpha masks, no terrain data) are returned in <paramref name="remaining"/>.
+        /// </summary>
+        private bool TryRegisterActorShadowMeshes(List<int> meshIndices, Matrix shadowWorld, float shadowOpacity, List<int> remaining)
+        {
+            remaining.Clear();
+            ModelObject actor = GetShadowActorRoot();
+            var terrain = World?.Terrain;
+            if (!Constants.ENABLE_MERGED_MESH_SHADOWS || !Constants.ENABLE_ACTOR_MERGED_SHADOWS || actor == null || terrain == null || _meshes == null ||
+                Model?.Meshes == null || !CanUseCachedTerrainConformedShadowPath())
+                return false;
+
+            if (MuGame.Instance.ActiveScene?.World is WorldControl world && !world.EnableShadows)
+                return true;
+
+            if (!ValidateWorldMatrix(WorldPosition) || !ValidateWorldMatrix(shadowWorld))
+                return true;
+
+            int frame = MuGame.FrameIndex;
+            if (actor._actorShadowFrame != frame)
+            {
+                actor._actorShadowSources.Clear();
+                actor._actorShadowFrame = frame;
+                actor._actorShadowTexture = null;
+            }
+
+            for (int n = 0; n < meshIndices.Count; n++)
+            {
+                int mesh = meshIndices[n];
+                if ((uint)mesh >= (uint)_meshes.Length || IsHiddenMesh(mesh) || IsStaticMapMeshQueuedForInstancing(mesh))
+                    continue;
+
+                var ms = _meshes[mesh];
+                if (ms?.Texture == null)
+                    continue;
+
+                if (ms.IsRgba ||
+                    !TryGetOrCreateTerrainShadowMeshCache(mesh, out TerrainShadowMeshCache cache) ||
+                    !TryUpdateTerrainShadowMeshCache(cache, shadowWorld, terrain) ||
+                    !cache.IsValid)
+                {
+                    remaining.Add(mesh);
+                    continue;
+                }
+
+                actor._actorShadowSources.Add(cache);
+                actor._actorShadowTexture ??= ms.Texture;
+                actor._actorShadowOpacity = shadowOpacity;
+            }
+
+            return true;
+        }
+
+        /// <summary>Draws the shadow meshes registered by this actor's parts this frame as one merged draw.</summary>
+        internal void FlushActorShadow()
+        {
+            if (_actorShadowFrame != MuGame.FrameIndex || _actorShadowSources.Count == 0)
+                return;
+
+            try
+            {
+                if (!EnsureActorShadowMerged())
+                    return;
+
+                var merged = _actorShadowMerged;
+                bool changed = !merged.Uploaded;
+                for (int i = 0; i < _actorShadowSources.Count && !changed; i++)
+                    changed = merged.SourceVersions[i] != _actorShadowSources[i].Version;
+
+                if (changed)
+                {
+                    int offset = 0;
+                    for (int i = 0; i < _actorShadowSources.Count; i++)
+                    {
+                        var source = _actorShadowSources[i];
+                        int count = source.Topology.VertexCount;
+                        Vector3 shift = source.DrawOffset;
+                        for (int v = 0; v < count; v++)
+                        {
+                            var vertex = source.UploadVertices[v];
+                            vertex.Position += shift;
+                            merged.Vertices[offset + v] = vertex;
+                        }
+                        offset += count;
+                        merged.SourceVersions[i] = source.Version;
+                    }
+
+                    merged.VertexBuffer.SetData(merged.Vertices, 0, merged.VertexCount, SetDataOptions.Discard);
+                    merged.Uploaded = true;
+                }
+
+                var camera = Camera.Instance;
+                if (!TryBeginShadowMeshBatch(camera.View, camera.Projection, WorldPosition, _actorShadowOpacity, out ShadowMeshBatchState state))
+                    return;
+
+                try
+                {
+                    state.Bindings.ShadowTexture?.SetValue(_actorShadowTexture);
+                    state.Bindings.WorldViewProjection?.SetValue(state.ViewProjection);
+                    state.Effect.CurrentTechnique.Passes[0].Apply();
+                    GraphicsDevice.SetVertexBuffer(merged.VertexBuffer);
+                    GraphicsDevice.Indices = merged.IndexBuffer;
+                    GraphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, merged.PrimitiveCount);
+                    DiagActorShadowDraws++;
+                    DiagActorShadowMeshes += _actorShadowSources.Count;
+                }
+                finally
+                {
+                    EndShadowMeshBatch(in state);
+                }
+            }
+            catch (Exception ex)
+            {
+                _actorShadowMerged?.Dispose();
+                _actorShadowMerged = null;
+                _logger?.LogDebug("Error in FlushActorShadow: {Message}", ex.Message);
+            }
+            finally
+            {
+                _actorShadowSources.Clear();
+                _actorShadowFrame = -1;
+            }
+        }
+
+        private bool EnsureActorShadowMerged()
+        {
+            int count = _actorShadowSources.Count;
+            var merged = _actorShadowMerged;
+            bool same = merged != null && merged.VertexBuffer is { IsDisposed: false } &&
+                        merged.IndexBuffer is { IsDisposed: false } &&
+                        _actorShadowMergedSources.Length == count;
+            for (int i = 0; same && i < count; i++)
+            {
+                same = ReferenceEquals(_actorShadowMergedSources[i], _actorShadowSources[i]) &&
+                       ReferenceEquals(merged.Topologies[i], _actorShadowSources[i].Topology);
+            }
+
+            if (same)
+                return true;
+
+            merged?.Dispose();
+            merged = _actorShadowMerged = new TerrainShadowObjectCache();
+            int vertexCount = 0, indexCount = 0;
+            var topologies = new TerrainShadowTopology[count];
+            for (int i = 0; i < count; i++)
+            {
+                topologies[i] = _actorShadowSources[i].Topology;
+                vertexCount += topologies[i].VertexCount;
+                indexCount += topologies[i].IndexCount;
+            }
+
+            if (vertexCount == 0 || indexCount == 0)
+                return false;
+
+            bool use32 = vertexCount > ushort.MaxValue;
+            merged.VertexBuffer = new DynamicVertexBuffer(GraphicsDevice, VertexPositionTexture.VertexDeclaration, vertexCount, BufferUsage.WriteOnly);
+            merged.IndexBuffer = new IndexBuffer(GraphicsDevice, use32 ? IndexElementSize.ThirtyTwoBits : IndexElementSize.SixteenBits, indexCount, BufferUsage.WriteOnly);
+            int baseVertex = 0, written = 0;
+            if (use32)
+            {
+                var indices = new int[indexCount];
+                foreach (var topology in topologies)
+                {
+                    for (int k = 0; k < topology.IndexCount; k++)
+                        indices[written++] = baseVertex + (topology.Uses32BitIndices ? topology.Indices32[k] : topology.Indices16[k]);
+                    baseVertex += topology.VertexCount;
+                }
+                merged.IndexBuffer.SetData(indices);
+            }
+            else
+            {
+                var indices = new ushort[indexCount];
+                foreach (var topology in topologies)
+                {
+                    for (int k = 0; k < topology.IndexCount; k++)
+                        indices[written++] = (ushort)(baseVertex + (topology.Uses32BitIndices ? topology.Indices32[k] : topology.Indices16[k]));
+                    baseVertex += topology.VertexCount;
+                }
+                merged.IndexBuffer.SetData(indices);
+            }
+
+            merged.Topologies = topologies;
+            merged.MeshCount = count;
+            merged.SourceVersions = new int[count];
+            for (int i = 0; i < count; i++)
+                merged.SourceVersions[i] = int.MinValue;
+            merged.Vertices = new VertexPositionTexture[vertexCount];
+            merged.VertexCount = vertexCount;
+            merged.PrimitiveCount = indexCount / 3;
+            merged.Uploaded = false;
+            _actorShadowMergedSources = _actorShadowSources.ToArray();
+            return true;
+        }
+
         /// <summary>Render state of a projected mesh shadow pass, set once for all meshes of an object.</summary>
         private struct ShadowMeshBatchState
         {
@@ -1513,6 +1722,10 @@ namespace Client.Main.Objects
                     objectCache.Dispose();
                 _terrainShadowObjectCaches = null;
             }
+
+            _actorShadowMerged?.Dispose();
+            _actorShadowMerged = null;
+            _actorShadowMergedSources = Array.Empty<TerrainShadowMeshCache>();
 
             _terrainShadowMeshCaches = null;
         }

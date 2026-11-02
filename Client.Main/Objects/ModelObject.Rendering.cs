@@ -612,7 +612,16 @@ namespace Client.Main.Objects
                 if (_meshShadowInvocationId == _drawModelInvocationId)
                     return;
                 _meshShadowInvocationId = _drawModelInvocationId;
-                DrawMeshesShadow(CollectOpaqueShadowMeshes(), shadowMatrix, view, projection, shadowOpacity);
+                List<int> meshes = CollectOpaqueShadowMeshes();
+                if (IsPlayerOrNpcShadowPart() &&
+                    TryRegisterActorShadowMeshes(meshes, shadowMatrix, shadowOpacity, _actorShadowRemaining))
+                {
+                    if (_actorShadowRemaining.Count > 0)
+                        DrawMeshesShadow(_actorShadowRemaining, shadowMatrix, view, projection, shadowOpacity);
+                    return;
+                }
+
+                DrawMeshesShadow(meshes, shadowMatrix, view, projection, shadowOpacity);
             }
             else
             {
@@ -714,6 +723,7 @@ namespace Client.Main.Objects
             }
 
             DrawCrowdChildren(gameTime);
+            FlushActorShadow();
         }
 
         /// <summary>
@@ -770,6 +780,7 @@ namespace Client.Main.Objects
 
             DrawModel(false);   // solid pass
             base.Draw(gameTime);
+            FlushActorShadow(); // parts registered their shadow meshes while drawing
 
             gd.RasterizerState = prevCull;
         }
