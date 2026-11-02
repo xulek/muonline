@@ -63,6 +63,8 @@ namespace Client.Main.Diagnostics
                 float y = (HeroY - side + (i / side) * 2 + 0.5f) * Constants.TERRAIN_SCALE;
                 var light = new DynamicLight
                 {
+                    // Lights without a live owner in this world are dropped by the light manager.
+                    Owner = (game.ActiveScene as GameScene)?.Hero,
                     Position = new Vector3(x, y, terrain.RequestTerrainHeight(x, y) + 80f),
                     Color = new Vector3(1f, 0.6f + (float)random.NextDouble() * 0.3f, 0.3f),
                     Radius = 250f + (float)random.NextDouble() * 150f,
@@ -117,6 +119,10 @@ namespace Client.Main.Diagnostics
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_MAP_CROWD") is { } mapCrowd)
+                Constants.ENABLE_ANIMATED_MAP_CROWD_INSTANCING = mapCrowd == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_MAP_TRANSPARENT") is { } mapTransparent)
+                Constants.ENABLE_STATIC_MAP_TRANSPARENT_INSTANCING = mapTransparent == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_SOUND") is { } sound)
                 Constants.SOUND_EFFECTS = sound == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_CROWD_TRANSPARENT") is { } crowdTransparent)

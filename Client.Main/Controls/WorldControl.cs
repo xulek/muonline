@@ -1838,6 +1838,35 @@ namespace Client.Main.Controls
 
             SetDepthState(state);
 
+            // Cutout map meshes write depth and do not depend on order, but blended meshes drawn earlier in
+            // this pass do not write depth and would be overwritten by them. Queue and draw them first.
+            bool mapTransparentQueued = false;
+            if (Constants.ENABLE_STATIC_MAP_TRANSPARENT_INSTANCING)
+            {
+                for (int i = 0; i < objCount; i++)
+                {
+                    if (list[i] is ModelObject mapModel && mapModel.IsMapPlacementObject &&
+                        !ShouldSkipRender(mapModel) && !mapModel.CanSkipDefaultDrawAfterPass() &&
+                        mapModel.TryQueueStaticMapTransparentMeshes())
+                    {
+                        mapTransparentQueued = true;
+                    }
+                }
+
+                if (mapTransparentQueued)
+                {
+                    try
+                    {
+                        ModelObject.FlushStaticMapTransparentBatches(this);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRenderFailure(null, "DrawAfter.MapTransparent", ex);
+                    }
+                    SetDepthState(state);
+                }
+            }
+
             for (int i = 0; i < objCount; i++)
             {
                 WorldObject obj = list[i];
@@ -1859,7 +1888,8 @@ namespace Client.Main.Controls
                 SetDepthState(ResolveObjectDepthState(obj, state));
                 try
                 {
-                    if (obj is ModelObject cutout && _cutoutMapBatch.TryQueue(cutout, time))
+                    if (obj is ModelObject cutout && !cutout.IsStaticTransparentQueuedThisFrame &&
+                        _cutoutMapBatch.TryQueue(cutout, time))
                         continue;
 
                     _cutoutMapBatch.Flush(time);

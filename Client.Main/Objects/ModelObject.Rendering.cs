@@ -2199,7 +2199,8 @@ namespace Client.Main.Objects
             if (!Visible) return;
 
             EnsureMeshRenderPlans();
-            if (_transparentMeshPlan.Count > 0 && !IsWalkerCrowdTransparentDrawnThisFrame)
+            if (_transparentMeshPlan.Count > 0 && !IsWalkerCrowdTransparentDrawnThisFrame &&
+                !IsStaticTransparentQueuedThisFrame)
             {
                 SetDrawShaderTimeSeconds((float)gameTime.TotalGameTime.TotalSeconds);
 

@@ -243,6 +243,9 @@ namespace Client.Main.Objects
         {
             private const ulong EmptySignature = 1469598103934665603UL;
 
+            /// <summary>Blend state of a transparent (DrawAfter) batch; null for opaque batches.</summary>
+            public BlendState Blend;
+
             public VertexBuffer GeometryVertexBuffer;
             public IndexBuffer GeometryIndexBuffer;
             public int PrimitiveCount;
@@ -439,7 +442,21 @@ namespace Client.Main.Objects
         internal static bool IsWalkerCrowdInstancingCandidate(WorldObject obj)
         {
             return obj is MonsterObject ||
-                   obj is NPCObject npc && UsesDefaultNpcCrowdRendering(npc);
+                   obj is NPCObject npc && UsesDefaultNpcCrowdRendering(npc) ||
+                   obj is ModelObject map && map.IsAnimatedMapCrowdCandidate();
+        }
+
+        /// <summary>
+        /// Animated map placements (swaying plants, flags) cannot use static map instancing, which shares one
+        /// pose per batch; the multi-pose crowd batches give each of them its own palette row instead.
+        /// </summary>
+        private bool IsAnimatedMapCrowdCandidate()
+        {
+            if (!Constants.ENABLE_ANIMATED_MAP_CROWD_INSTANCING || !IsMapPlacementObject || !HasAnimatedCurrentAction())
+                return false;
+
+            StaticMapTypeCompatibility compatibility = GetStaticMapTypeCompatibility();
+            return compatibility.DefaultDraw && compatibility.DefaultMeshRendering;
         }
 
         internal static bool TryQueueWalkerCrowdForInstancing(WorldObject obj)
@@ -448,6 +465,220 @@ namespace Client.Main.Objects
                 return false;
 
             return modelObject.TryQueueWalkerCrowdForInstancing();
+        }
+
+        // RGBA cutout meshes of static map objects (grass, leaves, fences), batched from DrawAfter.
+        private static readonly Dictionary<(StaticMapInstancingBatchKey Key, BlendState Blend), StaticMapInstancingBatch>
+            _staticMapTransparentBatches = new(64);
+        private static readonly List<StaticMapInstancingBatch> _staticMapTransparentActiveBatches = new(64);
+
+        /// <summary>Diagnostics: transparent map meshes drawn by instanced batches last frame.</summary>
+        public static int LastFrameStaticMapTransparentInstances { get; private set; }
+        private static int _staticMapTransparentInstancesThisFrame;
+
+        internal static bool HasPendingStaticMapTransparentBatches() => _staticMapTransparentActiveBatches.Count > 0;
+
+        private int _staticTransparentQueuedFrame = -1;
+
+        /// <summary>The transparent meshes of this map object were drawn by the instanced batch this frame.</summary>
+        internal bool IsStaticTransparentQueuedThisFrame => _staticTransparentQueuedFrame == MuGame.FrameIndex;
+
+        private static void ClearStaticMapTransparentQueues()
+        {
+            for (int i = 0; i < _staticMapTransparentActiveBatches.Count; i++)
+            {
+                _staticMapTransparentActiveBatches[i].InstanceCount = 0;
+                _staticMapTransparentActiveBatches[i].PoseSource = null;
+            }
+            _staticMapTransparentActiveBatches.Clear();
+        }
+
+        /// <summary>
+        /// Queues all transparent meshes of this static map object into instanced batches (all or none).
+        /// Only RGBA cutout meshes without blend-mesh light, UV scrolling or special shaders qualify; the GPU
+        /// lighting path does not use per-object colour, so the instanced result matches the per-mesh draw.
+        /// </summary>
+        internal bool TryQueueStaticMapTransparentMeshes()
+        {
+            if (!Constants.ENABLE_STATIC_MAP_TRANSPARENT_INSTANCING ||
+                !Constants.ENABLE_DYNAMIC_LIGHTING_SHADER ||
+                !IsStaticMapInstancingSupported() ||
+                !IsMapPlacementObject || !_contentLoaded || !Visible ||
+                TotalAlpha < 0.999f || EnableCustomShader || UsesMutableMeshData ||
+                HasAnimatedCurrentAction() || LinkParentAnimation || ParentBoneLink >= 0 ||
+                IsMouseHover || Constants.DRAW_BOUNDING_BOXES || Constants.DRAW_BOUNDING_BOXES_INTERACTIVES ||
+                Model?.Meshes == null || _meshes == null ||
+                !GetStaticMapTypeCompatibility().DefaultMeshRendering)
+            {
+                return false;
+            }
+
+            EnsureMeshRenderPlans();
+            if (_transparentMeshPlan.Count == 0)
+                return false;
+
+            foreach (var group in _transparentMeshPlan)
+            {
+                List<int> meshIndices = group.Value;
+                for (int n = 0; n < meshIndices.Count; n++)
+                {
+                    int mesh = meshIndices[n];
+                    if (!CanUseStaticMapTransparentMesh(mesh, group.Key.BlendState) ||
+                        !TryGetMeshGpuSkinBuffers(mesh, out _, out _, out int boneCount) ||
+                        boneCount <= 0 || boneCount > MaxGpuSkinBones)
+                        return false;
+                }
+            }
+
+            int poseKey = GetStaticMapPoseKey();
+            var instanceData = new StaticModelInstanceData(WorldPosition, Color.White);
+            foreach (var group in _transparentMeshPlan)
+            {
+                List<int> meshIndices = group.Value;
+                for (int n = 0; n < meshIndices.Count; n++)
+                {
+                    int mesh = meshIndices[n];
+                    TryGetMeshGpuSkinBuffers(mesh, out VertexBuffer vertices, out IndexBuffer indices, out int boneCount);
+                    Texture2D texture = _meshes[mesh].Texture;
+                    bool twoSided = IsMeshTwoSided(mesh, false);
+                    var key = (new StaticMapInstancingBatchKey(Model, mesh, texture, twoSided, poseKey), group.Key.BlendState);
+                    if (!_staticMapTransparentBatches.TryGetValue(key, out var batch))
+                    {
+                        batch = new StaticMapInstancingBatch();
+                        _staticMapTransparentBatches[key] = batch;
+                    }
+
+                    batch.GeometryVertexBuffer = vertices;
+                    batch.GeometryIndexBuffer = indices;
+                    batch.PrimitiveCount = indices.IndexCount / 3;
+                    batch.BoneCount = boneCount;
+                    batch.TwoSided = twoSided;
+                    batch.Texture = texture;
+                    batch.Blend = group.Key.BlendState;
+                    if (batch.InstanceCount == 0)
+                    {
+                        batch.PoseSource = this;
+                        _staticMapTransparentActiveBatches.Add(batch);
+                    }
+
+                    batch.AddInstance(instanceData);
+                    _staticMapTransparentInstancesThisFrame++;
+                }
+            }
+
+            _staticTransparentQueuedFrame = MuGame.FrameIndex;
+            return true;
+        }
+
+        private bool CanUseStaticMapTransparentMesh(int mesh, BlendState groupBlend)
+        {
+            if ((uint)mesh >= (uint)_meshes.Length || IsHiddenMesh(mesh) || _meshes[mesh].Texture == null)
+                return false;
+
+            if (IsBlendMesh(mesh) || !_meshes[mesh].IsRgba)
+                return false;
+
+            if (TextureCoordinateOffset != Vector2.Zero &&
+                (TextureCoordinateOffsetMeshIndex < 0 || TextureCoordinateOffsetMeshIndex == mesh))
+                return false;
+
+            var shaderSelection = DetermineShaderForMesh(mesh);
+            if (shaderSelection.UseItemMaterial || shaderSelection.UseMonsterMaterial || !shaderSelection.UseDynamicLighting)
+                return false;
+
+            return ReferenceEquals(GetMeshBlendState(mesh, false), groupBlend) &&
+                   GetAdditiveAlphaCutoff(groupBlend) == 0f;
+        }
+
+        /// <summary>
+        /// Draws the queued transparent map meshes. Depth handling matches the per-mesh path for non-blend
+        /// meshes (depth test and write), so cutout leaves keep occluding what is drawn after them.
+        /// </summary>
+        internal static void FlushStaticMapTransparentBatches(WorldControl world)
+        {
+            LastFrameStaticMapTransparentInstances = _staticMapTransparentInstancesThisFrame;
+            _staticMapTransparentInstancesThisFrame = 0;
+            if (_staticMapTransparentActiveBatches.Count == 0)
+                return;
+
+            var graphicsManager = GraphicsManager.Instance;
+            var effect = graphicsManager.DynamicLightingEffect;
+            // Per-pixel lighting like the individual draws of near objects (thin leaves and reeds show
+            // the difference to vertex lighting clearly).
+            EffectTechnique technique = _cachedStaticMapInstancingTechnique;
+            if (_staticMapInstancingFailed || effect == null || technique == null)
+            {
+                ClearStaticMapTransparentQueues();
+                return;
+            }
+
+            ModelEffectBindings bindings = GetModelEffectBindings(effect);
+            var gd = graphicsManager.GraphicsDevice;
+            var prevBlend = gd.BlendState;
+            var prevDepth = gd.DepthStencilState;
+            var prevRaster = gd.RasterizerState;
+            var prevSampler = gd.SamplerStates[0];
+            var prevTechnique = effect.CurrentTechnique;
+
+            try
+            {
+                PrepareStaticMapInstancingEffect(effect, world, technique, _cachedStaticMapSunOnlyInstancingTechnique);
+                gd.DepthStencilState = DepthStencilState.Default;
+                gd.SamplerStates[0] = GraphicsManager.GetQualityLinearSamplerState();
+                bindings.AdditiveAlphaCutoff?.SetValue(0f);
+                bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
+
+                for (int i = 0; i < _staticMapTransparentActiveBatches.Count; i++)
+                {
+                    var batch = _staticMapTransparentActiveBatches[i];
+                    int instanceCount = batch.InstanceCount;
+                    if (instanceCount <= 0 ||
+                        batch.GeometryVertexBuffer == null || batch.GeometryVertexBuffer.IsDisposed ||
+                        batch.GeometryIndexBuffer == null || batch.GeometryIndexBuffer.IsDisposed ||
+                        batch.Texture == null || batch.Texture.IsDisposed ||
+                        batch.PoseSource == null ||
+                        !batch.PoseSource.TryUploadGpuSkinBoneMatrices(effect, batch.BoneCount))
+                    {
+                        continue;
+                    }
+
+                    EnsureInstanceVertexBuffer(gd, batch, instanceCount);
+                    batch.InstanceBuffer.SetData(batch.InstanceData, 0, instanceCount, SetDataOptions.Discard);
+                    batch.UploadedInstancesValid = false;
+
+                    gd.BlendState = batch.Blend ?? BlendState.AlphaBlend;
+                    gd.RasterizerState = batch.TwoSided ? RasterizerState.CullNone : RasterizerState.CullClockwise;
+                    bindings.DiffuseTexture?.SetValue(batch.Texture);
+
+                    batch.VertexBindings[0] = new VertexBufferBinding(batch.GeometryVertexBuffer);
+                    batch.VertexBindings[1] = new VertexBufferBinding(batch.InstanceBuffer, 0, 1);
+                    gd.SetVertexBuffers(batch.VertexBindings);
+                    gd.Indices = batch.GeometryIndexBuffer;
+
+                    int passCount = effect.CurrentTechnique.Passes.Count;
+                    for (int pass = 0; pass < passCount; pass++)
+                    {
+                        effect.CurrentTechnique.Passes[pass].Apply();
+                        ApplyQualityModelSampler(gd);
+                        _staticMapInstancedDrawCallsThisFrame++;
+                        gd.DrawInstancedPrimitives(PrimitiveType.TriangleList, 0, 0, batch.PrimitiveCount, instanceCount);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _staticMapInstancingFailed = true;
+                MuGame.AppLoggerFactory?.CreateLogger<ModelObject>()?.LogWarning(ex, "Transparent static map instancing disabled after runtime failure.");
+            }
+            finally
+            {
+                effect.CurrentTechnique = prevTechnique;
+                gd.BlendState = prevBlend;
+                gd.DepthStencilState = prevDepth;
+                gd.RasterizerState = prevRaster;
+                gd.SamplerStates[0] = prevSampler;
+                ClearStaticMapTransparentQueues();
+            }
         }
 
         internal static bool FlushStaticMapInstancingBatches(WorldControl world)
@@ -828,6 +1059,7 @@ namespace Client.Main.Objects
             ClearWalkerCrowdMultiPoseQueues();
             ClearWalkerCrowdTransparentQueues();
             _walkerCrowdPaletteReadyFrame = -1;
+            ClearStaticMapTransparentQueues();
         }
 
         private static void DisposeStaticMapInstancingBatches()
@@ -1504,6 +1736,9 @@ namespace Client.Main.Objects
                 return false;
             }
 
+            if (IsMapPlacementObject)
+                return CanUseAnimatedMapCrowdInstancing(out reason);
+
             // Children (weapons, eye glows, bone effects) do not block instancing of the body: the crowd side
             // pass draws them after the batch. The option allows switching back to per-object rendering.
             if (Children.Count > 0 && !Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN)
@@ -1553,6 +1788,37 @@ namespace Client.Main.Objects
             // RGBA cutout and blend meshes do not reject the object: ShouldQueueWalkerCrowdMesh leaves
             // them out of the instanced batch and DrawAfter renders them from the transparent plan.
             if (TotalAlpha < 0.999f || EnableCustomShader)
+            {
+                reason = WalkerCrowdRejectionReason.Material;
+                return false;
+            }
+
+            reason = WalkerCrowdRejectionReason.None;
+            return true;
+        }
+
+        private bool CanUseAnimatedMapCrowdInstancing(out WalkerCrowdRejectionReason reason)
+        {
+            if (!IsAnimatedMapCrowdCandidate() || UsesMutableMeshData)
+            {
+                reason = WalkerCrowdRejectionReason.TypeOrRenderer;
+                return false;
+            }
+
+            if (!Visible || Model?.Meshes == null || Model.Meshes.Length == 0)
+            {
+                reason = WalkerCrowdRejectionReason.Visibility;
+                return false;
+            }
+
+            if (LinkParentAnimation || ParentBoneLink >= 0 || !_animationSampleValid || _animationSampleActionIndex < 0)
+            {
+                reason = WalkerCrowdRejectionReason.Animation;
+                return false;
+            }
+
+            // Per-object UV scrolling cannot be expressed per instance.
+            if (TotalAlpha < 0.999f || EnableCustomShader || TextureCoordinateOffset != Vector2.Zero)
             {
                 reason = WalkerCrowdRejectionReason.Material;
                 return false;
@@ -1613,10 +1879,24 @@ namespace Client.Main.Objects
                 return false;
 
             var blendState = GetMeshBlendState(meshIndex, false);
-            if (!ReferenceEquals(blendState, BlendState.Opaque))
+            if (!ReferenceEquals(blendState, BlendState.Opaque) &&
+                !(IsMapPlacementObject && IsAlphaBlendWithoutAlphaChannel(meshIndex, blendState)))
                 return false;
 
             return shaderSelection.UseDynamicLighting;
+        }
+
+        /// <summary>
+        /// Map objects default to alpha blending even for meshes whose texture has no alpha channel; with an
+        /// alpha of 1 those blend states produce the same pixels as an opaque draw.
+        /// </summary>
+        private bool IsAlphaBlendWithoutAlphaChannel(int meshIndex, BlendState blendState)
+        {
+            if (_meshes[meshIndex].IsRgba || IsBlendMesh(meshIndex))
+                return false;
+
+            return ReferenceEquals(blendState, BlendState.AlphaBlend) ||
+                   ReferenceEquals(blendState, BlendState.NonPremultiplied);
         }
 
         private void EnsureStaticMapInstancingFrameTags(int meshCount)

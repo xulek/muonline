@@ -589,7 +589,7 @@ namespace Client.Main.Objects
 
             var instanceData = new SkinnedCrowdInstanceData(
                 WorldPosition,
-                GetCrowdInstancingBodyColor(),
+                IsMapPlacementObject ? Color.White : GetCrowdInstancingBodyColor(),
                 paletteRow);
 
             for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)

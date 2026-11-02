@@ -104,6 +104,17 @@ namespace Client.Main
         /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = true;
+
+        /// <summary>
+        /// Draws the RGBA cutout meshes of static map objects (grass, leaves, fences) as instanced batches
+        /// at the end of each DrawAfter pass instead of one draw per mesh and object.
+        /// </summary>
+        public static bool ENABLE_STATIC_MAP_TRANSPARENT_INSTANCING = true;
+
+        /// <summary>
+        /// Draws animated map placements (swaying plants, flags) through the multi-pose crowd batches.
+        /// </summary>
+        public static bool ENABLE_ANIMATED_MAP_CROWD_INSTANCING = true;
         public static bool ENABLE_CROWD_SPATIAL_CULLING;
         public static bool ENABLE_ANIMATION_THROTTLING;
         public static bool ENABLE_SHARED_ANIMATION_PALETTES;
