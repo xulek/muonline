@@ -483,12 +483,13 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames} shActor={ModelObject.DiagActorShadowDraws / _traceFrames}/{ModelObject.DiagActorShadowMeshes / _traceFrames} composite={ModelObject.LastFramePlayerComposites}/{ModelObject.LastFramePlayerCompositeMeshes}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} shRebuild={ModelObject.DiagShadowRebuilds / _traceFrames}/{ModelObject.DiagShadowRebuildTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shShift={ModelObject.DiagShadowShifts / _traceFrames} shDraw={ModelObject.DiagShadowDraws / _traceFrames}/{ModelObject.DiagShadowDrawTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms shMerged={ModelObject.DiagShadowMergedDraws / _traceFrames}/{ModelObject.DiagShadowMergedMeshes / _traceFrames} shActor={ModelObject.DiagActorShadowDraws / _traceFrames}/{ModelObject.DiagActorShadowMeshes / _traceFrames} composite={ModelObject.LastFramePlayerComposites}/{ModelObject.LastFramePlayerCompositeMeshes} gpuDraws={_traceGpuDraws / _traceFrames} gpuPrims={_traceGpuPrims / _traceFrames} gpuTex={_traceGpuTex / _traceFrames} gpuVs={_traceGpuVs / _traceFrames} gpuPs={_traceGpuPs / _traceFrames} gpuTargets={_traceGpuTargets / _traceFrames} sprites={_traceSprites / _traceFrames}"));
                     ModelObject.DiagShadowMergedDraws = ModelObject.DiagShadowMergedMeshes = 0;
                     ModelObject.DiagActorShadowDraws = ModelObject.DiagActorShadowMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
                     Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(MU_TYPES_TOP, _traceFrames)}");
                 }
+                _traceGpuDraws = _traceGpuPrims = _traceGpuTex = _traceGpuVs = _traceGpuPs = _traceGpuTargets = _traceSprites = 0;
                 _traceSecond = second; _traceFrames = 0; _traceDirty = 0; _tracePoses = 0; _traceBytes = 0; _traceWorstMs = 0; _traceSlow = 0;
                 _traceScene = _traceWbase = _traceShadow = 0;
                 _traceUpd = _traceDraw = _traceWobj = _traceTerr = _traceAfter = _tracePost = _traceFw = 0;
@@ -512,7 +513,17 @@ namespace Client.Main.Diagnostics
             _traceScene += passes.SceneDrawMs; _traceWbase += passes.WorldBaseMs; _traceShadow += passes.ShadowMs;
             _tracePoses += ModelObject.LastFrameWalkerCrowdMultiPoseUniquePoses;
             _traceBytes += ModelObject.LastFrameWalkerCrowdMultiPosePaletteBytes;
+            // Device metrics of this frame (reset by MonoGame at Present, which follows OnFrame).
+            if (MuGame.Instance?.GraphicsDevice is { } device)
+            {
+                var gm = device.Metrics;
+                _traceGpuDraws += gm.DrawCount; _traceGpuPrims += gm.PrimitiveCount; _traceGpuTex += gm.TextureCount;
+                _traceGpuVs += gm.VertexShaderCount; _traceGpuPs += gm.PixelShaderCount; _traceGpuTargets += gm.TargetCount;
+                _traceSprites += gm.SpriteCount;
+            }
         }
+
+        private static long _traceGpuDraws, _traceGpuPrims, _traceGpuTex, _traceGpuVs, _traceGpuPs, _traceGpuTargets, _traceSprites;
 
         private static void Accumulate(MuGame game, FrameProfiler.Snapshot frame)
         {
@@ -604,6 +615,30 @@ namespace Client.Main.Diagnostics
             if (itemPart != null && plainPart != null) Bench("alternate shaders", i => (i % 2 == 0 ? itemPart : plainPart).DrawMesh(0));
             Bench("alternate players same part", i => players[i % 2].Pants.DrawMesh(0));
             Bench("alternate textures one player", i => (i % 2 == 0 ? (ModelObject)players[0].Pants : players[0].Armor).DrawMesh(0));
+
+            // Reference costs without game code: the state left by the last DrawMesh, redrawn as is, and with a
+            // per-draw matrix change (constant buffer upload) before the draw.
+            var gd = game.GraphicsDevice;
+            var effect = GraphicsManager.Instance.DynamicLightingEffect;
+            int primitives = gd.Indices != null ? gd.Indices.IndexCount / 3 : 0;
+            if (effect != null && primitives > 0)
+            {
+                var world = effect.Parameters["World"];
+                var pass = effect.CurrentTechnique.Passes[0];
+                pass.Apply();
+                Bench("raw draw", i => gd.DrawIndexedPrimitives(Microsoft.Xna.Framework.Graphics.PrimitiveType.TriangleList, 0, 0, primitives));
+                Bench("raw world+apply+draw", i =>
+                {
+                    world?.SetValue(Matrix.CreateTranslation(i & 7, 0f, 0f));
+                    pass.Apply();
+                    gd.DrawIndexedPrimitives(Microsoft.Xna.Framework.Graphics.PrimitiveType.TriangleList, 0, 0, primitives);
+                });
+                Bench("raw apply only", i =>
+                {
+                    world?.SetValue(Matrix.CreateTranslation(i & 7, 0f, 0f));
+                    pass.Apply();
+                });
+            }
         }
 
         internal static void SaveScreenshot(MuGame game, string name)
