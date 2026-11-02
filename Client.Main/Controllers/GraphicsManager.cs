@@ -188,11 +188,14 @@ namespace Client.Main.Controllers
             {
                 int actualWidth = Math.Max(1, _graphicsDevice.PresentationParameters.BackBufferWidth);
                 int actualHeight = Math.Max(1, _graphicsDevice.PresentationParameters.BackBufferHeight);
+                // Keep the current mode: Android configures Stretch at startup, and resetting it to the
+                // default Uniform here letterboxed the UI after every quality/scale change.
                 UiScaler.Configure(
                     actualWidth,
                     actualHeight,
                     settings.UiVirtualWidth,
-                    settings.UiVirtualHeight);
+                    settings.UiVirtualHeight,
+                    UiScaler.Mode);
             }
         }
 

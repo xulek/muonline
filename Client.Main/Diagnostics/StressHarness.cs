@@ -161,6 +161,8 @@ namespace Client.Main.Diagnostics
             Constants.UNLIMITED_FPS = true;
             Constants.DISABLE_VSYNC = true;
             game.ApplyGraphicsOptions();
+            // MU_STRESS_RENDER_SCALE / MU_STRESS_PRESET change the render scale after the UI was configured.
+            GraphicsManager.Instance?.UpdateRenderScale();
             if (int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_ANIMFPS"), out int animFps))
                 Constants.ANIMATION_UPDATE_FPS = animFps;
             if (int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_LIGHTFPS"), out int lightFps))
