@@ -85,6 +85,7 @@ namespace Client.Main.Objects.Pets
         private readonly Random _random = new();
         private readonly SemaphoreSlim _modelApplyGate = new(1, 1);
         private readonly SparkParticle[] _sparks = new SparkParticle[MaxSparks];
+        private bool _sparksUsed;
         private readonly VertexPositionColorTexture[] _billboardVertices =
             new VertexPositionColorTexture[MaxBillboardQuads * 4];
         private static readonly short[] BillboardIndices = QuadIndexCache.Get(MaxBillboardQuads);
@@ -1154,6 +1155,7 @@ namespace Client.Main.Objects.Pets
                     _random.Next(-8, 8));
 
             int lifeTicks = 10 + _random.Next(0, 5);
+            _sparksUsed = true;
             _sparks[slot] = new SparkParticle
             {
                 Active = true,
@@ -1217,6 +1219,7 @@ namespace Client.Main.Objects.Pets
         {
             int slot = FindSparkSlot();
             int lifeTicks = 4 + _random.Next(0, 4);
+            _sparksUsed = true;
             _sparks[slot] = new SparkParticle
             {
                 Active = true,
@@ -1451,7 +1454,11 @@ namespace Client.Main.Objects.Pets
 
         private void ClearSparks()
         {
+            // Called every simulation step for helpers that never emit sparks (Imp, safe-zone raven).
+            if (!_sparksUsed)
+                return;
             Array.Clear(_sparks, 0, _sparks.Length);
+            _sparksUsed = false;
         }
 
         private void ClearDarkRavenAttack()
