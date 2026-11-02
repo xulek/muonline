@@ -126,6 +126,7 @@ namespace Client.Main.Objects
             public Vector3 DrawOffset;
             /// <summary>Incremented whenever the projected vertices or <see cref="DrawOffset"/> change.</summary>
             public int Version;
+            public int LastRebuildFrame = int.MinValue;
             /// <summary>Projected vertices changed and are not uploaded to <see cref="VertexBuffer"/> yet.</summary>
             public bool GpuStale;
             public object LastSnowSurface;
@@ -1318,6 +1319,12 @@ namespace Client.Main.Objects
             }
         }
 
+        private bool IsThrottledShadowWalker()
+        {
+            ModelObject root = GetShadowActorRoot() ?? this;
+            return root is WalkerObject walker && !walker.IsMainWalker;
+        }
+
         private bool TryUpdateTerrainShadowMeshCacheCore(
             TerrainShadowMeshCache cache,
             Matrix shadowWorld,
@@ -1341,6 +1348,34 @@ namespace Client.Main.Objects
             if (cache.IsValid && !poseChanged && !transformChanged && vertexDeformer == null &&
                 ReferenceEquals(cache.LastSnowSurface, snowSurface) && cache.LastSnowSurfaceVersion == snowVersion)
                 return true;
+
+            // Other walkers (remote players, NPCs, monsters) rebuild pose-driven shadows at most every other
+            // frame; in between the previous shape follows the translation. The local hero stays at full rate.
+            if (cache.IsValid && poseChanged && vertexDeformer == null &&
+                snowSurface == null && cache.LastSnowSurface == null &&
+                cache.LastRebuildFrame == MuGame.FrameIndex - 1 &&
+                Constants.ENABLE_SHADOW_REBUILD_THROTTLE && IsThrottledShadowWalker())
+            {
+                if (!transformChanged)
+                    return true;
+
+                if (TryGetTerrainShadowTranslationDelta(cache.LastShadowWorld, shadowWorld, out Vector2 staleShift))
+                {
+                    Vector3 last = cache.LastShadowWorld.Translation;
+                    float lastHeight = terrain.RequestTerrainHeight(last.X, last.Y);
+                    float height = terrain.RequestTerrainHeight(last.X + staleShift.X, last.Y + staleShift.Y);
+                    if (float.IsFinite(lastHeight) && float.IsFinite(height))
+                    {
+                        Vector3 offset = new(staleShift.X, staleShift.Y, height - lastHeight);
+                        if (offset != cache.DrawOffset)
+                        {
+                            cache.DrawOffset = offset;
+                            cache.Version++;
+                        }
+                        return true;
+                    }
+                }
+            }
 
             // A walking object changes its shadow matrix every frame, while its pose only changes at the
             // animation rate. Rebuilding (skinning + terrain sampling + upload) on each of those frames made
@@ -1449,6 +1484,7 @@ namespace Client.Main.Objects
             cache.LastShadowWorld = shadowWorld;
             cache.HasLastShadowWorld = true;
             cache.DrawOffset = Vector3.Zero;
+            cache.LastRebuildFrame = MuGame.FrameIndex;
             cache.LastSnowSurface = snowSurface;
             cache.LastSnowSurfaceVersion = snowVersion;
             cache.IsValid = true;

@@ -745,13 +745,21 @@ namespace Client.Main.Objects
                 if (child is ModelObject model && model.IsWalkerCrowdChildQueuedThisFrame)
                     model.DrawQueuedCrowdInstancingSidePasses(gameTime);
                 else
-                    child.Draw(gameTime);
+                    {
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
+                        child.Draw(gameTime);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(child, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.ChildDraw, typeProfileStarted);
+                    }
             }
         }
+
+        private static readonly bool TmpSkipParts = System.Environment.GetEnvironmentVariable("MU_TMP_SKIP_PARTS") == "1";
 
         public override void Draw(GameTime gameTime)
         {
             if (!Visible)
+                return;
+            if (TmpSkipParts && (this is Player.PlayerHelmObject || this is Player.PlayerPantObject || this is Player.PlayerGloveObject || this is Player.PlayerBootObject))
                 return;
 
             SetDrawShaderTimeSeconds((float)gameTime.TotalGameTime.TotalSeconds);
@@ -875,11 +883,14 @@ namespace Client.Main.Objects
                     }
                     if (gd.RasterizerState != targetRasterizer)
                         gd.RasterizerState = targetRasterizer;
-                    if (effect != null && effect.Texture != stateKey.Texture)
+                    // The alpha-test effect only draws AlphaTest groups (fast paths); the other groups bind
+                    // their own shader per mesh, so applying it there was an extra shader/state switch.
+                    bool groupUsesAlphaTestEffect = effect != null && stateKey.ShaderKind == MeshShaderKind.AlphaTest;
+                    if (groupUsesAlphaTestEffect && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
                     // Bind effect once per group. Rebind the sampler afterwards because
                     // Effect.Apply can restore the sampler state embedded in the shader.
-                    if (effect != null)
+                    if (groupUsesAlphaTestEffect)
                     {
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
@@ -901,7 +912,7 @@ namespace Client.Main.Objects
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
 
                     // Shadow/highlight passes change the active shader; reapply the main effect before fast draws.
-                    if (effect != null)
+                    if (groupUsesAlphaTestEffect)
                     {
                         var passes = effect.CurrentTechnique.Passes;
                         for (int p = 0; p < passes.Count; p++)
@@ -935,7 +946,7 @@ namespace Client.Main.Objects
 
                             // Per-mesh draws can change the active shader; reapply the group effect
                             // before any fast draws that follow.
-                            if (!forcePerMeshTransparency && effect != null)
+                            if (!forcePerMeshTransparency && groupUsesAlphaTestEffect)
                             {
                                 var passes = effect.CurrentTechnique.Passes;
                                 for (int p = 0; p < passes.Count; p++)

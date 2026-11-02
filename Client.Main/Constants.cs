@@ -106,6 +106,12 @@ namespace Client.Main
         public static bool ENABLE_ACTOR_MERGED_SHADOWS = true;
 
         /// <summary>
+        /// Rebuilds the projected mesh shadows of other walkers (remote players, NPCs, monsters) at most every
+        /// other frame; the local hero keeps per-frame shadows.
+        /// </summary>
+        public static bool ENABLE_SHADOW_REBUILD_THROTTLE = true;
+
+        /// <summary>
         /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.
         /// </summary>
         public static bool ENABLE_WALKER_CROWD_TRANSPARENT_INSTANCING = true;

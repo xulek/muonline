@@ -226,12 +226,27 @@ namespace Client.Main.Objects
                 _gpuSkinPreparedPoseVersion = poseVersion;
             }
 
-            bindings.BoneMatrices.SetValue(_gpuSkinBoneUploadBuffer);
+            // EffectParameter.SetValue(Matrix[]) transposes and copies every element it is given; uploading
+            // the full 256-entry buffer for a 40-bone character cost ~10 us per palette switch. Only the
+            // used prefix (rounded to 16) is passed; higher indices are not referenced by these meshes.
+            int uploadCount = Math.Min(MaxGpuSkinBones,
+                (Math.Max(requiredBoneCount, _gpuSkinBoneUploadCount) + 15) & ~15);
+            Matrix[] uploadSlice = GetBoneUploadSlice(uploadCount);
+            Array.Copy(_gpuSkinBoneUploadBuffer, uploadSlice, uploadCount);
+            bindings.BoneMatrices.SetValue(uploadSlice);
             bindings.BonePaletteOwner = paletteOwner;
             bindings.BonePaletteSource = bones;
             bindings.BonePalettePoseVersion = poseVersion;
             bindings.BonePaletteCount = Math.Max(requiredBoneCount, _gpuSkinBoneUploadCount);
             return true;
+        }
+
+        private static readonly Matrix[][] BoneUploadSlices = new Matrix[MaxGpuSkinBones / 16 + 1][];
+
+        private static Matrix[] GetBoneUploadSlice(int count)
+        {
+            int bucket = count / 16;
+            return BoneUploadSlices[bucket] ??= new Matrix[bucket * 16];
         }
 
         private void PrepareDynamicLightingEffect(Effect effect, bool useGpuSkinning = false, int requiredBoneCount = 0)
