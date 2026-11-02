@@ -212,6 +212,8 @@ namespace Client.Main.Diagnostics
             Console.WriteLine($"[stress] start: types {string.Join(",", Types)}, count {_count}, children {Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN}, crowd {Constants.ENABLE_WALKER_CROWD_INSTANCING}");
         }
 
+        private static bool _worldErrorReported;
+
         private static int ParseInt(string name, int fallback)
             => int.TryParse(Environment.GetEnvironmentVariable(name), out int value) ? value : fallback;
 
@@ -234,6 +236,11 @@ namespace Client.Main.Diagnostics
                 case Phase.WaitingForScene:
                     if (game.ActiveScene is GameScene { Hero: not null } scene && scene.World is WalkableWorldControl { Status: Models.GameControlStatus.Ready } world && world.Visible)
                         Next(Phase.Settle);
+                    else if (game.ActiveScene?.World is { Status: Models.GameControlStatus.Error, InitializationError: { } worldError } && !_worldErrorReported)
+                    {
+                        _worldErrorReported = true;
+                        Console.WriteLine($"[stress] world initialization failed: {worldError}");
+                    }
                     else if (elapsed > 90)
                         Finish(game, "scene did not load");
                     else if ((int)elapsed / 5 != _lastReport)

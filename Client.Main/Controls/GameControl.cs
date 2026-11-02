@@ -307,9 +307,13 @@ namespace Client.Main.Controls
             catch (Exception e)
             {
                 _logger?.LogError(e, "Failed to initialize control {ControlType}", GetType().FullName);
+                InitializationError = e;
                 Status = GameControlStatus.Error;
             }
         }
+
+        /// <summary>The exception that left this control in the Error status, if any.</summary>
+        public Exception InitializationError { get; private set; }
 
         public virtual Task Load()
         {
