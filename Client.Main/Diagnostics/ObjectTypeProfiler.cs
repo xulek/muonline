@@ -12,7 +12,7 @@ namespace Client.Main.Diagnostics
     /// </summary>
     public static class ObjectTypeProfiler
     {
-        public enum Phase : byte { Update, Draw, DrawAfter, CrowdSide }
+        public enum Phase : byte { Update, Draw, DrawAfter, CrowdSide, ChildUpdate, ChildDraw, ChildDrawAfter }
 
         public static bool Enabled;
 

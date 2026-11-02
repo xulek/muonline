@@ -317,7 +317,9 @@ namespace Client.Main.Objects
                 if (child.Status != GameControlStatus.Disposed &&
                     ReferenceEquals(child.Parent, this))
                 {
+                    long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                     child.Update(gameTime);
+                    Client.Main.Diagnostics.ObjectTypeProfiler.Stop(child, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.ChildUpdate, typeProfileStarted);
                 }
             }
         }
@@ -351,7 +353,9 @@ namespace Client.Main.Objects
                 if (child.Status != GameControlStatus.Disposed &&
                     ReferenceEquals(child.Parent, this))
                 {
+                    long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                     child.DrawAfter(gameTime);
+                    Client.Main.Diagnostics.ObjectTypeProfiler.Stop(child, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.ChildDrawAfter, typeProfileStarted);
                 }
             }
         }
@@ -370,7 +374,9 @@ namespace Client.Main.Objects
                     if (World?.TryQueueLateEffectDraw(child) == true)
                         continue;
 
+                    long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
                     child.Draw(gameTime);
+                    Client.Main.Diagnostics.ObjectTypeProfiler.Stop(child, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.ChildDraw, typeProfileStarted);
                 }
             }
         }
