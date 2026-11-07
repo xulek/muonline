@@ -839,6 +839,7 @@ namespace Client.Main
             // whenever diagnostics are visible/connected or the previous frame was slow.
             // The overall FrameProfiler remains active every frame.
             RenderPassProfiler.BeginFrame(_detailedPassProfilingThisFrame);
+            RenderDrawCounter.BeginFrame();
             _currentDrawPhase = "Frame.Begin";
             try
             {

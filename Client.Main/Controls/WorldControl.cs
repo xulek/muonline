@@ -179,6 +179,7 @@ namespace Client.Main.Controls
         private readonly List<ModelObject> _queuedSolidStaticMapObjects = [];
         private readonly ModelObject.CutoutMapBatch _cutoutMapBatch = new();
         private readonly List<ModelObject> _queuedCrowdSidePasses = [];
+        private readonly List<WorldObject> _deferredSolidSprites = [];
         private readonly List<WalkerObject> _walkers = [];
         private readonly List<PlayerObject> _players = [];
         private readonly List<MonsterObject> _monsters = [];
@@ -867,6 +868,7 @@ namespace Client.Main.Controls
                 PrepareShadowMapForDraw();
             _preparedShadowFrame = int.MinValue;
 
+            RenderDrawCounter.Mark(RenderDrawCounter.Step.Other);
             var worldBaseStarted = RenderPassProfiler.Start();
             try
             {
@@ -880,6 +882,7 @@ namespace Client.Main.Controls
             finally
             {
                 RenderPassProfiler.AddWorldBase(worldBaseStarted);
+                RenderDrawCounter.Mark(RenderDrawCounter.Step.Terrain);
             }
 
             var objectsStarted = RenderPassProfiler.Start();
@@ -1315,8 +1318,27 @@ namespace Client.Main.Controls
             try
             {
                 DrawDedicatedStaticMapObjects(time);
-                DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
+                RenderDrawCounter.Mark(RenderDrawCounter.Step.StaticMap);
+                // Blob shadows of the opaque objects go out in one draw after the list.
+                ModelObject.BeginBlobShadowBatch();
+                try
+                {
+                    DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
+                }
+                finally
+                {
+                    try
+                    {
+                        ModelObject.EndBlobShadowBatch(GraphicsDevice);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRenderFailure(null, "Draw.BlobShadowBatch", ex);
+                    }
+                }
+                RenderDrawCounter.Mark(RenderDrawCounter.Step.Solid);
                 DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);
+                RenderDrawCounter.Mark(RenderDrawCounter.Step.Transparent);
                 DrawAfterPass(_solidBehind, DepthStateDefault, time);
                 if (ModelObject.HasPendingWalkerCrowdTransparentBatches())
                 {
@@ -1342,6 +1364,7 @@ namespace Client.Main.Controls
                 {
                     RecordRenderFailure(null, "DrawAfter.ItemLinkBatch", ex);
                 }
+                RenderDrawCounter.Mark(RenderDrawCounter.Step.After);
             }
 
             FrameMetrics.DedicatedParticleSystems = _dedicatedParticleSystems.Count;
@@ -1371,6 +1394,7 @@ namespace Client.Main.Controls
             {
                 RecordRenderFailure(null, "Draw.LateScrollOfFlame", ex);
             }
+            RenderDrawCounter.Mark(RenderDrawCounter.Step.Effects);
 
             DrawQueuedDamageTexts(time);
 
@@ -1382,6 +1406,7 @@ namespace Client.Main.Controls
             {
                 RecordRenderFailure(null, "OverheadNameplates", ex);
             }
+            RenderDrawCounter.Mark(RenderDrawCounter.Step.Overlay);
 
             LogRenderMetricsIfEnabled();
         }
@@ -1625,72 +1650,16 @@ namespace Client.Main.Controls
                 {
                     FrameMetrics.SpriteBatchObjects++;
 
-                    if (canUseWalkerCrowdInstancing &&
-                        (ModelObject.HasPendingWalkerCrowdInstancingBatches() || _queuedCrowdSidePasses.Count > 0))
+                    // In the opaque list a sprite would force the pending crowd and static-map instancing
+                    // batches out early, once per depth bucket. Draw the sprites after the final flush instead,
+                    // in their sorted order; depth testing keeps them behind nearer geometry.
+                    if (canUseWalkerCrowdInstancing || canUseMapInstancing)
                     {
-                        FlushWalkerCrowdBatchesAndSidePasses(time);
+                        _deferredSolidSprites.Add(obj);
+                        continue;
                     }
 
-                    if (canUseMapInstancing && ModelObject.HasPendingStaticMapInstancingBatches() &&
-                        !FlushStaticMapBatchesSafely())
-                    {
-                        // Same failure-only fallback as the dedicated static-map path below:
-                        // redraw queued placements classically so a lost batch cannot
-                        // leave tagged meshes undrawn for this frame.
-                        FallbackQueuedSolidStaticMapObjects(time);
-                    }
-
-                    var blend = obj.BlendState ?? BlendState.AlphaBlend;
-                    SamplerState sampler;
-                    if (obj is SourceParticleSystem || obj is ElfBuffOrbTrail)
-                    {
-                        sampler = SamplerState.LinearClamp;
-                    }
-                    else
-                    {
-                        sampler = ReferenceEquals(blend, BlendState.Additive)
-                            ? GraphicsManager.GetQualityLinearSamplerState()
-                            : GraphicsManager.GetQualitySamplerState();
-                    }
-                    // Additive sprites must not write depth because their quads would occlude
-                    // later transparent geometry.
-                    var objectDepthState = ResolveObjectDepthState(obj, depthState);
-                    var batchDepth =
-                        obj is SourceParticleSystem ||
-                        obj is ElfBuffOrbTrail ||
-                        obj is ElfBuffOrbitingLight
-                            ? DepthStencilState.DepthRead
-                            : objectDepthState;
-
-                    if (scope == null ||
-                        !ReferenceEquals(blend, currentBlend) ||
-                        !ReferenceEquals(sampler, currentSampler) ||
-                        !ReferenceEquals(batchDepth, currentBatchDepth))
-                    {
-                        CloseSpriteScopeSafely(ref scope, "Draw.SpriteBatchStateChange");
-                        scope = new Helpers.SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, blend, sampler, batchDepth);
-                        currentBlend = blend;
-                        currentSampler = sampler;
-                        currentBatchDepth = batchDepth;
-                    }
-
-                    try
-                    {
-                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
-                        obj.Draw(time);
-                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.Draw, typeProfileStarted);
-                        ClearRenderFault(obj, "Draw.Sprite");
-                    }
-                    catch (Exception ex)
-                    {
-                        // A failed SpriteBatch draw may leave the current batch in a
-                        // partially configured state. Close it before continuing.
-                        CloseSpriteScopeSafely(ref scope, "Draw.SpriteBatchRecovery");
-                        currentBlend = null;
-                        currentSampler = null;
-                        currentBatchDepth = null;
-                        RecordRenderFailure(obj, "Draw.Sprite", ex);
-                    }
+                    DrawSpriteBatchObject(obj, depthState, spriteBatch, time, ref scope, ref currentBlend, ref currentSampler, ref currentBatchDepth);
                 }
                 else
                 {
@@ -1761,6 +1730,90 @@ namespace Client.Main.Controls
                 // classic redraw of everything queued in this list so tagged meshes
                 // are never left undrawn for the frame.
                 FallbackQueuedSolidStaticMapObjects(time);
+            }
+
+            if (_deferredSolidSprites.Count > 0)
+            {
+                currentBlend = null;
+                currentSampler = null;
+                currentBatchDepth = null;
+                try
+                {
+                    for (int i = 0; i < _deferredSolidSprites.Count; i++)
+                    {
+                        var obj = _deferredSolidSprites[i];
+                        DrawSpriteBatchObject(obj, depthState, spriteBatch, time, ref scope, ref currentBlend, ref currentSampler, ref currentBatchDepth);
+                        obj.RenderOrder = ++_renderCounter;
+                    }
+                }
+                finally
+                {
+                    _deferredSolidSprites.Clear();
+                    CloseSpriteScopeSafely(ref scope, "Draw.DeferredSpriteBatchEnd");
+                }
+            }
+        }
+
+        private void DrawSpriteBatchObject(
+            WorldObject obj,
+            DepthStencilState depthState,
+            SpriteBatch spriteBatch,
+            GameTime time,
+            ref Helpers.SpriteBatchScope? scope,
+            ref BlendState currentBlend,
+            ref SamplerState currentSampler,
+            ref DepthStencilState currentBatchDepth)
+        {
+            var blend = obj.BlendState ?? BlendState.AlphaBlend;
+            SamplerState sampler;
+            if (obj is SourceParticleSystem || obj is ElfBuffOrbTrail)
+            {
+                sampler = SamplerState.LinearClamp;
+            }
+            else
+            {
+                sampler = ReferenceEquals(blend, BlendState.Additive)
+                    ? GraphicsManager.GetQualityLinearSamplerState()
+                    : GraphicsManager.GetQualitySamplerState();
+            }
+            // Additive sprites must not write depth because their quads would occlude
+            // later transparent geometry.
+            var objectDepthState = ResolveObjectDepthState(obj, depthState);
+            var batchDepth =
+                obj is SourceParticleSystem ||
+                obj is ElfBuffOrbTrail ||
+                obj is ElfBuffOrbitingLight
+                    ? DepthStencilState.DepthRead
+                    : objectDepthState;
+
+            if (scope == null ||
+                !ReferenceEquals(blend, currentBlend) ||
+                !ReferenceEquals(sampler, currentSampler) ||
+                !ReferenceEquals(batchDepth, currentBatchDepth))
+            {
+                CloseSpriteScopeSafely(ref scope, "Draw.SpriteBatchStateChange");
+                scope = new Helpers.SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, blend, sampler, batchDepth);
+                currentBlend = blend;
+                currentSampler = sampler;
+                currentBatchDepth = batchDepth;
+            }
+
+            try
+            {
+                long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
+                obj.Draw(time);
+                Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.Draw, typeProfileStarted);
+                ClearRenderFault(obj, "Draw.Sprite");
+            }
+            catch (Exception ex)
+            {
+                // A failed SpriteBatch draw may leave the current batch in a
+                // partially configured state. Close it before continuing.
+                CloseSpriteScopeSafely(ref scope, "Draw.SpriteBatchRecovery");
+                currentBlend = null;
+                currentSampler = null;
+                currentBatchDepth = null;
+                RecordRenderFailure(obj, "Draw.Sprite", ex);
             }
         }
 

@@ -318,6 +318,146 @@ namespace Client.Main.Objects
             }
         }
 
+        public static long DiagBlobShadowDraws;
+
+        // Blob shadows of the opaque world pass are collected and drawn in one call. Their colour is black
+        // with SrcAlpha/InvSrcAlpha blending (dst * (1 - a)), so the draw order between blobs does not
+        // change the result. Outside the batch window (other scenes, other passes) blobs draw immediately.
+        private const int BlobShadowBatchMaxVertices = short.MaxValue;
+        private static bool s_blobShadowBatchActive;
+        private static VertexPositionColorTexture[] s_blobShadowBatchVertices = new VertexPositionColorTexture[9 * 128];
+        private static short[] s_blobShadowBatchIndices = new short[24 * 128];
+        private static int s_blobShadowBatchVertexCount;
+        private static int s_blobShadowBatchIndexCount;
+        private static Matrix s_blobShadowBatchViewProjection;
+
+        internal static void BeginBlobShadowBatch()
+        {
+            s_blobShadowBatchActive = true;
+            s_blobShadowBatchVertexCount = 0;
+            s_blobShadowBatchIndexCount = 0;
+        }
+
+        internal static void EndBlobShadowBatch(GraphicsDevice graphicsDevice)
+        {
+            s_blobShadowBatchActive = false;
+            FlushBlobShadowBatch(graphicsDevice);
+        }
+
+        private Matrix GetBlobShadowWorld(Matrix shadowWorld)
+        {
+            float localWidth = BoundingBoxLocal.Max.X - BoundingBoxLocal.Min.X;
+            float localDepth = BoundingBoxLocal.Max.Y - BoundingBoxLocal.Min.Y;
+            float scaleX = MathF.Max(45f, localWidth * 0.55f);
+            float scaleZ = MathF.Max(45f, localDepth * 0.55f);
+            return Matrix.CreateScale(scaleX, scaleZ, 1f) * shadowWorld;
+        }
+
+        private bool TryQueueBlobShadow(Matrix shadowWorld, float shadowOpacity, Matrix viewProjection)
+        {
+            if (TryGetTechnique(GraphicsManager.Instance.ShadowEffect, "ShadowBatched") == null)
+                return false;
+
+            // One batch is drawn with one camera; a blob for another camera starts a new batch.
+            if (s_blobShadowBatchIndexCount > 0 && s_blobShadowBatchViewProjection != viewProjection)
+                FlushBlobShadowBatch(GraphicsDevice);
+            s_blobShadowBatchViewProjection = viewProjection;
+
+            Matrix blobWorld = GetBlobShadowWorld(shadowWorld);
+            VertexPositionTexture[] source;
+            short[] sourceIndices;
+            if (TryPrepareTerrainConformedBlobShadow(blobWorld, out VertexPositionTexture[] conformed))
+            {
+                source = conformed;
+                sourceIndices = BlobShadowGridIndices;
+            }
+            else
+            {
+                source = BlobShadowVertices;
+                sourceIndices = BlobShadowIndices;
+            }
+
+            if (s_blobShadowBatchVertexCount + source.Length > BlobShadowBatchMaxVertices)
+                FlushBlobShadowBatch(GraphicsDevice);
+
+            EnsureBlobShadowBatchCapacity(s_blobShadowBatchVertexCount + source.Length, s_blobShadowBatchIndexCount + sourceIndices.Length);
+
+            var color = new Color((byte)0, (byte)0, (byte)0, (byte)(MathHelper.Clamp(shadowOpacity, 0f, 1f) * 255f + 0.5f));
+            int baseVertex = s_blobShadowBatchVertexCount;
+            bool conformedToTerrain = ReferenceEquals(source, conformed);
+            for (int i = 0; i < source.Length; i++)
+            {
+                // Terrain-conformed vertices are already in world space; the flat fallback is local.
+                Vector3 position = conformedToTerrain ? source[i].Position : Vector3.Transform(source[i].Position, blobWorld);
+                s_blobShadowBatchVertices[baseVertex + i] = new VertexPositionColorTexture(position, color, source[i].TextureCoordinate);
+            }
+
+            for (int i = 0; i < sourceIndices.Length; i++)
+                s_blobShadowBatchIndices[s_blobShadowBatchIndexCount + i] = (short)(baseVertex + sourceIndices[i]);
+
+            s_blobShadowBatchVertexCount += source.Length;
+            s_blobShadowBatchIndexCount += sourceIndices.Length;
+            return true;
+        }
+
+        private static void EnsureBlobShadowBatchCapacity(int vertices, int indices)
+        {
+            if (vertices > s_blobShadowBatchVertices.Length)
+                Array.Resize(ref s_blobShadowBatchVertices, Math.Min(BlobShadowBatchMaxVertices, Math.Max(vertices, s_blobShadowBatchVertices.Length * 2)));
+            if (indices > s_blobShadowBatchIndices.Length)
+                Array.Resize(ref s_blobShadowBatchIndices, Math.Max(indices, s_blobShadowBatchIndices.Length * 2));
+        }
+
+        private static void FlushBlobShadowBatch(GraphicsDevice graphicsDevice)
+        {
+            int vertexCount = s_blobShadowBatchVertexCount;
+            int indexCount = s_blobShadowBatchIndexCount;
+            s_blobShadowBatchVertexCount = 0;
+            s_blobShadowBatchIndexCount = 0;
+            if (indexCount == 0 || graphicsDevice == null)
+                return;
+
+            var effect = GraphicsManager.Instance.ShadowEffect;
+            var blobTexture = _blobShadowTexture;
+            EffectTechnique batchedTechnique = TryGetTechnique(effect, "ShadowBatched");
+            ModelEffectBindings bindings = GetModelEffectBindings(effect);
+            if (batchedTechnique == null || bindings == null || blobTexture == null || blobTexture.IsDisposed)
+                return;
+
+            var previousBlend = graphicsDevice.BlendState;
+            var previousDepth = graphicsDevice.DepthStencilState;
+            var previousRaster = graphicsDevice.RasterizerState;
+            var previousTechnique = effect.CurrentTechnique;
+            try
+            {
+                float constBias = 1f / (1 << 24);
+                graphicsDevice.BlendState = Blendings.ShadowBlend;
+                graphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
+                graphicsDevice.RasterizerState = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
+                effect.CurrentTechnique = batchedTechnique;
+                bindings.ShadowTexture?.SetValue(blobTexture);
+                bindings.WorldViewProjection?.SetValue(s_blobShadowBatchViewProjection);
+                batchedTechnique.Passes[0].Apply();
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    s_blobShadowBatchVertices,
+                    0,
+                    vertexCount,
+                    s_blobShadowBatchIndices,
+                    0,
+                    indexCount / 3);
+                DiagBlobShadowDraws++;
+            }
+            finally
+            {
+                graphicsDevice.BlendState = previousBlend;
+                graphicsDevice.DepthStencilState = previousDepth;
+                graphicsDevice.RasterizerState = previousRaster;
+                if (previousTechnique != null)
+                    effect.CurrentTechnique = previousTechnique;
+            }
+        }
+
         public virtual void DrawBlobShadow(Matrix view, Matrix projection, Matrix shadowWorld, float shadowOpacity)
         {
             if (shadowOpacity <= 0.001f)
@@ -332,6 +472,9 @@ namespace Client.Main.Objects
                 var effect = GraphicsManager.Instance.ShadowEffect;
                 var blobTexture = GetOrCreateBlobShadowTexture();
                 if (effect == null || blobTexture == null)
+                    return;
+
+                if (s_blobShadowBatchActive && TryQueueBlobShadow(shadowWorld, shadowOpacity, view * projection))
                     return;
 
                 ModelEffectBindings bindings = GetModelEffectBindings(effect);
@@ -354,17 +497,13 @@ namespace Client.Main.Objects
 
                 try
                 {
-                    float localWidth = BoundingBoxLocal.Max.X - BoundingBoxLocal.Min.X;
-                    float localDepth = BoundingBoxLocal.Max.Y - BoundingBoxLocal.Min.Y;
-                    float scaleX = MathF.Max(45f, localWidth * 0.55f);
-                    float scaleZ = MathF.Max(45f, localDepth * 0.55f);
-
-                    Matrix blobWorld = Matrix.CreateScale(scaleX, scaleZ, 1f) * shadowWorld;
+                    Matrix blobWorld = GetBlobShadowWorld(shadowWorld);
                     Matrix viewProjection = view * projection;
 
                     bindings.ShadowTint?.SetValue(new Vector4(0f, 0f, 0f, shadowOpacity));
                     bindings.ShadowTexture?.SetValue(blobTexture);
 
+                    DiagBlobShadowDraws++;
                     if (TryPrepareTerrainConformedBlobShadow(blobWorld, out VertexPositionTexture[] conformedBlobVertices))
                     {
                         bindings.WorldViewProjection?.SetValue(viewProjection);

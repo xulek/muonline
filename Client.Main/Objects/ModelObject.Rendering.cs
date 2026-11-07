@@ -650,11 +650,19 @@ namespace Client.Main.Objects
                 var projection = Camera.Instance.Projection;
                 var worldPos = WorldPosition;
 
+                bool rootBlobDrawn = DrawRootBlobShadowIfNeeded(
+                    isAfterDraw: false,
+                    view,
+                    projection,
+                    worldPos.Translation);
+
                 bool useShadowMap = UsesRenderedShadowMapForCurrentObject();
                 bool isNight = Constants.ENABLE_DAY_NIGHT_CYCLE && SunCycleManager.IsNight;
                 bool doShadow = false;
                 Matrix shadowMatrix = Matrix.Identity;
-                if (RenderShadow && !LowQuality && !useShadowMap && !isNight)
+                // With the root blob already drawn, the blob branch of the projected pass has nothing to add.
+                bool blobAlreadyDrawn = rootBlobDrawn && ShouldUseBlobShadowForCurrentPass();
+                if (RenderShadow && !LowQuality && !useShadowMap && !isNight && !blobAlreadyDrawn)
                     doShadow = TryGetShadowMatrix(out shadowMatrix);
 
                 bool highlightAllowed = !LowQuality && IsMouseHover &&
@@ -670,12 +678,6 @@ namespace Client.Main.Objects
                                       worldPos;
                     highlightColor = this is MonsterObject ? _redHighlight : _greenHighlight;
                 }
-
-                bool rootBlobDrawn = DrawRootBlobShadowIfNeeded(
-                    isAfterDraw: false,
-                    view,
-                    projection,
-                    worldPos.Translation);
 
                 if (doShadow || highlightAllowed)
                 {

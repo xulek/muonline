@@ -67,3 +67,32 @@ technique Shadow
         PixelShader  = compile PS_SHADERMODEL ShadowPS();
     }
 }
+
+//---------------- Batched blob shadows -------
+// World-space vertices of many blobs in one draw; the per-blob opacity travels in the vertex alpha.
+struct VS_BATCH_IN  { float4 Position : POSITION0; float4 Color : COLOR0; float2 Tex : TEXCOORD0; };
+struct VS_BATCH_OUT { float4 Position : SV_POSITION; float4 Color : COLOR0; float2 Tex : TEXCOORD0; };
+
+VS_BATCH_OUT ShadowBatchedVS(VS_BATCH_IN vin)
+{
+    VS_BATCH_OUT vout;
+    vout.Position = mul(vin.Position, WorldViewProjection);
+    vout.Color    = vin.Color;
+    vout.Tex      = vin.Tex;
+    return vout;
+}
+
+float4 ShadowBatchedPS(VS_BATCH_OUT pin) : SV_TARGET
+{
+    float alphaMask = tex2D(ShadowSampler, pin.Tex).a;
+    return float4(0,0,0, alphaMask * pin.Color.a);
+}
+
+technique ShadowBatched
+{
+    pass P0
+    {
+        VertexShader = compile VS_SHADERMODEL ShadowBatchedVS();
+        PixelShader  = compile PS_SHADERMODEL ShadowBatchedPS();
+    }
+}

@@ -272,7 +272,21 @@ namespace Client.Main.Objects
             return true;
         }
 
+        public static long DiagDynamicLightingPrepares, DiagDynamicLightingPrepareTicks;
+
         private void PrepareDynamicLightingEffect(Effect effect, bool useGpuSkinning = false, int requiredBoneCount = 0)
+        {
+#if PERFORMANCE_RELEASE
+            PrepareDynamicLightingEffectCore(effect, useGpuSkinning, requiredBoneCount);
+#else
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            PrepareDynamicLightingEffectCore(effect, useGpuSkinning, requiredBoneCount);
+            DiagDynamicLightingPrepareTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            DiagDynamicLightingPrepares++;
+#endif
+        }
+
+        private void PrepareDynamicLightingEffectCore(Effect effect, bool useGpuSkinning, int requiredBoneCount)
         {
             if (effect == null)
                 return;
