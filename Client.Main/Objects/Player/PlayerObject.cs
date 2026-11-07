@@ -87,6 +87,14 @@ namespace Client.Main.Objects.Player
         // Vehicle/mount state
         private bool _isRiding;
         private short _currentVehicleIndex = -1;
+        public bool IsRidingFenrir => _isRiding && IsFenrirVehicle(_currentVehicleIndex);
+        public bool SuppressesHitReaction =>
+            (_isRiding && _currentVehicleIndex is 0 or 7 or 8) ||
+            CurrentAction is PlayerAction.PlayerDie1 or PlayerAction.PlayerDie2 or
+                PlayerAction.PlayerAttackSkillFuryStrike or PlayerAction.PlayerSkillVitality or
+                PlayerAction.PlayerSkillHellBegin or PlayerAction.PlayerSkillAttUpOurforces or
+                PlayerAction.PlayerSkillHpUpOurforces or PlayerAction.PlayerSkillGiantswing or
+                PlayerAction.PlayerSkillDragonlore;
         private float _currentRiderHeightOffset = 0f;
 
         private int _lastEquipmentAnimationStride = -1;

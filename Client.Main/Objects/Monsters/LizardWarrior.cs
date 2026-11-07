@@ -5,9 +5,17 @@ using Microsoft.Xna.Framework;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(290, "Lizard Warrior")]
-    public class LizardWarrior : MonsterObject
+    public class LizardWarrior : SoundMonsterObject
     {
         private GlowingEyesEffect _eyeGlow;
+
+        protected override string DeathSoundPath => "Sound/w31/mLWdeath.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w31/mLWidle1.wav" : "Sound/w31/mLWidle2.wav";
+
+        protected override string GetAttackSoundPath(int attackType) =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w31/mLWattack1.wav" : "Sound/w31/mLWattack2.wav";
 
         public LizardWarrior()
         {

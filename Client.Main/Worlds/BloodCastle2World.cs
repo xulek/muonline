@@ -11,7 +11,6 @@ namespace Client.Main.Worlds
     {
         public BloodCastle2World() : base(worldIndex: 12) // All BC1-7 use World12
         {
-            BackgroundMusicPath = "Sound/iBloodCastle.wav";
             Name = "Blood Castle 2";
         }
 

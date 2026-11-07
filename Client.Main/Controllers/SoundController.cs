@@ -1,6 +1,7 @@
 // File: SoundController.cs
 using Microsoft.Xna.Framework.Audio;
 using NLayer;
+using NVorbis;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -19,7 +20,12 @@ namespace Client.Main.Controllers
 
         private Dictionary<string, SoundEffect> _soundEffectCache = new Dictionary<string, SoundEffect>();
         private SoundEffectInstance _activeBackgroundMusicInstance;
+        private SoundEffectInstance _fadingOutBackgroundMusicInstance;
         private string _currentBackgroundMusicPath;
+        private float _backgroundMusicFade;
+        private float _fadingOutBackgroundMusicFade;
+        private double _lastAudioUpdateMs;
+        private const float BackgroundMusicFadeSeconds = 0.4f;
         private SoundEffectInstance _activeAmbientSoundInstance;
         private string _currentAmbientSoundPath;
         private HashSet<string> _failedPaths = new HashSet<string>();
@@ -27,6 +33,8 @@ namespace Client.Main.Controllers
         private readonly object _soundCacheLock = new object();
         private int _backgroundMusicRequestId;
         private int _ambientSoundRequestId;
+        private bool _backgroundMusicLooped = true;
+        private bool _backgroundMusicEndedRaised;
         private readonly SemaphoreSlim _soundLoadGate = new(2, 2);
         private int _cacheGeneration;
         private bool _disposed;
@@ -53,13 +61,99 @@ namespace Client.Main.Controllers
 
         private SoundController()
         {
-            SoundEffect.MasterVolume = MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
+            SoundEffect.MasterVolume = 1f;
+        }
+
+        public event Action<string> BackgroundMusicEnded;
+
+        public void Update()
+        {
+            AdvanceBackgroundMusicFade();
+
+            var instance = _activeBackgroundMusicInstance;
+            if (instance == null || instance.IsDisposed || _backgroundMusicLooped || _backgroundMusicEndedRaised)
+                return;
+
+            if (instance.State != SoundState.Stopped)
+                return;
+
+            _backgroundMusicEndedRaised = true;
+            string path = _currentBackgroundMusicPath;
+            try
+            {
+                BackgroundMusicEnded?.Invoke(path);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "BackgroundMusicEnded handler failed.");
+            }
+        }
+
+        private void AdvanceBackgroundMusicFade()
+        {
+            double nowMs = _playStopwatch.Elapsed.TotalMilliseconds;
+            float deltaSeconds;
+            if (_lastAudioUpdateMs <= 0d)
+            {
+                deltaSeconds = 0f;
+            }
+            else
+            {
+                deltaSeconds = (float)((nowMs - _lastAudioUpdateMs) / 1000.0);
+                deltaSeconds = MathHelper.Clamp(deltaSeconds, 0f, 0.25f);
+            }
+            _lastAudioUpdateMs = nowMs;
+
+            bool fadingIn = _backgroundMusicFade < 1f;
+            bool fadingOut = _fadingOutBackgroundMusicInstance != null;
+
+            if (!fadingIn && !fadingOut)
+                return;
+
+            float step = deltaSeconds <= 0f ? 0f : deltaSeconds / BackgroundMusicFadeSeconds;
+
+            if (fadingIn)
+                _backgroundMusicFade = Math.Min(1f, _backgroundMusicFade + step);
+
+            if (fadingOut)
+            {
+                _fadingOutBackgroundMusicFade = Math.Max(0f, _fadingOutBackgroundMusicFade - step);
+                if (_fadingOutBackgroundMusicFade <= 0f)
+                    DisposeFadingOutBackgroundMusicInstance();
+            }
+
+            ApplyBackgroundMusicVolume();
+        }
+
+        private void FadeOutActiveBackgroundMusic()
+        {
+            if (_activeBackgroundMusicInstance == null || _activeBackgroundMusicInstance.IsDisposed)
+            {
+                StopBackgroundMusicInstance();
+                return;
+            }
+
+            DisposeFadingOutBackgroundMusicInstance();
+            _fadingOutBackgroundMusicInstance = _activeBackgroundMusicInstance;
+            _fadingOutBackgroundMusicFade = _backgroundMusicFade;
+            _activeBackgroundMusicInstance = null;
+            _currentBackgroundMusicPath = null;
+            _backgroundMusicFade = 0f;
+            _backgroundMusicEndedRaised = false;
+        }
+
+        private void DisposeFadingOutBackgroundMusicInstance()
+        {
+            _fadingOutBackgroundMusicInstance?.Stop(true);
+            _fadingOutBackgroundMusicInstance?.Dispose();
+            _fadingOutBackgroundMusicInstance = null;
+            _fadingOutBackgroundMusicFade = 0f;
         }
 
         public void StopBackgroundMusic()
         {
             Interlocked.Increment(ref _backgroundMusicRequestId);
-            StopBackgroundMusicInstance();
+            FadeOutActiveBackgroundMusic();
         }
 
         private void StopBackgroundMusicInstance()
@@ -67,10 +161,13 @@ namespace Client.Main.Controllers
             _activeBackgroundMusicInstance?.Stop(true);
             _activeBackgroundMusicInstance?.Dispose();
             _activeBackgroundMusicInstance = null;
+            DisposeFadingOutBackgroundMusicInstance();
             _currentBackgroundMusicPath = null;
+            _backgroundMusicFade = 0f;
+            _backgroundMusicEndedRaised = false;
         }
 
-        public void PlayBackgroundMusic(string relativePath)
+        public void PlayBackgroundMusic(string relativePath, bool loop = true)
         {
             if (!Constants.BACKGROUND_MUSIC || string.IsNullOrEmpty(relativePath))
             {
@@ -83,13 +180,19 @@ namespace Client.Main.Controllers
                 !_activeBackgroundMusicInstance.IsDisposed &&
                 _activeBackgroundMusicInstance.State == SoundState.Playing)
             {
+                // Cancel an in-flight request for another track: this request makes
+                // the currently playing track authoritative again.
+                Interlocked.Increment(ref _backgroundMusicRequestId);
+                _activeBackgroundMusicInstance.IsLooped = loop;
+                _backgroundMusicLooped = loop;
                 return;
             }
 
             var requestId = Interlocked.Increment(ref _backgroundMusicRequestId);
-            StopBackgroundMusicInstance();
+            _backgroundMusicLooped = loop;
+            _backgroundMusicEndedRaised = false;
 
-            _ = PlayBackgroundMusicAsync(relativePath, requestId);
+            _ = PlayBackgroundMusicAsync(relativePath, requestId, loop);
         }
 
         public void PreloadBackgroundMusic(string relativePath)
@@ -226,6 +329,19 @@ namespace Client.Main.Controllers
             }
         }
 
+        public void StopManagedLoop(string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath))
+                return;
+
+            string key = Path.Combine(Constants.DataPath, relativePath).ToLowerInvariant();
+            if (_managedLoopingInstances.Remove(key, out var managed) && managed.Instance != null && !managed.Instance.IsDisposed)
+            {
+                managed.Instance.Stop(true);
+                managed.Instance.Dispose();
+            }
+        }
+
         public void PlayBuffer(string relativePath)
         {
             if (!Constants.SOUND_EFFECTS || string.IsNullOrEmpty(relativePath)) return;
@@ -283,35 +399,57 @@ namespace Client.Main.Controllers
 
         public void ApplyBackgroundMusicVolume()
         {
-            if (_activeBackgroundMusicInstance != null && !_activeBackgroundMusicInstance.IsDisposed)
+            var rawVolume = Constants.BACKGROUND_MUSIC_VOLUME / 100f;
+            var volume = MathHelper.Clamp(rawVolume, 0f, 1f);
+
+            if (float.IsNaN(volume) || float.IsInfinity(volume))
             {
-                var rawVolume = Constants.BACKGROUND_MUSIC_VOLUME / 100f;
-                if (rawVolume <= 0f)
-                {
-                    StopBackgroundMusic();
-                    return;
-                }
-
-                var volume = MathHelper.Clamp(rawVolume, 0f, 1f);
-
-                if (float.IsNaN(volume) || float.IsInfinity(volume))
-                {
-                    volume = 1f;
-                }
-
-                volume = Math.Max(0f, Math.Min(1f, volume));
-
-                _activeBackgroundMusicInstance.Volume = volume;
+                volume = 1f;
             }
+
+            volume = Math.Max(0f, Math.Min(1f, volume));
+
+            if (_activeBackgroundMusicInstance != null && !_activeBackgroundMusicInstance.IsDisposed)
+                _activeBackgroundMusicInstance.Volume = MathHelper.Clamp(volume * _backgroundMusicFade, 0f, 1f);
+
+            if (_fadingOutBackgroundMusicInstance != null && !_fadingOutBackgroundMusicInstance.IsDisposed)
+                _fadingOutBackgroundMusicInstance.Volume = MathHelper.Clamp(volume * _fadingOutBackgroundMusicFade, 0f, 1f);
         }
 
         public void ApplySoundEffectsVolume()
         {
-            float master = Constants.SOUND_EFFECTS ? MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f) : 0f;
-            SoundEffect.MasterVolume = master;
             foreach (var entry in _managedLoopingInstances.Values)
             {
                 UpdateManagedLoopVolume(entry);
+            }
+            ApplyAmbientVolume();
+        }
+
+        private void ApplyAmbientVolume()
+        {
+            if (_activeAmbientSoundInstance == null || _activeAmbientSoundInstance.IsDisposed)
+                return;
+
+            float volume = Constants.SOUND_EFFECTS
+                ? MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f)
+                : 0f;
+
+            _activeAmbientSoundInstance.Volume = volume;
+            if (volume <= 0f)
+            {
+                if (_activeAmbientSoundInstance.State == SoundState.Playing)
+                    _activeAmbientSoundInstance.Pause();
+            }
+            else if (_activeAmbientSoundInstance.State != SoundState.Playing)
+            {
+                try
+                {
+                    _activeAmbientSoundInstance.Play();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "[Ambient] Error resuming loop instance");
+                }
             }
         }
 
@@ -401,6 +539,19 @@ namespace Client.Main.Controllers
                         MarkFailedPath(cacheKey);
                     }
                 }
+                else if (extension == ".ogg")
+                {
+                    byte[] pcmData = LoadOggPcmData(fullPath, out int sampleRate, out int channels);
+                    if (pcmData != null && sampleRate > 0 && channels > 0 && pcmData.Length > 0)
+                    {
+                        loadedSfx = new SoundEffect(pcmData, sampleRate, (AudioChannels)channels);
+                    }
+                    else
+                    {
+                        _logger?.LogDebug($"[LoadSoundEffectData] Failed to load PCM data from OGG: {fullPath}");
+                        MarkFailedPath(cacheKey);
+                    }
+                }
                 else
                 {
                     _logger?.LogDebug($"[LoadSoundEffectData] Unsupported audio file extension: {extension} for path {fullPath}");
@@ -470,11 +621,64 @@ namespace Client.Main.Controllers
             }
         }
 
+        private byte[] LoadOggPcmData(string filePath, out int sampleRate, out int channels)
+        {
+            sampleRate = 0;
+            channels = 0;
+            try
+            {
+                using var reader = new VorbisReader(filePath);
+                if (reader.SampleRate <= 0 || reader.Channels <= 0)
+                {
+                    _logger?.LogDebug("[LoadOggPcmData] Invalid or empty OGG: {Path}", filePath);
+                    return null;
+                }
+
+                sampleRate = reader.SampleRate;
+                channels = reader.Channels;
+                int floatBufferLength = 4096 * channels;
+                float[] floatBuffer = ArrayPool<float>.Shared.Rent(floatBufferLength);
+                byte[] pcmBuffer = ArrayPool<byte>.Shared.Rent(floatBufferLength * sizeof(short));
+                try
+                {
+                    using var output = new MemoryStream();
+                    int samplesRead;
+                    while ((samplesRead = reader.ReadSamples(floatBuffer, 0, floatBufferLength)) > 0)
+                    {
+                        int byteCount = samplesRead * sizeof(short);
+                        for (int i = 0; i < samplesRead; i++)
+                        {
+                            short sample = (short)(MathHelper.Clamp(floatBuffer[i], -1f, 1f) * short.MaxValue);
+                            int offset = i * 2;
+                            pcmBuffer[offset] = (byte)(sample & 0xFF);
+                            pcmBuffer[offset + 1] = (byte)((sample >> 8) & 0xFF);
+                        }
+
+                        output.Write(pcmBuffer, 0, byteCount);
+                    }
+
+                    return output.Length > 0 ? output.ToArray() : null;
+                }
+                finally
+                {
+                    ArrayPool<float>.Shared.Return(floatBuffer);
+                    ArrayPool<byte>.Shared.Return(pcmBuffer);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "[LoadOggPcmData] Error loading OGG file {Path}", filePath);
+                return null;
+            }
+        }
+
         public void ClearSoundCaches()
         {
             Interlocked.Increment(ref _cacheGeneration);
-            StopBackgroundMusic();
-            StopAmbientSound();
+            Interlocked.Increment(ref _backgroundMusicRequestId);
+            StopBackgroundMusicInstance();
+            Interlocked.Increment(ref _ambientSoundRequestId);
+            StopAmbientSoundInstance();
 
             List<SoundEffect> cached;
             lock (_soundCacheLock)
@@ -542,7 +746,7 @@ namespace Client.Main.Controllers
                 {
                     _activeAmbientSoundInstance = ambientEffect.CreateInstance();
                     _activeAmbientSoundInstance.IsLooped = true;
-                    _activeAmbientSoundInstance.Volume = 1f;
+                    _activeAmbientSoundInstance.Volume = MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
                     _activeAmbientSoundInstance.Play();
                     _currentAmbientSoundPath = relativePath;
                 }
@@ -554,7 +758,7 @@ namespace Client.Main.Controllers
             }, MainThreadDispatcher.WorkPriority.High);
         }
 
-        private async Task PlayBackgroundMusicAsync(string relativePath, int requestId)
+        private async Task PlayBackgroundMusicAsync(string relativePath, int requestId, bool loop)
         {
             SoundEffect musicEffect = null;
             var fullPath = Path.Combine(Constants.DataPath, relativePath);
@@ -580,10 +784,18 @@ namespace Client.Main.Controllers
                     return;
                 }
 
-                _activeBackgroundMusicInstance?.Stop(true);
-                _activeBackgroundMusicInstance?.Dispose();
+                if (_activeBackgroundMusicInstance != null && !_activeBackgroundMusicInstance.IsDisposed)
+                {
+                    DisposeFadingOutBackgroundMusicInstance();
+                    _fadingOutBackgroundMusicInstance = _activeBackgroundMusicInstance;
+                    _fadingOutBackgroundMusicFade = _backgroundMusicFade;
+                    _activeBackgroundMusicInstance = null;
+                }
+
                 _activeBackgroundMusicInstance = musicEffect.CreateInstance();
-                _activeBackgroundMusicInstance.IsLooped = true;
+                _activeBackgroundMusicInstance.IsLooped = loop;
+                _backgroundMusicFade = 0f;
+                _backgroundMusicEndedRaised = false;
                 try
                 {
                     ApplyBackgroundMusicVolume();

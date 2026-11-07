@@ -698,6 +698,7 @@ namespace Client.Main
                 CheckShaderToggles();
                 SunCycleManager.Update();
                 Camera.Instance.UpdateShake((float)gameTime.ElapsedGameTime.TotalSeconds);
+                SoundController.Instance.Update();
                 UpdatePassProfiler.AddGlobal(globalStarted);
 
                 long sceneStarted = UpdatePassProfiler.Start();

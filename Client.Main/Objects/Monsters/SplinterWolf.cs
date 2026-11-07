@@ -5,9 +5,18 @@ using Microsoft.Xna.Framework;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(351, "Splinter Wolf")]
-    public class SplinterWolf : MonsterObject
+    public class SplinterWolf : SoundMonsterObject
     {
         private GlowingEyesEffect _eyeGlow;
+
+        protected override string AttackSoundPath => "Sound/w37/swolf_attack-01.wav";
+        protected override string DeathSoundPath => "Sound/w37/swolf_death.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w37/swolf_idle-01.wav" : "Sound/w37/swolf_idle-02.wav";
+
+        protected override string GetAttackSoundPath(int attackType) =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w37/swolf_attack-01.wav" : "Sound/w37/swolf_attack-02.wav";
 
         public SplinterWolf()
         {

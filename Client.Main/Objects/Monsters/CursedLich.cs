@@ -7,8 +7,15 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class CursedLich : MonsterObject
+    [NpcInfo(422, "Cursed Lich")]
+    public class CursedLich : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w52/SE_Mon_curserich_attack01.wav";
+        protected override string DeathSoundPath => "Sound/w52/SE_Mon_curserich_death01.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(100) == 0 ? "Sound/w52/SE_Mon_curserich_move01.wav" : null;
+
         public CursedLich()
         {
         }

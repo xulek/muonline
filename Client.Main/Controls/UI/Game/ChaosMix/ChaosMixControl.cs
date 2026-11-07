@@ -828,7 +828,7 @@ namespace Client.Main.Controls.UI.Game
             }
 
             _mixInProgress = true;
-            SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+            SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
 
             _ = Task.Run(async () =>
             {

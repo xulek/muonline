@@ -51,6 +51,8 @@ namespace Client.Main.Models
         Santa1_3 = 160,   // AT_SANTA1_3
         Santa2_1 = 161,   // AT_SANTA2_1
         Santa2_2 = 162,   // AT_SANTA2_2
-        Santa2_3 = 163    // AT_SANTA2_3
+        Santa2_3 = 163,   // AT_SANTA2_3
+        RageBuff1 = 164,
+        RageBuff2 = 165
     }
 }

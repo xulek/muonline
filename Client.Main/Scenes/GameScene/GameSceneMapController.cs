@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Core.Utilities;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Game;
 using Client.Main.Controls.UI.Game.Hud;
@@ -158,6 +159,19 @@ namespace Client.Main.Scenes
                 nextWorld.Visible = false;
                 if (nextWorld is WalkableWorldControl walkable)
                     walkable.Walker = _scene.Hero;
+
+                // Warm the destination audio cache while the world is still initializing.
+                string nextMusic = nextWorld.BackgroundMusicPath;
+                if (string.IsNullOrEmpty(nextMusic) && nextWorld.HasWorldInfo)
+                    nextMusic = WorldAudioDatabase.GetMusic(nextWorld.MapId);
+                if (!string.IsNullOrEmpty(nextMusic))
+                    SoundController.Instance.PreloadBackgroundMusic(nextMusic);
+
+                string nextAmbient = nextWorld.AmbientSoundPath;
+                if (string.IsNullOrEmpty(nextAmbient) && nextWorld.HasWorldInfo)
+                    nextAmbient = WorldAudioDatabase.GetAmbient(nextWorld.MapId);
+                if (!string.IsNullOrEmpty(nextAmbient))
+                    SoundController.Instance.PreloadSound(nextAmbient);
 
                 // Attach the shell so initialization can resolve Scene and GraphicsDevice, but
                 // keep it hidden and leave Scene.World on the old world until warm-up completes.

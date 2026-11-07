@@ -1,4 +1,5 @@
 ﻿using Client.Main.Controls;
+using Client.Main.Controllers;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Worlds.LandOfTrials;
 using Microsoft.Xna.Framework;
@@ -14,6 +15,7 @@ namespace Client.Main.Worlds
     public class LandOfTrialsWorld : WalkableWorldControl
     {
         private LandOfTrialsMistSystem _mistSystem;
+        private double _ambientElapsedSeconds;
 
         public LandOfTrialsWorld() : base(worldIndex: 32) // LAND OF TRIALS
         {
@@ -33,6 +35,17 @@ namespace Client.Main.Worlds
             var landOfTrialsDefault = typeof(LandOfTrialsObject);
             for (int i = 0; i < MapTileObjects.Length; i++)
                 MapTileObjects[i] = landOfTrialsDefault;
+        }
+
+        public override void Update(GameTime time)
+        {
+            base.Update(time);
+            _ambientElapsedSeconds += time.ElapsedGameTime.TotalSeconds;
+            if (_ambientElapsedSeconds >= 300.0)
+            {
+                _ambientElapsedSeconds = 0;
+                SoundController.Instance.PlayBuffer("Sound/w31/aW31.wav");
+            }
         }
 
         public override void Dispose()

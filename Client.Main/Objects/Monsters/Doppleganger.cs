@@ -7,8 +7,17 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class Doppleganger : MonsterObject
+    [NpcInfo(533, "Doppelganger")]
+    public class Doppleganger : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/Doppelganger/Doppelganger_death.wav";
+
+        public override void OnAppearAnimationStart()
+        {
+            base.OnAppearAnimationStart();
+            PlayMonsterSound("Sound/Doppelganger/Doppelganger_attack.wav");
+        }
+
         public Doppleganger()
         {
         }

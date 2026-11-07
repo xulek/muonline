@@ -7,7 +7,8 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class BlueIllusionSorcereSpirit : MonsterObject
+    [NpcInfo(387, "Illusion Spirit (Ice)")]
+    public class BlueIllusionSorcereSpirit : IllusionTempleSpirit
     {
         public BlueIllusionSorcereSpirit()
         {

@@ -1,5 +1,6 @@
 ﻿using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Objects.Worlds.Events;
 using Client.Main.Objects.Worlds.Kanturu;
 using Microsoft.Xna.Framework;
 using System;
@@ -13,9 +14,29 @@ namespace Client.Main.Worlds
     [WorldInfo(37, "Kanturu")]
     public class KanturuWorld : WalkableWorldControl
     {
+        private ObjectAmbientSoundSystem _ambientSoundSystem;
+
         public KanturuWorld() : base(worldIndex: 38) // KANTURU (RUINS)
         {
+            AmbientSoundPath = "Sound/w37/kan_ruin_global.wav";
+        }
 
+        public override Task Load()
+        {
+            _ambientSoundSystem = new ObjectAmbientSoundSystem(
+                this,
+                new Dictionary<int, string>
+                {
+                    [46] = "Sound/w37/kan_ruin_wheel.wav",
+                    [77] = "Sound/w37/kan_ruin_waterfall.wav",
+                    [92] = "Sound/w37/kan_ruin_elec.wav",
+                    [98] = "Sound/w37/kan_ruin_plant.wav"
+                },
+                maxDistance: 900f,
+                intervalMs: 2000.0);
+            Objects.Add(_ambientSoundSystem);
+
+            return base.Load();
         }
 
         protected override void CreateMapTileObjects()
@@ -48,6 +69,17 @@ namespace Client.Main.Worlds
             Walker.Position = Walker.TargetPosition;
             
             base.AfterLoad();
+        }
+
+        public override void Dispose()
+        {
+            if (_ambientSoundSystem != null)
+            {
+                Objects.Remove(_ambientSoundSystem);
+                _ambientSoundSystem.Dispose();
+                _ambientSoundSystem = null;
+            }
+            base.Dispose();
         }
     }
 }

@@ -90,8 +90,8 @@ namespace Client.Main.Objects.Monsters
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0
-                ? "Sound/mDeathKnight1.wav"
-                : "Sound/mDeathKnight2.wav";
+                ? "Sound/mDarkKnight1.wav"
+                : "Sound/mDarkKnight2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -100,8 +100,8 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0
-                ? "Sound/mDeathKnightAttack1.wav"
-                : "Sound/mDeathKnightAttack2.wav";
+                ? "Sound/mDarkKnightAttack1.wav"
+                : "Sound/mDarkKnightAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -110,8 +110,8 @@ namespace Client.Main.Objects.Monsters
             base.OnReceiveDamage();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0
-                ? "Sound/mDeathKnightAttack1.wav"
-                : "Sound/mDeathKnightAttack2.wav";
+                ? "Sound/mDarkKnightAttack1.wav"
+                : "Sound/mDarkKnightAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -119,7 +119,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnDeathAnimationStart();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mDeathKnightDie.wav", Position, listenerPosition);
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mDarkKnightDie.wav", Position, listenerPosition);
         }
     }
 }

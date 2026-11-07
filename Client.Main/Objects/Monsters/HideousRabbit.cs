@@ -7,8 +7,15 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class HideousRabbit : MonsterObject
+    [NpcInfo(420, "Hideous Rabbit")]
+    public class HideousRabbit : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w52/SE_Mon_wolfhuman_attack01.wav";
+        protected override string DeathSoundPath => "Sound/w52/SE_Mon_wolfhuman_death01.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(30) == 0 ? "Sound/w52/SE_Mon_wolfhuman_move02.wav" : null;
+
         public HideousRabbit()
         {
         }

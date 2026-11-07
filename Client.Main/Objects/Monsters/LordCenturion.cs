@@ -14,6 +14,7 @@ using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Monsters
 {
+    [NpcInfo(145, "Death Centurion")]
     public class LordCenturion : MonsterObject
     {
         private readonly WeaponObject _spear;
@@ -78,14 +79,15 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mDsIdle1.wav", Position, listenerPosition);
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLsIdle1.wav" : "Sound/mLsIdle2.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = attackType == 1 ? "Sound/mDsAttack1.wav" : "Sound/mDsAttack2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLsAttack1.wav" : "Sound/mLsAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -96,7 +98,7 @@ namespace Client.Main.Objects.Monsters
             base.OnDeathAnimationStart();
             _spear.Hidden = true;
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mDsDeath.wav", Position, listenerPosition);
+            SoundController.Instance.PlayBufferWithAttenuation("Sound/mLsDeath.wav", Position, listenerPosition);
         }
     }
 }

@@ -330,6 +330,7 @@ OpenMU/
 .claude/
 .codex/
 *.py
+!tools/*.py
 .dotnet_cli_home/
 .serena
 .agents

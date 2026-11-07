@@ -7,8 +7,12 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class SapiDuo : MonsterObject
+    [NpcInfo(442, "Sapi Duo")]
+    public class SapiDuo : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w57/Sapi-Attack.wav";
+        protected override string DeathSoundPath => "Sound/w57/Sapi-Death.wav";
+
         public SapiDuo()
         {
         }

@@ -52,6 +52,7 @@ namespace Client.Main.Objects.Worlds.ImperialGuardian
         private Events.ScrollingSmokeOverlay? _fogLayers;
         private Events.EventRainSystem? _rainSystem;
         private GuardianWeather _applied = GuardianWeather.Rain; // force initial apply
+        private string? _ambientSound;
 
         public GuardianWeatherSystem(WalkableWorldControl world)
         {
@@ -64,6 +65,33 @@ namespace Client.Main.Objects.Worlds.ImperialGuardian
         {
             await base.LoadContent();
             await ApplyWeather(ImperialGuardianWeather.Current);
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+            if (_world.Status != GameControlStatus.Ready || _world.Walker == null)
+                return;
+
+            string? sound = _world.MapId == 72
+                ? "Sound/w69w70w71w72/ImperialGuardianFort_in.wav"
+                : ImperialGuardianWeather.Current switch
+                {
+                    GuardianWeather.Rain => "Sound/w69w70w71w72/ImperialGuardianFort_out1.wav",
+                    GuardianWeather.Fog => "Sound/w69w70w71w72/ImperialGuardianFort_out2.wav",
+                    GuardianWeather.Storm => "Sound/w69w70w71w72/ImperialGuardianFort_out3.wav",
+                    _ => null
+                };
+
+            if (_ambientSound != sound)
+            {
+                if (_ambientSound != null)
+                    SoundController.Instance.StopManagedLoop(_ambientSound);
+                _ambientSound = sound;
+            }
+
+            if (sound != null)
+                SoundController.Instance.PlayBufferWithAttenuation(sound, _world.Walker.Position, _world.Walker.Position, loop: true);
         }
 
         private void OnWeatherChanged(GuardianWeather weather)
@@ -173,6 +201,8 @@ namespace Client.Main.Objects.Worlds.ImperialGuardian
 
         public override void Dispose()
         {
+            if (_ambientSound != null)
+                SoundController.Instance.StopManagedLoop(_ambientSound);
             ImperialGuardianWeather.WeatherChanged -= OnWeatherChanged;
 
             if (_rainSystem != null)
@@ -189,4 +219,3 @@ namespace Client.Main.Objects.Worlds.ImperialGuardian
         }
     }
 }
-

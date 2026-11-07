@@ -48,8 +48,8 @@ namespace Client.Main.Objects.Effects
         private Vector3 _center;
         private string _blizzardPath = DefaultBlizzardPath;
         private string _iceSmallPath = DefaultIceSmallPath;
-        private string _startSoundPath = "Sound/esuddenice_1.wav";
-        private string _impactSoundPath = "Sound/esuddenice_2.wav";
+        private string _startSoundPath = "Sound/eSuddenIce_1.wav";
+        private string _impactSoundPath = "Sound/eSuddenIce_2.wav";
 
         private Texture2D? _smokeTexture;
         private Texture2D? _energyTexture;
@@ -113,14 +113,8 @@ namespace Client.Main.Objects.Effects
                 LightTexturePath,
                 "Effect/Flare01.jpg");
 
-            _startSoundPath = ResolveSoundPath(
-                "Sound/esuddenice_1.wav",
-                "Sound/eSuddenIce_1.wav",
-                "Sound/sSuddenIce1.wav");
-            _impactSoundPath = ResolveSoundPath(
-                "Sound/esuddenice_2.wav",
-                "Sound/eSuddenIce_2.wav",
-                "Sound/sSuddenIce2.wav");
+            _startSoundPath = "Sound/eSuddenIce_1.wav";
+            _impactSoundPath = "Sound/eSuddenIce_2.wav";
 
             await Task.WhenAll(
                 SoundController.Instance.PreloadSoundAsync(_startSoundPath),
@@ -595,17 +589,6 @@ namespace Client.Main.Objects.Effects
             }
 
             return primary;
-        }
-
-        private static string ResolveSoundPath(params string[] candidates)
-        {
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                if (File.Exists(Path.Combine(Constants.DataPath, candidates[i])))
-                    return candidates[i];
-            }
-
-            return candidates[0];
         }
 
         private static Color ToAdditiveColor(Vector3 value) => new(

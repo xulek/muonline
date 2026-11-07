@@ -67,7 +67,9 @@ namespace Client.Main.Core.Utilities
             { ServerPlayerActionType.Santa1_3, PlayerAction.PlayerSanta1 },
             { ServerPlayerActionType.Santa2_1, PlayerAction.PlayerSanta2 },
             { ServerPlayerActionType.Santa2_2, PlayerAction.PlayerSanta2 },
-            { ServerPlayerActionType.Santa2_3, PlayerAction.PlayerSanta2 }
+            { ServerPlayerActionType.Santa2_3, PlayerAction.PlayerSanta2 },
+            { ServerPlayerActionType.RageBuff1, PlayerAction.PlayerSkillAttUpOurforces },
+            { ServerPlayerActionType.RageBuff2, PlayerAction.PlayerSkillHpUpOurforces }
         };
         #endregion
 

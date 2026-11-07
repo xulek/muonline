@@ -4,8 +4,9 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters.BloodCastle
 {
     [NpcInfo(100, "Lance Trap")]
-    public class LanceTrap : MonsterObject
+    public class LanceTrap : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/aGrate.wav";
         public LanceTrap()
         {
             RenderShadow = false;

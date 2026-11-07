@@ -7,8 +7,15 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class BlazeNapin : MonsterObject
+    [NpcInfo(449, "Blaze Napin")]
+    public class BlazeNapin : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w57/Naipin-Attack.wav";
+        protected override string DeathSoundPath => "Sound/w57/Naipin-Death.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(100) == 0 ? "Sound/w57/Naipin-Blaze.wav" : null;
+
         public BlazeNapin()
         {
         }

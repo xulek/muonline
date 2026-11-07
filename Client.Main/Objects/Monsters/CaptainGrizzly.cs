@@ -7,8 +7,15 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class CaptainGrizzly : MonsterObject
+    [NpcInfo(425, "Captain Grizzly")]
+    public class CaptainGrizzly : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w52/SE_Mon_beastwooleader_attack01.wav";
+        protected override string DeathSoundPath => "Sound/w52/SE_Mon_beastwoo_death01.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(100) == 0 ? "Sound/w52/SE_Mon_beastwooleader_move01.wav" : null;
+
         public CaptainGrizzly()
         {
         }

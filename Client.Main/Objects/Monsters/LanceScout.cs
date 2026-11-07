@@ -8,8 +8,16 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(311, "Lance Scout")]
-    public class LanceScout : MonsterObject
+    public class LanceScout : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/w35/ww_s1_death.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w35/ww_s1_idle1.wav" : "Sound/w35/ww_s1_idle2.wav";
+
+        protected override string GetAttackSoundPath(int attackType) =>
+            attackType == 2 ? "Sound/w35/ww_s1_attack2.wav" : "Sound/w35/ww_s1_attack1.wav";
+
         public LanceScout()
         {
         }

@@ -4,6 +4,7 @@ using MUnique.OpenMU.Network.Packets.ServerToClient;
 using Client.Main.Core.Utilities;
 using Client.Main.Networking.Services;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Client.Main.Core.Client;
@@ -12,6 +13,8 @@ using Client.Main.Controls.UI.Game;
 using Client.Main.Scenes;
 using Client.Main.Models;
 using Client.Main.Controls.UI.Game.Hud;
+using Client.Main.Controllers;
+using Client.Main.Worlds;
 
 namespace Client.Main.Networking.PacketHandling.Handlers
 {
@@ -27,6 +30,38 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         private readonly CharacterState _characterState;
         private readonly TargetProtocolVersion _targetVersion;
         private readonly ScopeManager _scopeManager;
+        private int _lastIllusionTempleRemainSec = -1;
+        private int _lastIllusionTempleAlliedPoint = -1;
+        private int _lastIllusionTempleIllusionPoint = -1;
+        private int _lastIllusionTempleMapId = -1;
+        private int _lastCrywolfResult = -1;
+        private bool _kanturuSuccessMap;
+
+        [PacketHandler(0x9E, PacketRouter.NoSubCode)] // PlaySoundEffect
+        public Task HandlePlaySoundEffectAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 5)
+            {
+                _logger.LogWarning("PlaySoundEffect packet too short: {Length}", packet.Length);
+                return Task.CompletedTask;
+            }
+
+            // The original WORD may be aligned after the three-byte header.
+            int effectOffset = packet.Length >= 6 ? 4 : 3;
+            string sound = GetEventSoundPath(BinaryPrimitives.ReadUInt16LittleEndian(packet.Span.Slice(effectOffset, 2)));
+            if (sound != null)
+                MuGame.ScheduleOnMainThread(() => SoundController.Instance.PlayBuffer(sound));
+
+            return Task.CompletedTask;
+        }
+
+        private static string GetEventSoundPath(ushort effect) => effect switch
+        {
+            0 => "Sound/iEvent3min.wav",
+            1 => "Sound/iEventStart.wav",
+            2 => "Sound/iEventEnd.wav",
+            _ => null,
+        };
 
         // ───────────────────────── Constructors ─────────────────────────
         public MiscGamePacketHandler(
@@ -116,7 +151,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 MuGame.ScheduleOnMainThread(() =>
                 {
-                    RequestDialog.Show(
+                    var dialog = RequestDialog.Show(
                         $"{requesterName} has challenged you to a duel.",
                         onAccept: () =>
                         {
@@ -129,6 +164,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                             _logger.LogInformation("Rejected duel challenge from {Name} ({Id}).", requesterName, requesterId);
                         }
                     );
+                    if (dialog != null)
+                        SoundController.Instance.PlayBuffer("Sound/iDuelWindow.wav");
                 });
             }
             catch (Exception ex)
@@ -157,6 +194,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     _characterState.SetDuelPlayer(CharacterState.DuelPlayerType.Enemy, opponentId, opponentName);
 
                     ShowSystemMessage($"Duel started with {opponentName}.", MessageType.System);
+                    MuGame.ScheduleOnMainThread(() => SoundController.Instance.PlayBuffer("Sound/iDuelStart.wav"));
                 }
                 else
                 {
@@ -275,6 +313,226 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             }
 
             return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xBD, 0x00)] // CrywolfInfo (S2C)
+        public Task HandleCrywolfInfoAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 6 || _characterState.MapId != 34)
+                return Task.CompletedTask;
+
+            byte state = packet.Span[5];
+            byte occupationState = packet.Span[4];
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (_characterState.MapId != 34)
+                    return;
+
+                if (state != 5)
+                    _lastCrywolfResult = -1;
+
+                switch (state)
+                {
+                    case 2:
+                        SoundController.Instance.PlayBackgroundMusic("Music/crywolf_before-01.ogg");
+                        break;
+                    case 3:
+                        SoundController.Instance.PlayBackgroundMusic("Music/crywolf_ready-02.ogg");
+                        break;
+                    case 4:
+                        SoundController.Instance.PlayBackgroundMusic("Music/crywolf_back-03.ogg");
+                        break;
+                    case 5:
+                        SoundController.Instance.StopBackgroundMusic();
+                        // Occupation: peace = victory, occupied = defeat, war = unresolved.
+                        if (occupationState <= 1 && _lastCrywolfResult != occupationState)
+                        {
+                            _lastCrywolfResult = occupationState;
+                            SoundController.Instance.PlayBuffer(
+                                occupationState == 0
+                                    ? "Sound/w35/CW_win.wav"
+                                    : "Sound/w35/CW_lose.wav");
+                        }
+                        break;
+                    default:
+                        SoundController.Instance.PlayBackgroundMusic("Music/crywolf1st.mp3");
+                        break;
+                }
+            });
+
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xD1, 0x00)] // KanturuStateInfo (S2C)
+        public Task HandleKanturuStateInfoAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 12)
+                return Task.CompletedTask;
+
+            // This response describes the entrance NPC; only D1:02/03 set the
+            // active boss-map state in the reference client.
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xD1, 0x02)] // KanturuCurrentState (S2C)
+        public Task HandleKanturuCurrentStateAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 6)
+                return Task.CompletedTask;
+
+            byte state = packet.Span[4];
+            byte detailState = packet.Span[5];
+            MuGame.ScheduleOnMainThread(() => ApplyKanturuMusic(state, detailState));
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xD1, 0x03)] // KanturuStateChange (S2C)
+        public Task HandleKanturuStateChangeAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 6)
+                return Task.CompletedTask;
+
+            byte state = packet.Span[4];
+            byte detailState = packet.Span[5];
+            MuGame.ScheduleOnMainThread(() => ApplyKanturuMusic(state, detailState));
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xF7, 0x02)] // Empire Guardian enter response (S2C)
+        public Task HandleEmpireGuardianEnterAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 12 || packet.Span[4] != 0 || packet.Span[7] > 3)
+                return Task.CompletedTask;
+
+            var weather = (Client.Main.Objects.Worlds.ImperialGuardian.GuardianWeather)packet.Span[7];
+            MuGame.ScheduleOnMainThread(() =>
+                Client.Main.Objects.Worlds.ImperialGuardian.ImperialGuardianWeather.SetWeather(weather));
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xBF, 0x01)] // IllusionTempleState (S2C)
+        public Task HandleIllusionTempleStateAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 14 || !IsIllusionTempleMap(_characterState.MapId))
+                return Task.CompletedTask;
+
+            var span = packet.Span;
+            int remainSec = span[4] | (span[5] << 8);
+            int alliedPoint = span[10];
+            int illusionPoint = span[11];
+
+            int mapId = _characterState.MapId;
+            bool newMatch = _lastIllusionTempleMapId != mapId
+                || _lastIllusionTempleRemainSec < 0
+                || remainSec > _lastIllusionTempleRemainSec;
+            bool scoreChanged = !newMatch
+                && (alliedPoint != _lastIllusionTempleAlliedPoint || illusionPoint != _lastIllusionTempleIllusionPoint);
+
+            _lastIllusionTempleRemainSec = remainSec;
+            _lastIllusionTempleAlliedPoint = alliedPoint;
+            _lastIllusionTempleIllusionPoint = illusionPoint;
+            _lastIllusionTempleMapId = mapId;
+
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (_characterState.MapId != mapId)
+                    return;
+
+                if (scoreChanged)
+                    SoundController.Instance.PlayBuffer("Sound/w47/cursedtemple_score01.wav");
+            });
+
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xBF, 0x04)] // Illusion Temple result (S2C)
+        public Task HandleIllusionTempleResultAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 4 || !IsIllusionTempleMap(_characterState.MapId))
+                return Task.CompletedTask;
+
+            int mapId = _characterState.MapId;
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (_characterState.MapId == mapId)
+                    SoundController.Instance.PlayBuffer("Sound/w47/cursedtemple_end01.wav");
+            });
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xBF, 0x09)] // Illusion Temple event state (S2C)
+        public Task HandleIllusionTemplePhaseAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 6 || !IsIllusionTempleMap(_characterState.MapId))
+                return Task.CompletedTask;
+
+            int mapId = _characterState.MapId;
+            byte state = packet.Span[5];
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (_characterState.MapId != mapId)
+                    return;
+
+                switch (state)
+                {
+                    case 0:
+                        SoundController.Instance.PlayBackgroundMusic("Music/cursedtemplewait.mp3");
+                        break;
+                    case 1:
+                        SoundController.Instance.PlayBuffer("Sound/w47/cursedtemple_start01.wav");
+                        goto case 2;
+                    case 2:
+                        SoundController.Instance.PlayBackgroundMusic("Music/cursedtempleplay.mp3");
+                        break;
+                    case 3:
+                        // End leaves the current track untouched in CursedTemple::PlayBGM;
+                        // the next map or phase will select or stop its own music.
+                        break;
+                }
+            });
+            return Task.CompletedTask;
+        }
+
+        [PacketHandler(0xB2, 0x17)] // CastleSiegeBattleStartEnd (S2C)
+        public Task HandleCastleSiegeBattleStartEndAsync(Memory<byte> packet)
+        {
+            if (packet.Length < 5)
+                return Task.CompletedTask;
+
+            bool started = packet.Span[4] != 0;
+            MuGame.ScheduleOnMainThread(() => ValleyOfLorenWorld.SetCastleSiegeBattleActive(started));
+            return Task.CompletedTask;
+        }
+
+        private void ApplyKanturuMusic(byte state, byte detailState)
+        {
+            if (_characterState.MapId != 39)
+                return;
+
+            bool successMap = state == 4 && (detailState == 1 || detailState == 2);
+
+            switch (state)
+            {
+                case 1:
+                case 2:
+                    SoundController.Instance.PlayBackgroundMusic("Music/KanturuMayaBattle.mp3");
+                    break;
+                case 3:
+                    SoundController.Instance.PlayBackgroundMusic("Music/KanturuNightmareBattle.mp3");
+                    break;
+                default:
+                    SoundController.Instance.PlayBackgroundMusic("Music/KanturuTower.mp3");
+                    break;
+            }
+
+            if (successMap && !_kanturuSuccessMap)
+                SoundController.Instance.PlayBuffer("Sound/w39/kan_boss_disfield.wav");
+            _kanturuSuccessMap = successMap;
+        }
+
+        private static bool IsIllusionTempleMap(ushort mapId)
+        {
+            return (mapId >= 45 && mapId <= 50) || mapId == 98;
         }
 
         private bool IsDevilSquareState(UpdateMiniGameState.MiniGameTypeState state)
@@ -990,6 +1248,17 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 _logger.LogInformation(
                     "Weather update: {Weather}, variation {Variation}",
                     weather.Weather, weather.Variation);
+
+                if (packet.Length >= 4)
+                {
+                    byte value = packet.Span[3];
+                    bool isRaining = (value >> 4) == 1 && (value & 0x0F) != 0;
+                    MuGame.ScheduleOnMainThread(() =>
+                    {
+                        if (MuGame.Instance?.ActiveScene?.World is LorenciaWorld lorencia)
+                            lorencia.IsRaining = isRaining;
+                    });
+                }
             }
             catch (Exception ex)
             {

@@ -39,6 +39,7 @@
     <PackageReference Include="MUnique.OpenMU.Network" Version="0.9.8" />
     <PackageReference Include="MUnique.OpenMU.Network.Packets" Version="0.9.8" ExcludeAssets="contentFiles" />
     <PackageReference Include="NLayer" Version="1.16.0" />
+    <PackageReference Include="NVorbis" Version="0.10.5" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">

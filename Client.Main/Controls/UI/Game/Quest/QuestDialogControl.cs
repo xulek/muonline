@@ -798,7 +798,7 @@ namespace Client.Main.Controls.UI.Game.Quest
                 _logger?.LogInformation("[QuestDialog] Accept/Continue clicked! Handlers={Count}, infoOnly={InfoOnly}",
                     handlerCount, _infoOnly);
 
-                SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
 
                 try
                 {
@@ -819,7 +819,7 @@ namespace Client.Main.Controls.UI.Game.Quest
             if (_rejectPressed && _rejectHovered)
             {
                 _logger?.LogInformation("[QuestDialog] Close/Reject clicked!");
-                SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                 Rejected?.Invoke();
                 _acceptPressed = false;
                 _rejectPressed = false;

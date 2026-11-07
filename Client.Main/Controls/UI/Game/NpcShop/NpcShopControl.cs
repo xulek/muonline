@@ -330,7 +330,7 @@ namespace Client.Main.Controls.UI.Game
                     if (InventoryControl.Instance?.GetDraggedItem() == null)
                     {
                         ToggleRepairMode();
-                        SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                        SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                     }
                 }
 
@@ -356,7 +356,7 @@ namespace Client.Main.Controls.UI.Game
                     {
                         // Toggle repair mode
                         ToggleRepairMode();
-                        SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                        SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                         return;
                     }
                     else if (_repairAllButtonHovered)
@@ -366,7 +366,7 @@ namespace Client.Main.Controls.UI.Game
                         if (svc != null)
                         {
                             _ = svc.SendRepairItemRequestAsync(0xFF, false); // 0xFF = repair all
-                            SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                            SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                         }
                         return;
                     }

@@ -1,4 +1,4 @@
-﻿using Client.Main.Content;
+using Client.Main.Content;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,8 +8,12 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(457, "Coolutin")]
-    public class Coolutin : MonsterObject
+    public class Coolutin : RaklionMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w58w59/Coolertin_attack.wav";
+        protected override string MoveSoundPath => "Sound/w58w59/Coolertin_move.wav";
+        protected override string DeathSoundPath => "Sound/mHellSpiderDie.wav";
+
         public Coolutin()
         {
         }

@@ -389,7 +389,7 @@ namespace Client.Main.Controllers
                                                         => AnimationType.Idle,
             MonsterActionType.Walk or MonsterActionType.Run
                                                         => AnimationType.Walk,
-            MonsterActionType.Attack1 or MonsterActionType.Attack2
+            MonsterActionType.Attack1 or MonsterActionType.Attack2 or MonsterActionType.Attack3 or MonsterActionType.Attack4
                                                         => AnimationType.Attack,
             MonsterActionType.Shock => AnimationType.Emote,
             MonsterActionType.Appear => AnimationType.Appear,

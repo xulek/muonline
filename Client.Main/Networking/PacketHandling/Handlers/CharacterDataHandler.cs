@@ -1339,6 +1339,14 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     var activeScene = MuGame.Instance?.ActiveScene as GameScene;
                     if (activeScene?.Hero == null) return;
 
+                    // ReceiveMagic plays this impact when Dragon Lower reaches its target.
+                    if (skillId == 264 && activeScene.World is WalkableWorldControl impactWorld &&
+                        impactWorld.TryGetWalkerById((ushort)(playerId & 0x7FFF), out _) &&
+                        impactWorld.TryGetWalkerById((ushort)(targetId & 0x7FFF), out _))
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Dragonlower_Att.wav");
+                    }
+
                     // Check if this is our player
                     if (playerId == _characterState.Id)
                     {
@@ -1423,6 +1431,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     }
                     else
                     {
+                        if (skillId is 59 or 77 &&
+                            activeScene.World is WalkableWorldControl skillWorld &&
+                            skillWorld.TryGetWalkerById((ushort)(playerId & 0x7FFF), out var skillCaster) &&
+                            skillCaster is Objects.Player.PlayerObject)
+                        {
+                            string skillSound = Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
+                            if (!string.IsNullOrEmpty(skillSound))
+                                SoundController.Instance.PlayBuffer(skillSound);
+                        }
+
                         // ReceiveMagic resolves both the caster and target before these
                         // targeted spells reach their original sound/effect handling.
                         if (skillId is 1 or 3 or 4 or 7 &&

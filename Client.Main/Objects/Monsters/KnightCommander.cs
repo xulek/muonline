@@ -7,10 +7,20 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class KnightCommander : MonsterObject
+    [NpcInfo(514, "Knight Commander")]
+    public class KnightCommander : SoundMonsterObject
     {
+        protected override string DeathSoundPath => World?.MapId == 70 ? "Sound/w69w70w71w72/Jelint_death.wav" : null;
+        protected override string GetMoveSoundPath() => World?.MapId != 70 ? null : MuGame.Random.Next(2) == 0
+            ? "Sound/w69w70w71w72/Jelint_move01.wav"
+            : "Sound/w69w70w71w72/Jelint_move02.wav";
+        protected override string GetAttackSoundPath(int attackType) => World?.MapId == 70
+            ? "Sound/w69w70w71w72/CombatMaster_attack3.wav"
+            : null;
+
         public KnightCommander()
         {
+            Scale = 1.35f;
         }
 
         public override async Task Load()

@@ -7,8 +7,14 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class Werewolf2 : MonsterObject
+    [NpcInfo(421, "Werewolf")]
+    public class Werewolf2 : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/w52/SE_Mon_butterflypollution_death01.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(100) == 0 ? "Sound/w52/SE_Mon_butterflypollution_move01.wav" : null;
+
         public Werewolf2()
         {
         }

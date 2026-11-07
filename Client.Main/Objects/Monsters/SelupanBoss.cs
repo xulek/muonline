@@ -10,8 +10,10 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class SelupanBoss : MonsterObject
+    public class SelupanBoss : RaklionMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/w58w59/Selupan_word2.wav";
+
         public SelupanBoss()
         {
         }
@@ -35,7 +37,8 @@ namespace Client.Main.Objects.Monsters
                 return;
 
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mHellSpiderAttack1.wav", Position, listenerPosition);
+            string attackSound = attackType == 3 ? "Sound/w58w59/Selupan_attack2.wav" : "Sound/w58w59/Selupan_attack1.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(attackSound, Position, listenerPosition);
 
             // SourceMain5.2 GM_Raklion.cpp:511-522 ATTACK1 — MODEL_RAKLION_BOSS_MAGIC orb
             // (Effect/serufan_magic.bmd, scale 1.5) spawns at Position + 30Y and flies

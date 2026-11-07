@@ -18,7 +18,7 @@ namespace Client.Main.Worlds
 
         public CrywolfWorld() : base(worldIndex: 35) // CRYWOLF
         {
-
+            AmbientSoundPath = "Sound/w35/crywolf_ambi.wav";
         }
 
         public override async Task Load()

@@ -18,6 +18,7 @@ namespace Client.Main.Worlds
         protected ChaosCastleEventWorldBase(short worldIndex, string name)
             : base(worldIndex, name)
         {
+            AmbientSoundPath = "Sound/aChaos.wav";
         }
 
         public override Task Load()

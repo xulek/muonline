@@ -8,7 +8,9 @@ using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Game;
 using Client.Main.Core.Utilities;
 using Client.Main.Controls;
+using Client.Main.Controllers;
 using Client.Main.Objects.Worlds.BloodCastle;
+using Client.Main.Worlds;
 
 namespace Client.Main.Networking.PacketHandling.Handlers
 {
@@ -20,6 +22,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         private readonly ILogger<BloodCastleHandler> _logger;
         private readonly CharacterState _characterState;
         private readonly NetworkManager _networkManager;
+        private ChaosCastleEventWorldBase _chaosAudioWorld;
+        private byte _chaosAudioState = byte.MaxValue;
 
         public BloodCastleHandler(
             ILoggerFactory loggerFactory,
@@ -63,7 +67,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     {
                         case 0: // Event start
                             _logger.LogInformation("Blood Castle event started!");
-                            // Play sound, set animations, etc.
+                            SoundController.Instance.PlayAmbientSound("Sound/iBloodCastle.wav");
                             break;
 
                         case 1: // Playing - phase 1
@@ -91,7 +95,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         case 2: // Event end
                             _logger.LogInformation("Blood Castle event ended.");
                             BloodCastleTimeControl.Instance?.HideWindow();
-                            // Stop background music, etc.
+                            SoundController.Instance.StopAmbientSound();
                             break;
 
                         case 3: // Special state (bridge activation?)
@@ -108,6 +112,15 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         case 9: // ChaosCastleStageTwo
                         case 10: // ChaosCastleStageThree
                             BloodCastleTimeControl.Instance?.ShowChaosCastle(remainSec, curKillMonster);
+                            if (playState == 5 && MuGame.Instance?.ActiveScene?.World is ChaosCastleEventWorldBase startWorld)
+                            {
+                                if (!ReferenceEquals(_chaosAudioWorld, startWorld) || _chaosAudioState != 5)
+                                {
+                                    _chaosAudioWorld = startWorld;
+                                    _chaosAudioState = 5;
+                                    SoundController.Instance.PlayAmbientSound("Sound/iChaosCastle.wav");
+                                }
+                            }
                             if (playState == 5 || playState >= 8)
                             {
                                 string text = playState switch
@@ -123,6 +136,14 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                         case 7: // ChaosCastleEnded
                             BloodCastleTimeControl.Instance?.HideWindow();
+                            if (MuGame.Instance?.ActiveScene?.World is ChaosCastleEventWorldBase endWorld &&
+                                (!ReferenceEquals(_chaosAudioWorld, endWorld) || _chaosAudioState != 7))
+                            {
+                                _chaosAudioWorld = endWorld;
+                                _chaosAudioState = 7;
+                                SoundController.Instance.PlayAmbientSound("Sound/aChaos.wav");
+                                SoundController.Instance.PlayBuffer("Sound/aChaosEnd.wav");
+                            }
                             break;
 
                         default:

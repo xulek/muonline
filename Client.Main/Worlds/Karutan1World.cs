@@ -14,6 +14,7 @@ namespace Client.Main.Worlds
     public class Karutan1World : WalkableWorldControl
     {
         private ScrollingSmokeOverlay _sandOverlay;
+        private ObjectAmbientSoundSystem _ambientSoundSystem;
 
         public Karutan1World() : base(worldIndex: 81) // KARUTAN
         {
@@ -35,6 +36,17 @@ namespace Client.Main.Worlds
                     Blend = ScrollingSmokeOverlay.LayerBlend.Additive
                 });
             await _sandOverlay.Load();
+
+            _ambientSoundSystem = new ObjectAmbientSoundSystem(
+                this,
+                new Dictionary<int, string>
+                {
+                    [58] = "Sound/Karutan/Karutan_insect_env.wav",
+                    [66] = "Sound/Karutan/Karutan_insect_env.wav"
+                },
+                maxDistance: 700f,
+                intervalMs: 2000.0);
+            Objects.Add(_ambientSoundSystem);
 
             await base.Load();
         }
@@ -74,6 +86,7 @@ namespace Client.Main.Worlds
         {
             _sandOverlay?.Dispose();
             _sandOverlay = null;
+            if (_ambientSoundSystem != null) { Objects.Remove(_ambientSoundSystem); _ambientSoundSystem.Dispose(); _ambientSoundSystem = null; }
             base.Dispose();
         }
     }

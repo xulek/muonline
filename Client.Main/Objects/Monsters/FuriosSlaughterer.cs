@@ -7,8 +7,12 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class FuriosSlaughterer : MonsterObject
+    [NpcInfo(529, "Terrible Butcher")]
+    public class FuriosSlaughterer : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/Doppelganger/Angerbutcher_attack.wav";
+        protected override string DeathSoundPath => "Sound/Doppelganger/Angerbutcher_death.wav";
+
         public FuriosSlaughterer()
         {
         }

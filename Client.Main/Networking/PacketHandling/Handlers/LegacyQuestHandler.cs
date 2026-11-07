@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Client.Main;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Game.Quest;
+using Client.Main.Controllers;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
@@ -199,11 +200,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     LegacyQuestReward.QuestRewardType.CharacterEvolutionSecondToThird => "Quest reward: class change (2nd → 3rd).",
                     _ => $"Quest reward: {reward.Reward} (value={reward.Count})."
                 };
+                bool playRewardSound = reward.Reward is
+                    LegacyQuestReward.QuestRewardType.LevelUpPoints or
+                    LegacyQuestReward.QuestRewardType.CharacterEvolutionFirstToSecond or
+                    LegacyQuestReward.QuestRewardType.LevelUpPointsPerLevelIncrease or
+                    LegacyQuestReward.QuestRewardType.ComboSkill or
+                    LegacyQuestReward.QuestRewardType.CharacterEvolutionSecondToThird;
 
                 MuGame.ScheduleOnMainThread(() =>
                 {
                     var scene = MuGame.Instance?.ActiveScene as GameScene;
                     scene?.ChatLog?.AddMessage("System", msg, MessageType.System);
+                    if (scene?.Hero != null && playRewardSound)
+                        SoundController.Instance.PlayBuffer("Sound/nMalonSkillMaster.wav");
                 });
             }
             catch (Exception ex)

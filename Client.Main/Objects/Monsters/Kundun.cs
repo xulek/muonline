@@ -16,6 +16,7 @@ using Joints = Client.Main.Objects.Effects.Joints;
 
 namespace Client.Main.Objects.Monsters
 {
+    [NpcInfo(275, "Illusion of Kundun")]
     public class Kundun : MonsterObject
     {
         private readonly WeaponObject _staff;

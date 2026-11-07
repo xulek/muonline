@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class IllusionSorcereSpirit3 : MonsterObject
+    [NpcInfo(388, "Illusion Spirit (Poison)")]
+    public class IllusionSorcereSpirit3 : IllusionTempleSpirit
     {
+        protected override bool IsPoison => true;
         public IllusionSorcereSpirit3()
         {
         }

@@ -8,8 +8,11 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(348, "Ballista")]
-    public class Ballista : MonsterObject
+    public class Ballista : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w35/tanker_attack.wav";
+        protected override string DeathSoundPath => "Sound/w35/tanker_death.wav";
+
         public Ballista()
         {
         }

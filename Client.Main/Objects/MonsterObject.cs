@@ -220,6 +220,11 @@ namespace Client.Main.Objects
 
         // --- Protected Virtual Methods for Overriding ---
 
+        /// <summary>Called when the spawn appearance animation starts.</summary>
+        public virtual void OnAppearAnimationStart()
+        {
+        }
+
         /// <summary>
         /// Called when the monster enters idle state.
         /// </summary>

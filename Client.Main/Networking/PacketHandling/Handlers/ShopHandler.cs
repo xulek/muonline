@@ -9,6 +9,7 @@ using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Controls.UI;
 using Client.Main.Scenes;
 using Client.Main.Controls.UI.Game;
+using Client.Main.Controllers;
 
 namespace Client.Main.Networking.PacketHandling.Handlers
 {
@@ -281,7 +282,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             try
             {
                 var span = packet.Span;
-                if (span.Length < 7)
+                if (span.Length < 6)
                 {
                     _logger.LogWarning("StoreItemList packet too short: {Length}", packet.Length);
                     return Task.CompletedTask;
@@ -302,8 +303,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 _logger.LogInformation("StoreItemList received: Type={Type}, Count={Count}, DataSize={Size}", list.Type, count, dataSize);
 
-                bool toChaosMachine = _lastWindow == NpcWindowResponse.NpcWindow.ChaosMachine || list.Type == StoreItemList.ItemWindow.ChaosMachine;
+                bool isMixResultList = _targetVersion >= TargetProtocolVersion.Season6 &&
+                    (list.Type == StoreItemList.ItemWindow.ChaosMachine || list.Type == StoreItemList.ItemWindow.ResurrectionFailed);
+                bool toChaosMachine = _lastWindow == NpcWindowResponse.NpcWindow.ChaosMachine || isMixResultList || list.Type == StoreItemList.ItemWindow.ChaosMachine;
                 bool toVault = !toChaosMachine && _lastWindow == NpcWindowResponse.NpcWindow.VaultStorage;
+
+                if (isMixResultList)
+                {
+                    MuGame.ScheduleOnMainThread(() =>
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/eMix.wav");
+                        SoundController.Instance.PlayBuffer("Sound/eBreak.wav");
+                    });
+                }
 
                 if (toChaosMachine)
                 {

@@ -40,6 +40,8 @@ namespace Client.Main.Scenes
     {
         // ──────────────────────────── Fields ────────────────────────────
         private readonly HeroObject _hero;
+        private double _lastHeartbeatMs;
+        private const double HeartbeatIntervalMs = 1000.0;
         private ModernBottomHud _modernHud;
         private BottomBarControl _classicBottomBar;
         private TouchActionButtonsControl _classicTouchActions;
@@ -808,6 +810,23 @@ namespace Client.Main.Scenes
         }
 
         // ─────────────────────────── Update Loop ───────────────────────────
+        private void UpdateLowHealthHeartbeat(GameTime gameTime)
+        {
+            var state = MuGame.Network?.GetCharacterState();
+            if (state == null || state.MaximumHealth == 0 || state.CurrentHealth == 0)
+                return;
+
+            if (state.CurrentHealth / (float)state.MaximumHealth >= 0.2f)
+                return;
+
+            double nowMs = gameTime.TotalGameTime.TotalMilliseconds;
+            if (nowMs - _lastHeartbeatMs < HeartbeatIntervalMs)
+                return;
+
+            _lastHeartbeatMs = nowMs;
+            SoundController.Instance.PlayBuffer("Sound/pHeartBeat.wav");
+        }
+
         public override void Update(GameTime gameTime)
         {
             if (Status != GameControlStatus.Ready)
@@ -834,6 +853,8 @@ namespace Client.Main.Scenes
             base.Update(gameTime);
             if (Status != GameControlStatus.Ready)
                 return;
+
+            UpdateLowHealthHeartbeat(gameTime);
 
             long buffsStarted = UpdatePassProfiler.Start();
             MuGame.Network?.UpdateBuffs();

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MUnique.OpenMU.Network.Packets.ServerToClient;
 using Client.Main.Core.Utilities;
 using System;
+using System.Buffers.Binary;
 using System.Threading.Tasks;
 using Client.Main.Core.Client;
 using Client.Main.Controllers;
@@ -39,6 +40,27 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         }
 
         // ─────────────────────── Packet Handlers ────────────────────────
+
+        [PacketHandler(0x34, PacketRouter.NoSubCode)] // Repair result (S2C)
+        public Task HandleRepairResultAsync(Memory<byte> packet)
+        {
+            // PRECEIVE_REPAIR_GOLD can include padding after its three-byte header.
+            if (packet.Length < 7)
+            {
+                _logger.LogWarning("Repair result packet too short: {Length}", packet.Length);
+                return Task.CompletedTask;
+            }
+
+            int goldOffset = packet.Length >= 8 ? 4 : 3;
+            uint gold = BinaryPrimitives.ReadUInt32LittleEndian(packet.Span.Slice(goldOffset, 4));
+            if (gold != 0)
+            {
+                _characterState.UpdateInventoryZen(gold);
+                MuGame.ScheduleOnMainThread(() => SoundController.Instance.PlayBuffer("Sound/iRepair.wav"));
+            }
+
+            return Task.CompletedTask;
+        }
 
         [PacketHandler(0xF3, 0x10)]  // CharacterInventory
         public Task HandleCharacterInventoryAsync(Memory<byte> packet)
@@ -687,6 +709,9 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     _characterState.AddOrUpdateInventoryItem(slot, data);
                     string itemName = ItemDatabase.GetItemName(data) ?? "Unknown Item";
                     _logger.LogInformation("Item upgraded in slot {Slot}: {ItemName}", slot, itemName);
+                    string sound = GetModifiedItemSound(data);
+                    if (sound != null)
+                        MuGame.ScheduleOnMainThread(() => SoundController.Instance.PlayBuffer(sound));
                 }
                 else
                 {
@@ -706,6 +731,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         }
 
         // ────────────────────────── Helpers ────────────────────────────
+
+        // ReceiveModifyItemExtended: Lost Map and the related event item have
+        // a distinct sound. The original suppresses the default in its gamble
+        // shop, which is not implemented in this client.
+        private static string GetModifiedItemSound(byte[] itemData)
+        {
+            if (!ItemDatabase.TryGetItemGroupAndNumber(itemData, out byte group, out short number))
+                return null;
+            return group == 14 && number is 28 or 111 ? "Sound/kundunitem.wav" : "Sound/eGem.wav";
+        }
 
         /// <summary>
         /// Parses the inventory packet and updates CharacterState accordingly.

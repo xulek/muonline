@@ -23,7 +23,7 @@ namespace Client.Main.Objects.Effects
     {
         private const string DefaultPierPartModelPath = "Skill/pierpart.bmd";
         private const string DefaultCastFlashModelPath = "Skill/darklordskill.bmd";
-        private const string ImpactSoundPath = "Sound/efirebustboom.wav";
+        private const string ImpactSoundPath = "Sound/eFirebustBoom.wav";
 
         private const float LegacyStepSeconds = 1f / 25f;
         private const int MaxLegacyStepsPerFrame = 5;

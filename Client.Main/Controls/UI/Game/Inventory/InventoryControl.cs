@@ -643,7 +643,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
             _isRepairMode = !_isRepairMode;
-            SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+            SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
         }
 
         public override void Draw(GameTime gameTime)
@@ -1621,7 +1621,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     RequestDialog.ShowInfo("Personal shop is only available with the Season 6 protocol.");
                 else if (Scene is Client.Main.Scenes.GameScene gameScene)
                     gameScene.OwnPlayerShop?.Toggle();
-                SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                 return true;
             }
 
@@ -1733,7 +1733,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                                 if (svc != null)
                                 {
                                     _ = svc.SendRepairItemRequestAsync(itemSlot, false);
-                                    SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                                    SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                                 }
                             }
                             return;
@@ -1750,7 +1750,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                                 if (svc != null)
                                 {
                                     _ = svc.SendRepairItemRequestAsync(itemSlot, true);
-                                    SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                                    SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                                 }
                             }
                             return;
@@ -1849,7 +1849,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                                     if (svc != null)
                                     {
                                         _ = svc.SendRepairItemRequestAsync(equipSlot, false);
-                                        SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                                        SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                                     }
                                 }
                                 return;
@@ -1866,7 +1866,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                                     if (svc != null)
                                     {
                                         _ = svc.SendRepairItemRequestAsync(equipSlot, true);
-                                        SoundController.Instance.PlayBuffer("Sound/iButton.wav");
+                                        SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
                                     }
                                 }
                                 return;

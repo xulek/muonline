@@ -6,9 +6,19 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(576, "Narcondra")]
-    public class NarCondra : MonsterObject
+    public class NarCondra : SoundMonsterObject
     {
         private GlowingEyesEffect _eyeGlow;
+        private bool _walkSoundToggle;
+
+        protected override string AttackSoundPath => "Sound/Karutan/NarCondra_attack.wav";
+        protected override string DeathSoundPath => "Sound/Karutan/Condra_death.wav";
+
+        protected override string GetMoveSoundPath()
+        {
+            _walkSoundToggle = !_walkSoundToggle;
+            return _walkSoundToggle ? "Sound/Karutan/Condra_move1.wav" : "Sound/Karutan/Condra_move2.wav";
+        }
 
         public NarCondra()
         {

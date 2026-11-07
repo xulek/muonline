@@ -18,7 +18,7 @@ namespace Client.Main.Core.Utilities
     {
         private static readonly Dictionary<ushort, string> Music = new()
         {
-            { 0, "Music/MuTheme.mp3" },              // Lorencia
+            { 0, "Music/main_theme.mp3" },           // Lorencia (outside the pub)
             { 1, "Music/Dungeon.mp3" },              // Dungeon
             { 2, "Music/Devias.mp3" },               // Devias
             { 3, "Music/Noria.mp3" },                // Noria
@@ -67,6 +67,7 @@ namespace Client.Main.Core.Utilities
             { 81, "Music/Karutan_B.mp3" },           // Karutan 2
             { 82, "Music/iDoppelganger.mp3" },       // Doppelganger Renewal
             { 91, "Music/Acheron.mp3" },             // Acheron
+            { 98, "Music/cursedtemplewait.mp3" },    // Illusion Temple League
             { 110, "Music/Nars01.mp3" },             // Nars
             { 113, "Music/NixiesLake_2.mp3" },       // Nixies Lake
             { 122, "Music/SwampOfDarkness.mp3" },    // Swamp of Darkness
@@ -97,6 +98,7 @@ namespace Client.Main.Core.Utilities
             { 28, "Sound/aKalima.wav" },
             { 29, "Sound/aKalima.wav" },
             { 36, "Sound/aKalima.wav" },
+            { 33, "Sound/w34/aida_ambi.wav" },       // Aida
             { 58, "Sound/aWind.wav" },               // Raklion boss
             { 79, "Sound/aWind.wav" },               // Loren Market
             { 80, "Sound/Karutan/Karutan_desert_env.wav" }, // Karutan 1

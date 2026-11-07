@@ -3,6 +3,7 @@ using MUnique.OpenMU.Network.Packets.ServerToClient;
 using Client.Main.Core.Utilities;
 using Client.Main.Core.Models;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using MUnique.OpenMU.Network.Packets;
@@ -12,6 +13,7 @@ using System.Collections.Generic;
 using Client.Main.Models;
 using Client.Main.Objects;
 using Client.Main.Objects.Player;
+using Client.Main.Objects.Monsters;
 using Client.Main.Objects.Effects;
 using Client.Main.Core.Client;
 using Client.Main.Configuration;
@@ -854,6 +856,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 byte direction = (byte)((entry[8] >> 4) & 0x0F);
                 string owner = ReadFixedString(entry.Slice(9, 10));
                 int effects = entry[19];
+                if (entry.Length < 20 + effects)
+                {
+                    _logger.LogWarning("Summoned monster scope packet has truncated effects at index {Index}.", i);
+                    break;
+                }
                 offset += 20 + effects;
 
                 ushort maskedId = (ushort)(rawId & 0x7FFF);
@@ -888,6 +895,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 string name = ReadFixedString(entry.Slice(6, 10));
                 byte direction = (byte)((entry[18] >> 4) & 0x0F);
                 int effects = entry[37];
+                if (entry.Length < 38 + effects)
+                {
+                    _logger.LogWarning("Transformed character scope packet has truncated effects at index {Index}.", i);
+                    break;
+                }
                 offset += 38 + effects;
 
                 ushort maskedId = (ushort)(rawId & 0x7FFF);
@@ -909,13 +921,6 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             return System.Text.Encoding.UTF8.GetString(end < 0 ? data : data[..end]);
         }
 
-        [PacketHandler(0x16, PacketRouter.NoSubCode)] // AddMonstersToScope
-        public Task HandleAddMonstersToScopeAsync(Memory<byte> packet)
-        {
-            ParseAndQueueNpcSpawns(packet);
-            return Task.CompletedTask;
-        }
-
         private void ParseAndQueueNpcSpawns(Memory<byte> packet)
         {
             int npcCount = 0, firstOffset = 0, dataSize = 0;
@@ -928,7 +933,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     npcCount = s6.NpcCount;
                     firstOffset = 5;
                     dataSize = AddNpcsToScope.NpcData.Length;
-                    readNpc = m => { var d = new AddNpcsToScope.NpcData(m); return (d.Id, d.TypeNumber, d.CurrentPositionX, d.CurrentPositionY, d.Rotation); };
+                    readNpc = m => { var d = new AddNpcsToScope.NpcData(m); return (d.Id, (ushort)(d.TypeNumber & 0x03FF), d.CurrentPositionX, d.CurrentPositionY, d.Rotation); };
                     break;
                 case TargetProtocolVersion.Version097:
                     var v97 = new AddNpcsToScope095(packet);
@@ -962,8 +967,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     break;
                 }
 
+                // Season 6 appends EffectCount bytes to each fixed NPC record.
+                // They must be skipped even though scope buff application is separate.
+                int extraEffects = _targetVersion == TargetProtocolVersion.Season6
+                    ? packet.Span[currentPacketOffset + dataSize - 1]
+                    : 0;
+                if (currentPacketOffset + dataSize + extraEffects > packet.Length)
+                {
+                    _logger.LogWarning("ScopeHandler: Packet too short for NPC effects at index {Index}.", i);
+                    break;
+                }
+
                 var (rawId, type, x, y, direction) = readNpc(packet.Slice(currentPacketOffset));
-                currentPacketOffset += dataSize;
+                currentPacketOffset += dataSize + extraEffects;
 
                 ushort maskedId = (ushort)(rawId & 0x7FFF);
                 string name = NpcDatabase.GetNpcName(type);
@@ -1314,12 +1330,17 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                     worldRef.Objects.Add(obj);
 
-                    if (obj is MonsterObject monster && obj is ModelObject modelObj &&
+                    if ((rawId & 0x8000) != 0 && obj is MonsterObject monster && obj is ModelObject modelObj &&
                         modelObj.Model?.Actions != null &&
                         (int)MonsterActionType.Appear < modelObj.Model.Actions.Length &&
                         modelObj.Model.Actions[(int)MonsterActionType.Appear] != null)
                     {
                         monster.PlayAction((ushort)MonsterActionType.Appear);
+                        monster.OnAppearAnimationStart();
+                    }
+                    else if (IsNightmareTeleportSpawn(rawId, type, mapId))
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/w39/nightmare_tele.wav");
                     }
 
                     insertionCompletion.TrySetResult(true);
@@ -1722,6 +1743,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     if (target is MonsterObject monster)
                     {
                         monster.UpdateHealthFractions(healthFraction, shieldFraction, healthDmg, shieldDmg);
+                    }
+                    else if (totalDmg > 0 && target is PlayerObject hitPlayer &&
+                             world is WalkableWorldControl hitWorld && hitWorld.Walker != null &&
+                             !hitPlayer.SuppressesHitReaction)
+                    {
+                        PlayPlayerHitSound(hitPlayer, hitWorld);
                     }
 
                     // Use server-provided damage type for authentic MU Online colors
@@ -2414,6 +2441,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         // Handle local player death differently
                         if (killed == _characterState.Id && walker is PlayerObject localPlayer)
                         {
+                            PlayPlayerDeathSound(localPlayer, world);
                             // Reset all animation states
                             localPlayer.IsResting = false;
                             localPlayer.IsSitting = false;
@@ -2429,6 +2457,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         // Handle remote player death
                         if (walker is PlayerObject remotePlayer && !remotePlayer.IsMainWalker)
                         {
+                            PlayPlayerDeathSound(remotePlayer, world);
                             remotePlayer.IsResting = false;
                             remotePlayer.IsSitting = false;
                             remotePlayer.RestPlaceTarget = null;
@@ -2457,6 +2486,13 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         {
                             monster.PlayAction((byte)MonsterActionType.Die);
                             monster.OnDeathAnimationStart();
+                            if (world is Client.Main.Worlds.ChaosCastleEventWorldBase chaosWorld && chaosWorld.Walker != null)
+                            {
+                                string sound = MuGame.Random.Next(2) == 0
+                                    ? "Sound/eMonsterBoom1.wav"
+                                    : "Sound/eMonsterBoom2.wav";
+                                SoundController.Instance.PlayBufferWithAttenuation(sound, monster.Position, chaosWorld.Walker.Position);
+                            }
                             monster.StartDeathFade();
                             _logger.LogDebug("💀 Monster {Id:X4} death animation started", killed);
                         }
@@ -2469,6 +2505,137 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             }
             return Task.CompletedTask;
         }
+
+        private static void PlayPlayerHitSound(PlayerObject player, WalkableWorldControl world)
+        {
+            string sound;
+            if (PlayerActionMapper.IsCharacterFemale(player.CharacterClass))
+                sound = MuGame.Random.Next(2) == 0 ? "Sound/pFemaleScream1.wav" : "Sound/pFemaleScream2.wav";
+            else if (player.CharacterClass is CharacterClassNumber.DarkLord or CharacterClassNumber.LordEmperor && MuGame.Random.Next(5) != 0)
+                sound = "Sound/pDarkPain.wav";
+            else
+                sound = MuGame.Random.Next(3) switch
+                {
+                    0 => "Sound/pMaleScream1.wav",
+                    1 => "Sound/pMaleScream2.wav",
+                    _ => "Sound/pMaleScream3.wav",
+                };
+            SoundController.Instance.PlayBufferWithAttenuation(sound, player.Position, world.Walker.Position);
+            if (player.IsRidingFenrir && MuGame.Random.Next(3) == 0)
+                SoundController.Instance.PlayBufferWithAttenuation("Sound/pWpain2.wav", player.Position, world.Walker.Position);
+        }
+
+        private static void PlayPlayerDeathSound(PlayerObject player, WorldControl world)
+        {
+            if (world is not WalkableWorldControl walkableWorld || walkableWorld.Walker == null)
+                return;
+
+            string sound = world is Client.Main.Worlds.ChaosCastleEventWorldBase
+                ? (MuGame.Random.Next(2) == 0 ? "Sound/eMonsterBoom1.wav" : "Sound/eMonsterBoom2.wav")
+                : PlayerActionMapper.IsCharacterFemale(player.CharacterClass)
+                    ? "Sound/pFemaleScream2.wav"
+                    : player.CharacterClass is CharacterClassNumber.DarkLord or CharacterClassNumber.LordEmperor
+                        ? "Sound/pDarkDeath.wav"
+                        : "Sound/pMaleDie.wav";
+            SoundController.Instance.PlayBufferWithAttenuation(sound, player.Position, walkableWorld.Walker.Position);
+            if (world is not Client.Main.Worlds.ChaosCastleEventWorldBase && player.IsRidingFenrir)
+                SoundController.Instance.PlayBufferWithAttenuation("Sound/pWdeath.wav", player.Position, walkableWorld.Walker.Position);
+        }
+
+        private static bool IsNightmareTeleportSpawn(ushort rawId, ushort type, int mapId) =>
+            mapId == 39 && type == 361 && (rawId & 0xC000) == 0x4000;
+
+        // PRECEIVE_MONSTERSKILL: big-endian skill, native little-endian source/target WORDs.
+        [PacketHandler(0x69, PacketRouter.NoSubCode)]
+        public Task HandleMonsterSkillAsync(Memory<byte> packet)
+        {
+            var parsed = ParseMonsterSkill(packet);
+            if (parsed is null)
+                return Task.CompletedTask;
+
+            var (skill, sourceId, targetId) = parsed.Value;
+
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (MuGame.Instance?.ActiveScene?.World is not WalkableWorldControl world ||
+                    !world.TryGetWalkerById(sourceId, out var source) || source is not MonsterObject monster ||
+                    (world.Walker?.NetworkId != targetId && !world.TryGetWalkerById(targetId, out _)))
+                    return;
+
+                var action = world.MapId == 39
+                    ? ResolveKanturuMonsterSkill(monster, skill)
+                    : world.MapId is >= 69 and <= 72 ? ResolveImperialMonsterSkill(monster, skill) : null;
+                if (action is null)
+                    return;
+
+                ApplyMonsterSkillAction(monster, action.Value, targetId);
+            });
+            return Task.CompletedTask;
+        }
+
+        private static void ApplyMonsterSkillAction(MonsterObject monster, MonsterActionType action, ushort targetId)
+        {
+            monster.PlayAction((ushort)action, fromServer: true);
+            // The animation controller refuses attacks while a death animation is active.
+            // Do not play attack audio or change the target when it rejected the action.
+            if (monster.CurrentAction != (int)action)
+                return;
+            monster.LastAttackTargetId = targetId;
+            if (action == MonsterActionType.Appear)
+                monster.OnAppearAnimationStart();
+            else
+                monster.OnPerformAttack(action switch
+                {
+                    MonsterActionType.Attack1 => 1,
+                    MonsterActionType.Attack3 => 3,
+                    MonsterActionType.Attack4 => 4,
+                    _ => 2,
+                });
+        }
+
+        private static (ushort Skill, ushort Source, ushort Target)? ParseMonsterSkill(Memory<byte> packet)
+        {
+            if (packet.Length < 9)
+                return null;
+
+            int idOffset = packet.Length >= 10 ? 6 : 5;
+            return (
+                BinaryPrimitives.ReadUInt16BigEndian(packet.Span.Slice(3, 2)),
+                (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet.Span.Slice(idOffset, 2)) & 0x7FFF),
+                (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet.Span.Slice(idOffset + 2, 2)) & 0x7FFF));
+        }
+
+        // Local/monsterskill.bmd in the supplied data lists 18, 19, 20, 21
+        // in slots 0..3 for type 361 (ZzzCharacter.cpp:2254-2316).
+        private static MonsterActionType? ResolveKanturuMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (Nightmare, 18) => MonsterActionType.Attack1,
+            (Nightmare, 19) => MonsterActionType.Attack2,
+            (Nightmare, 20) => MonsterActionType.Attack3,
+            (Nightmare, 21) => MonsterActionType.Attack4,
+            (MayaHandLeft or MayaHandRight, 23) => MonsterActionType.Attack1,
+            (MayaHandLeft or MayaHandRight, 24) => MonsterActionType.Attack2,
+            _ => null,
+        };
+
+        private static MonsterActionType? ResolveImperialMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (GaionKharein, 67) => MonsterActionType.Attack1,
+            (GaionKharein, 64) or (Jerint, 55) => MonsterActionType.Attack2,
+            (GaionKharein, 65) or (Jerint, 61) => MonsterActionType.Attack3,
+            (GaionKharein, 66) => MonsterActionType.Attack4,
+            (GaionKharein or Jerint, 59) => MonsterActionType.Appear,
+            (Raymond, 60) or (Erkanne, 62) or (Vermont, 60) or (Kato, 58) or (Gallia, 58) => MonsterActionType.Attack2,
+            (Raymond, 52) or (Erkanne, 63) or (Vermont, 61) or (Kato, 60) or (Gallia, 60) => MonsterActionType.Attack3,
+            (Raymond or Erkanne or Vermont or Kato or Gallia, 59) => MonsterActionType.Appear,
+            (CombatInstructor, 47) or (KnightCommander, 47) or (ShieldBearer, 45) or (MasterAssassin, 47) => MonsterActionType.Attack2,
+            (GrandWizard, 51 or 52) => MonsterActionType.Attack2,
+            (Forsaker, 46) => MonsterActionType.Attack2,
+            (CavalryCaptain, 54) => MonsterActionType.Attack2,
+            (MasterAssassin, 53) or (CavalryCaptain, 56) => MonsterActionType.Attack3,
+            (CombatInstructor, 49) or (KnightCommander, 50) or (ShieldBearer, 44) or (CavalryCaptain, 55) => MonsterActionType.Appear,
+            _ => null,
+        };
 
         [PacketHandler(0x18, PacketRouter.NoSubCode)] // ObjectAnimation
         public Task HandleObjectAnimationAsync(Memory<byte> packet)
@@ -2512,6 +2679,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     CharacterClassNumber playerClass = playerToAnimate.CharacterClass;
                     clientActionToPlay = PlayerActionMapper.GetClientAction(serverActionId, playerClass);
                     actionNameForLog = clientActionToPlay.ToString();
+
+                    if (serverActionId is >= 161 and <= 163)
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/xmasturn.wav");
+                    }
+                    else if (serverActionId == (byte)ServerPlayerActionType.RageBuff1)
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_1.wav");
+                    }
+                    else if (serverActionId == (byte)ServerPlayerActionType.RageBuff2)
+                    {
+                        SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_2.wav");
+                    }
                 }
                 else if (walker is MonsterObject monsterToAnimate)
                 {

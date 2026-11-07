@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(364, "Maya")]
-    public class Maya : MonsterObject
+    public class Maya : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/w39/maya_death.wav";
+
         public Maya()
         {
         }

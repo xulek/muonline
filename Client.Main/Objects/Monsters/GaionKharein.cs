@@ -7,10 +7,23 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class GaionKharein : MonsterObject
+    [NpcInfo(504, "Gaion Kharein")]
+    public class GaionKharein : SoundMonsterObject
     {
+        private bool IsImperialGuardian => World?.MapId == 72;
+        protected override string MoveSoundPath => IsImperialGuardian ? "Sound/w69w70w71w72/GaionKalein_move.wav" : null;
+        protected override string DeathSoundPath => IsImperialGuardian ? "Sound/w69w70w71w72/GrandWizard_death.wav" : null;
+
         public GaionKharein()
         {
+            Scale = 1.4f;
+        }
+
+        public override void OnAppearAnimationStart()
+        {
+            base.OnAppearAnimationStart();
+            if (IsImperialGuardian)
+                PlayMonsterSound("Sound/w69w70w71w72/GaionKalein_rage.wav");
         }
 
         public override async Task Load()

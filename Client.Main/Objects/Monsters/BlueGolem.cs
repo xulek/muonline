@@ -1,15 +1,19 @@
 ﻿using Client.Main.Content;
-using Client.Main.Controllers;
-using Client.Main.Controls;
-using Client.Main.Models;
-using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(305, "Blue Golem")]
-    public class BlueGolem : MonsterObject
+    public class BlueGolem : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/w34/bg_death.wav";
+
+        protected override string GetMoveSoundPath() =>
+            MuGame.Random.Next(2) == 0 ? "Sound/w34/bg_idle1.wav" : "Sound/w34/bg_idle2.wav";
+
+        protected override string GetAttackSoundPath(int attackType) =>
+            attackType == 2 ? "Sound/w34/bg_attack2.wav" : "Sound/w34/bg_attack1.wav";
+
         public BlueGolem()
         {
             RenderShadow = true;
@@ -20,27 +24,6 @@ namespace Client.Main.Objects.Monsters
         {
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster102.bmd");
             await base.Load();
-        }
-
-        protected override void OnIdle()
-        {
-            base.OnIdle();
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mGolem1.wav", Position, listenerPosition);
-        }
-
-        public override void OnPerformAttack(int attackType = 1)
-        {
-            base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mGolemAttack1.wav", Position, listenerPosition);
-        }
-
-        public override void OnDeathAnimationStart()
-        {
-            base.OnDeathAnimationStart();
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mGolemDie.wav", Position, listenerPosition);
         }
     }
 }

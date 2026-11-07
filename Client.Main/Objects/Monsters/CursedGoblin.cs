@@ -7,8 +7,21 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class CursedGoblin : MonsterObject
+    [NpcInfo(466, "Cursed Goblin")]
+    public class CursedGoblin : SoundMonsterObject
     {
+        protected override string DeathSoundPath => "Sound/mGoblinDie.wav";
+        protected override void OnIdle()
+        {
+            base.OnIdle();
+            PlayMonsterSound(MuGame.Random.Next(2) == 0 ? "Sound/mGoblin1.wav" : "Sound/mGoblin2.wav");
+        }
+
+        protected override string GetAttackSoundPath(int attackType) =>
+            MuGame.Random.Next(2) == 0 ? "Sound/mGoblinAttack1.wav" : "Sound/mGoblinAttack2.wav";
+
+        protected override string GetDamageSoundPath() => GetAttackSoundPath(1);
+
         public CursedGoblin()
         {
         }

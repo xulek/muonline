@@ -20,6 +20,12 @@ namespace Client.Main.Objects.Monsters
         private readonly WeaponObject _rightHandWeapon;
         private readonly WeaponObject _leftHandWeapon;
 
+        protected virtual string IdleSound1 => "Sound/mSvIdle1.wav";
+        protected virtual string IdleSound2 => "Sound/mSvIdle2.wav";
+        protected virtual string AttackSound1 => "Sound/mSvAttack1.wav";
+        protected virtual string AttackSound2 => "Sound/mSvAttack2.wav";
+        protected virtual string DeathSound => "Sound/mSvDeath.wav";
+
         public Schriker()
         {
             Scale = 1.2f;
@@ -107,7 +113,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mSvIdle1.wav" : "Sound/mSvIdle2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? IdleSound1 : IdleSound2;
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -115,7 +121,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnPerformAttack(attackType);
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            string sound = MuGame.Random.Next(2) == 0 ? "Sound/mSvAttack1.wav" : "Sound/mSvAttack2.wav";
+            string sound = MuGame.Random.Next(2) == 0 ? AttackSound1 : AttackSound2;
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
 
@@ -125,7 +131,7 @@ namespace Client.Main.Objects.Monsters
         {
             base.OnDeathAnimationStart();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mSvDeath.wav", Position, listenerPosition);
+            SoundController.Instance.PlayBufferWithAttenuation(DeathSound, Position, listenerPosition);
         }
     }
 }

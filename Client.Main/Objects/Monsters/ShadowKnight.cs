@@ -7,8 +7,12 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class ShadowKnight : MonsterObject
+    [NpcInfo(445, "Shadow Knight")]
+    public class ShadowKnight : SoundMonsterObject
     {
+        protected override string AttackSoundPath => "Sound/w57/ShadowKnight-Attack.wav";
+        protected override string DeathSoundPath => "Sound/w57/Shadow-Death.wav";
+
         public ShadowKnight()
         {
         }

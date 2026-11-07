@@ -15,6 +15,7 @@ namespace Client.Main.Worlds
     {
         private KalimaAmbientManager _ambientManager;
         private static double _lastAmbientSoundMs;
+        private static double _lastStoneSoundMs;
 
         protected KalimaEventWorldBase(short worldIndex, string name)
             : base(worldIndex, name)
@@ -40,6 +41,12 @@ namespace Client.Main.Worlds
                 SoundController.Instance.PlayBuffer(MuGame.Random.Next(2) == 0
                     ? "Sound/aKalima01.wav"
                     : "Sound/aKalima02.wav");
+            }
+
+            if (Status == Models.GameControlStatus.Ready && Visible && nowMs - _lastStoneSoundMs > 20000.0)
+            {
+                _lastStoneSoundMs = nowMs;
+                SoundController.Instance.PlayBuffer("Sound/aKalimaStone.wav");
             }
         }
 

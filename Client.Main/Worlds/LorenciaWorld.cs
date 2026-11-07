@@ -14,6 +14,8 @@ namespace Client.Main.Worlds
     {
         private BirdManager _birdManager;
         private LorenciaLeafAmbientEffect _leafEffect;
+        private const string RainSoundPath = "Sound/aRain.wav";
+        public bool IsRaining { get; set; }
 
         // Flag to track if the player is already in the pub area
         private bool isInPubArea = false;
@@ -21,7 +23,7 @@ namespace Client.Main.Worlds
 
         public LorenciaWorld() : base(worldIndex: 1)
         {
-            BackgroundMusicPath = "Music/MuTheme.mp3";
+            BackgroundMusicPath = "Music/main_theme.mp3";
             AmbientSoundPath = "Sound/aWind.wav"; // Wind ambient for open spaces
             Name = "Lorencia";
         }
@@ -177,6 +179,11 @@ namespace Client.Main.Worlds
             // Update bird system
             _birdManager?.Update(time);
 
+            if (IsRaining && walkableWorld.HeroTile != 4 && Walker != null)
+                SoundController.Instance.PlayBufferWithAttenuation(RainSoundPath, Walker.Position, Walker.Position, loop: true);
+            else
+                SoundController.Instance.StopManagedLoop(RainSoundPath);
+
             if (walkableWorld.HeroTile == 4)
             {
                 // If player enters the pub area and wasn't there before
@@ -229,6 +236,7 @@ namespace Client.Main.Worlds
 
         public override void Dispose()
         {
+            SoundController.Instance.StopManagedLoop(RainSoundPath);
             // Clean up birds before disposing world
             _birdManager?.Clear();
             _birdManager = null;

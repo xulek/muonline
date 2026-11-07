@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Client.Data.BMD
@@ -8,6 +9,9 @@ namespace Client.Data.BMD
     /// </summary>
     public static class SkillDefinitions
     {
+        private const string RageBuffSound1 = "Sound/Ragefighter/Rage_Buff_1.wav";
+        private const string RageBuffSound2 = "Sound/Ragefighter/Rage_Buff_2.wav";
+
         /// <summary>
         /// Mapping of skill IDs to their types (AREA/TARGET/SELF).
         /// Based on SendRequestMagic vs SendRequestMagicContinue in original client.
@@ -194,6 +198,9 @@ namespace Client.Data.BMD
         /// </summary>
         public static string? GetSkillSound(int skillId)
         {
+            if (skillId is 266 or 267 or 268)
+                return Random.Shared.Next(2) == 0 ? RageBuffSound1 : RageBuffSound2;
+
             return SkillSounds.TryGetValue(skillId, out var soundPath) ? soundPath : null;
         }
 
@@ -308,10 +315,12 @@ namespace Client.Data.BMD
             map[21] = "Sound/sKnightSkill3.wav";         // Uppercut (ID 21)
             map[22] = "Sound/sKnightSkill4.wav";         // Cyclone (ID 22)
             map[41] = "Sound/sKnightSkill4.wav";         // Twisting Slash (ID 41)
+            map[59] = "Sound/eCombo.wav";                // Combo (ID 59)
 
             // ELF SKILLS
             map[26] = "Sound/sKnightDefense.wav";        // Healing (ID 26)
             map[24] = "Sound/eRaidShoot.wav";            // Triple Shot (ID 24)
+            map[77] = "Sound/infinityArrow.wav";          // Infinity Arrow (ID 77)
 
             // WIZARD SKILLS
             map[4] = "Sound/eMeteorite.wav";             // Fireball (ID 4)
@@ -372,11 +381,13 @@ namespace Client.Data.BMD
             map[234] = "Sound/recover.wav";              // Recovery (ID 234)
 
             // RAGE FIGHTER SKILLS
-            map[263] = "Sound/Ragefighter/Rage_Darkside.wav";    // Darkside (ID 263)
-            map[265] = "Sound/Ragefighter/Rage_Dragonlower.wav"; // Dragon Lore (ID 265)
-            map[264] = "Sound/Ragefighter/Rage_Dragonkick.wav";  // Dragon Slayer (ID 264)
-            map[270] = "Sound/Ragefighter/Rage_Giantswing.wav";  // Phoenix Shot (ID 270)
-            map[269] = "Sound/Ragefighter/Rage_Stamp.wav";       // Charge (ID 269)
+            map[260] = "Sound/Ragefighter/Rage_Thrust.wav";
+            map[261] = "Sound/Ragefighter/Rage_Stamp.wav";
+            map[262] = "Sound/Ragefighter/Rage_Giantswing.wav";
+            map[263] = "Sound/Ragefighter/Rage_Darkside.wav";
+            map[264] = "Sound/Ragefighter/Rage_Dragonlower.wav";
+            map[265] = "Sound/Ragefighter/Rage_Dragonkick.wav";
+            map[269] = "Sound/sKnightSkill2.wav"; // Occupy
 
             return map;
         }

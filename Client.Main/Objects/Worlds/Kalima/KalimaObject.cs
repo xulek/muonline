@@ -26,6 +26,7 @@ namespace Client.Main.Objects.Worlds.Kalima
         private static readonly Task<Texture2D[]>?[] WaterFlipbookLoader = new Task<Texture2D[]>?[1];
         private Texture2D[]? _waterTextures;
         private Texture2D? _chromeTexture;
+        private double _lastWaterfallSoundMs;
 
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool AllowMapObjectInstancing => false;
@@ -34,6 +35,26 @@ namespace Client.Main.Objects.Worlds.Kalima
         public KalimaObject()
         {
             BlendMeshState = BlendState.Additive;
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+
+            if ((Type == 37 || Type == 38) && Status == GameControlStatus.Ready && Visible)
+            {
+                double nowMs = gameTime.TotalGameTime.TotalMilliseconds;
+                if (nowMs - _lastWaterfallSoundMs >= 1000.0)
+                {
+                    _lastWaterfallSoundMs = nowMs;
+                    var camera = Camera.Instance;
+                    if (camera != null)
+                    {
+                        SoundController.Instance.PlayBufferWithAttenuation(
+                            "Sound/aKalimaWaterFall.wav", Position, camera.Position, 2000f);
+                    }
+                }
+            }
         }
 
         public override async Task LoadContent()
