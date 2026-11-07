@@ -578,6 +578,11 @@ namespace Client.Main.Objects
                 return true;
             }
 
+            // GPU-skinned meshes come here on every animation update. Without a texture change the resolved
+            // texture and its metadata stay valid, so skip the loader lookups.
+            if (!allowLazyLoad && ms.Texture is { IsDisposed: false } && ms.Script != null && ms.Data != null)
+                return true;
+
             string texturePath = ms.TexturePath;
 
             if (string.IsNullOrEmpty(texturePath))
