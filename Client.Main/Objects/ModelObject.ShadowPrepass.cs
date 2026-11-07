@@ -29,6 +29,9 @@ namespace Client.Main.Objects
         private static int _parallelShadowRebuilds;
         private static Task _shadowPrepassTask;
 
+        /// <summary>Diagnostics: main-thread time spent waiting for the background shadow rebuild.</summary>
+        public static long DiagShadowPrepassWaitTicks;
+
         /// <summary>
         /// Starts rebuilding the terrain-conformed shadow meshes of the visible objects on worker threads at the
         /// beginning of the frame. The main thread keeps drawing (terrain, map) and joins the work at the first
@@ -76,7 +79,12 @@ namespace Client.Main.Objects
             _shadowPrepassTask = null;
             try
             {
-                task.Wait();
+                if (!task.IsCompleted)
+                {
+                    long waitStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                    task.Wait();
+                    DiagShadowPrepassWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - waitStarted;
+                }
             }
             catch (AggregateException ex)
             {
