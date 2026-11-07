@@ -1319,8 +1319,10 @@ namespace Client.Main.Controls
             {
                 DrawDedicatedStaticMapObjects(time);
                 RenderDrawCounter.Mark(RenderDrawCounter.Step.StaticMap);
-                // Blob shadows of the opaque objects go out in one draw after the list.
-                ModelObject.BeginBlobShadowBatch();
+                // Ground shadows of the opaque objects are drawn together after the list; actor part meshes
+                // are submitted grouped by effect.
+                ModelObject.BeginGroundShadowBatch();
+                ModelObject.BeginDeferredActorMeshDraws();
                 try
                 {
                     DrawListWithSpriteBatchGrouping(_solidBehind, DepthStateDefault, time);
@@ -1329,11 +1331,20 @@ namespace Client.Main.Controls
                 {
                     try
                     {
-                        ModelObject.EndBlobShadowBatch(GraphicsDevice);
+                        ModelObject.EndDeferredActorMeshDraws(GraphicsDevice);
                     }
                     catch (Exception ex)
                     {
-                        RecordRenderFailure(null, "Draw.BlobShadowBatch", ex);
+                        RecordRenderFailure(null, "Draw.DeferredActorMeshes", ex);
+                    }
+
+                    try
+                    {
+                        ModelObject.EndGroundShadowBatch(GraphicsDevice);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRenderFailure(null, "Draw.GroundShadowBatch", ex);
                     }
                 }
                 RenderDrawCounter.Mark(RenderDrawCounter.Step.Solid);
@@ -1698,6 +1709,11 @@ namespace Client.Main.Controls
                         obj is ModelObject queuedMapModel)
                         _queuedSolidStaticMapObjects.Add(queuedMapModel);
 
+                    // Queued actor meshes must be in place before other objects draw (their blended meshes
+                    // would otherwise blend over what is behind the actors).
+                    if (obj is not PlayerObject and not NPCObject)
+                        ModelObject.FlushDeferredActorMeshDraws(GraphicsDevice);
+
                     SetDepthState(ResolveObjectDepthState(obj, depthState));
                     try
                     {
@@ -1731,6 +1747,9 @@ namespace Client.Main.Controls
                 // are never left undrawn for the frame.
                 FallbackQueuedSolidStaticMapObjects(time);
             }
+
+            ModelObject.FlushDeferredActorMeshDraws(GraphicsDevice);
+            SetDepthState(depthState);
 
             if (_deferredSolidSprites.Count > 0)
             {

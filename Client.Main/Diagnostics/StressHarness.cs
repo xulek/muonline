@@ -134,6 +134,8 @@ namespace Client.Main.Diagnostics
                 Constants.DRAW_GRASS = grass == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_TERRAIN_GPU") is { } terrainGpu)
                 Constants.ENABLE_TERRAIN_GPU_LIGHTING = terrainGpu == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_DEFER_MESHES") is { } deferMeshes)
+                Constants.ENABLE_DEFERRED_ACTOR_MESH_DRAWS = deferMeshes == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_COMPOSITE") is { } composite)
                 Constants.ENABLE_PLAYER_COMPOSITE = composite == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_SHADOW_PREPASS") is { } shadowPrepass)
@@ -491,6 +493,7 @@ namespace Client.Main.Diagnostics
                     ModelObject.DiagActorShadowDraws = ModelObject.DiagActorShadowMeshes = 0;
                     ModelObject.DiagShadowRebuilds = ModelObject.DiagShadowRebuildTicks = ModelObject.DiagShadowShifts = ModelObject.DiagShadowDraws = ModelObject.DiagShadowDrawTicks = 0;
                     Console.WriteLine($"[stress-types] t={_traceSecond} {ObjectTypeProfiler.TakeTop(MU_TYPES_TOP, _traceFrames)}");
+                    Console.WriteLine($"[stress-paths] t={_traceSecond} {DrawPathCounter.Take(_traceFrames)}");
                 }
                 _traceGpuDraws = _traceGpuPrims = _traceGpuTex = _traceGpuVs = _traceGpuPs = _traceGpuTargets = _traceSprites = 0;
                 _traceCrowdFlushes = 0;

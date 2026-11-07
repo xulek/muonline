@@ -145,6 +145,8 @@ namespace Client.Main
         public static bool ENABLE_STATIC_CHUNK_CACHING;
         public static bool ENABLE_ITEM_MATERIAL_ANIMATION;
         public static bool ENABLE_DYNAMIC_BUFFER_POOL;
+        /// <summary>Opaque per-mesh draws of player/NPC parts are submitted grouped by effect (fewer shader switches).</summary>
+        public static bool ENABLE_DEFERRED_ACTOR_MESH_DRAWS;
         public static int RENDER_METRICS_LEVEL;
         public static float RENDER_SCALE;
         public static bool HIGH_QUALITY_TEXTURES;
@@ -322,6 +324,7 @@ namespace Client.Main
             ENABLE_STATIC_CHUNK_CACHING = true;
             ENABLE_ITEM_MATERIAL_ANIMATION = false;
             ENABLE_DYNAMIC_BUFFER_POOL = true;
+            ENABLE_DEFERRED_ACTOR_MESH_DRAWS = true;
             RENDER_METRICS_LEVEL = 1;
             RENDER_SCALE = 1.0f;
             HIGH_QUALITY_TEXTURES = true;

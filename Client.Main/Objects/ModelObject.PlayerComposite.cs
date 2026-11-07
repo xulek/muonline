@@ -199,8 +199,14 @@ namespace Client.Main.Objects
                     return false;
             }
 
-            if (!DrawPlayerComposite(effect, technique, parts, PlayerPartAtlas.GetPageTexture(atlasPage)))
-                return false;
+            if (!TryQueueDeferredComposite(entries, parts, atlasPage))
+            {
+                var drawPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
+                bool drawn = DrawPlayerComposite(effect, technique, parts, PlayerPartAtlas.GetPageTexture(atlasPage));
+                Client.Main.Diagnostics.DrawPathCounter.StopExtra(drawPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.CompositeDraw);
+                if (!drawn)
+                    return false;
+            }
 
             int frame = MuGame.FrameIndex;
             for (int i = 0; i < parts.Count; i++)
@@ -329,6 +335,46 @@ namespace Client.Main.Objects
             {
                 _logger?.LogDebug(ex, "Building the merged player mesh failed.");
                 return null;
+            }
+        }
+
+        // Composite queued in the opaque pass (see ModelObject.DeferredMeshes): its parts and their merged meshes,
+        // kept to draw it later and, if that fails, to draw the covered meshes through the regular path.
+        private List<ModelObject> _deferredCompositeParts;
+        private List<(ModelObject Part, int Mesh)> _deferredCompositeMeshes;
+        private int _deferredCompositeAtlasPage;
+
+        private bool TryQueueDeferredComposite(List<CompositeEntry> entries, List<ModelObject> parts, int atlasPage)
+        {
+            if (!CanDeferActorDraw())
+                return false;
+
+            (_deferredCompositeParts ??= new List<ModelObject>(8)).Clear();
+            _deferredCompositeParts.AddRange(parts);
+            (_deferredCompositeMeshes ??= new List<(ModelObject, int)>(16)).Clear();
+            for (int i = 0; i < entries.Count; i++)
+                _deferredCompositeMeshes.Add((entries[i].Part, entries[i].Mesh));
+            _deferredCompositeAtlasPage = atlasPage;
+            QueueDeferredComposite();
+            return true;
+        }
+
+        private void DrawDeferredComposite()
+        {
+            var effect = GraphicsManager.Instance.ItemMaterialEffect;
+            EffectTechnique technique = effect != null ? TryGetTechnique(effect, "BasicColorDrawing_CompositeSkinned") : null;
+            if (technique != null && _deferredCompositeParts is { Count: > 0 } &&
+                DrawPlayerComposite(effect, technique, _deferredCompositeParts, PlayerPartAtlas.GetPageTexture(_deferredCompositeAtlasPage)))
+                return;
+
+            // The parts already skipped these meshes; draw them one by one instead.
+            if (_deferredCompositeMeshes == null)
+                return;
+            for (int i = 0; i < _deferredCompositeMeshes.Count; i++)
+            {
+                var (part, mesh) = _deferredCompositeMeshes[i];
+                if (part.Status != Models.GameControlStatus.Disposed && part.Visible)
+                    part.DrawMesh(mesh);
             }
         }
 

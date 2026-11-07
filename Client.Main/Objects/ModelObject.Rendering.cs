@@ -779,10 +779,16 @@ namespace Client.Main.Objects
             GraphicsManager.Instance.AlphaTestEffect3D.World = WorldPosition;
 
             if (this is PlayerObject)
+            {
+                var compositePathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
                 TryDrawPlayerComposite(); // merged ItemMaterial body meshes; covered parts skip them below
+                Client.Main.Diagnostics.DrawPathCounter.StopExtra(compositePathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.Composite);
+            }
             DrawModel(false);   // solid pass
             base.Draw(gameTime);
+            var actorShadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
             FlushActorShadow(); // parts registered their shadow meshes while drawing
+            Client.Main.Diagnostics.DrawPathCounter.StopExtra(actorShadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ActorShadowFlush);
 
             gd.RasterizerState = prevCull;
         }
@@ -893,6 +899,7 @@ namespace Client.Main.Objects
                     }
 
                     // Object-level shadow and highlight passes
+                    var shadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
                     DrawProjectedShadowPass(
                         meshIndices,
                         doShadow,
@@ -904,9 +911,12 @@ namespace Client.Main.Objects
                         ref drewBlobShadow);
                     if (highlightAllowed)
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
+                    Client.Main.Diagnostics.DrawPathCounter.StopExtra(shadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ShadowAndHighlight);
 
                     if (!isAfterDraw && stateKey.ShaderKind == MeshShaderKind.ItemMaterial && IsCompositeCoveredThisFrame)
                         continue;
+
+                    var meshPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
 
                     // Shadow/highlight passes change the active shader; reapply the main effect before fast draws.
                     if (groupUsesAlphaTestEffect)
@@ -925,12 +935,14 @@ namespace Client.Main.Objects
                     if (!forcePerMeshTransparency &&
                         TryDrawGpuSkinnedMeshBatch(stateKey, meshIndices, isAfterDraw))
                     {
+                        Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 0);
                         continue;
                     }
 
                     if (!forcePerMeshTransparency &&
                         TryDrawFastAlphaMeshBatch(stateKey, meshIndices, isAfterDraw))
                     {
+                        Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 1);
                         continue;
                     }
 
@@ -939,6 +951,9 @@ namespace Client.Main.Objects
                         int mi = meshIndices[n];
                         if (NeedsSpecialShaderForMesh(mi) || forcePerMeshTransparency)
                         {
+                            if (!isAfterDraw && TryDeferActorMeshDraw(mi, stateKey.ShaderKind, stateKey.BlendState))
+                                continue;
+
                             DrawMesh(mi); // Falls back to full per-mesh path for special shaders or forced transparency
 
                             // Per-mesh draws can change the active shader; reapply the group effect
@@ -956,6 +971,7 @@ namespace Client.Main.Objects
                             DrawMeshFastAlpha(mi); // Fast path: VB/IB bind + draw only
                         }
                     }
+                    Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 2);
                 }
             }
         }
@@ -1700,6 +1716,9 @@ namespace Client.Main.Objects
         {
             if (mode == ItemOverlayMode.None || GraphicsManager.Instance.ItemMaterialEffect == null)
                 return;
+
+            // Overlays are drawn on top of this object's base meshes; submit its queued ones first.
+            FlushOwnDeferredMeshDraws();
 
             _activeOverlayMode = mode;
             _activeOverlayBlend = blend;

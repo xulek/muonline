@@ -57,8 +57,10 @@ namespace Client.Main.Objects
             if (chrome == null)
                 return;
 
+            var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
             for (int mesh = 0; mesh < Model.Meshes.Length; mesh++)
                 DrawMeshItemOverlay(mesh, ItemOverlayMode.Chrome, tint, chrome, blend: ItemOverlayBlend.Opaque);
+            Client.Main.Diagnostics.DrawPathCounter.StopExtra(pathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ChromeUnderlay);
         }
 
         // ───────────── SourceMain ItemObjectAttribute (ZzzObject.cpp) ─────────────
@@ -158,6 +160,19 @@ namespace Client.Main.Objects
                 return;
 
             double time = gameTime.TotalGameTime.TotalMilliseconds;
+            var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
+            try
+            {
+                DrawSpecialItemPassList(spec, time);
+            }
+            finally
+            {
+                Client.Main.Diagnostics.DrawPathCounter.StopExtra(pathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.SpecialPasses);
+            }
+        }
+
+        private void DrawSpecialItemPassList(Player.WeaponMeshPasses.Spec spec, double time)
+        {
             foreach (var pass in spec.Passes)
             {
                 if (pass.Mesh < 0 || pass.Mesh >= Model.Meshes.Length)

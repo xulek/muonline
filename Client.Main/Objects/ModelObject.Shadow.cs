@@ -320,9 +320,11 @@ namespace Client.Main.Objects
 
         public static long DiagBlobShadowDraws;
 
-        // Blob shadows of the opaque world pass are collected and drawn in one call. Their colour is black
-        // with SrcAlpha/InvSrcAlpha blending (dst * (1 - a)), so the draw order between blobs does not
-        // change the result. Outside the batch window (other scenes, other passes) blobs draw immediately.
+        // Ground shadows of the opaque world pass are deferred to its end: blob shadows are collected and drawn
+        // in one call, merged actor shadows are drawn one after another instead of between the actors' models
+        // (a shader switch into and out of the shadow effect per actor). The shadow colour is black with
+        // SrcAlpha/InvSrcAlpha blending (dst * (1 - a)), so the order between shadows does not change the
+        // result, and depth testing keeps them under the models. Outside the window shadows draw immediately.
         private const int BlobShadowBatchMaxVertices = short.MaxValue;
         private static bool s_blobShadowBatchActive;
         private static VertexPositionColorTexture[] s_blobShadowBatchVertices = new VertexPositionColorTexture[9 * 128];
@@ -330,18 +332,37 @@ namespace Client.Main.Objects
         private static int s_blobShadowBatchVertexCount;
         private static int s_blobShadowBatchIndexCount;
         private static Matrix s_blobShadowBatchViewProjection;
+        private static readonly List<ModelObject> s_deferredActorShadows = new(64);
 
-        internal static void BeginBlobShadowBatch()
+        internal static void BeginGroundShadowBatch()
         {
             s_blobShadowBatchActive = true;
             s_blobShadowBatchVertexCount = 0;
             s_blobShadowBatchIndexCount = 0;
+            s_deferredActorShadows.Clear();
         }
 
-        internal static void EndBlobShadowBatch(GraphicsDevice graphicsDevice)
+        internal static void EndGroundShadowBatch(GraphicsDevice graphicsDevice)
         {
             s_blobShadowBatchActive = false;
-            FlushBlobShadowBatch(graphicsDevice);
+            try
+            {
+                FlushBlobShadowBatch(graphicsDevice);
+            }
+            finally
+            {
+                var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
+                try
+                {
+                    for (int i = 0; i < s_deferredActorShadows.Count; i++)
+                        s_deferredActorShadows[i].DrawActorShadow();
+                }
+                finally
+                {
+                    s_deferredActorShadows.Clear();
+                    Client.Main.Diagnostics.DrawPathCounter.StopExtra(pathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ActorShadowFlush);
+                }
+            }
         }
 
         private Matrix GetBlobShadowWorld(Matrix shadowWorld)
@@ -853,6 +874,22 @@ namespace Client.Main.Objects
 
         /// <summary>Draws the shadow meshes registered by this actor's parts this frame as one merged draw.</summary>
         internal void FlushActorShadow()
+        {
+            if (_actorShadowFrame != MuGame.FrameIndex || _actorShadowSources.Count == 0)
+                return;
+
+            if (s_blobShadowBatchActive)
+            {
+                // The sources stay registered for this frame; the batch end draws them.
+                if (!s_deferredActorShadows.Contains(this))
+                    s_deferredActorShadows.Add(this);
+                return;
+            }
+
+            DrawActorShadow();
+        }
+
+        private void DrawActorShadow()
         {
             if (_actorShadowFrame != MuGame.FrameIndex || _actorShadowSources.Count == 0)
                 return;
