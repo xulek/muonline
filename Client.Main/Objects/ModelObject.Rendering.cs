@@ -573,7 +573,6 @@ namespace Client.Main.Objects
         }
 
         private void DrawProjectedShadowPass(
-            List<int> meshIndices,
             bool doShadow,
             bool useShadowMap,
             Matrix shadowMatrix,
@@ -598,45 +597,17 @@ namespace Client.Main.Objects
                     DrawBlobShadow(view, projection, blobShadowMatrix, shadowOpacity);
                     drewBlobShadow = true;
                 }
+                return;
             }
-            else if (Constants.ENABLE_MERGED_MESH_SHADOWS)
-            {
-                // Mesh groups are split by render state (texture), but the shadow only needs the
-                // silhouette: draw it once per draw invocation for all opaque meshes of the object.
-                if (_meshShadowInvocationId == _drawModelInvocationId)
-                    return;
-                _meshShadowInvocationId = _drawModelInvocationId;
-                if (TryQueueGpuActorShadows(shadowMatrix, shadowOpacity))
-                    return;
-                List<int> meshes = CollectOpaqueShadowMeshes();
-                if (IsPlayerOrNpcShadowPart() &&
-                    TryRegisterActorShadowMeshes(meshes, shadowMatrix, shadowOpacity, _actorShadowRemaining))
-                {
-                    if (_actorShadowRemaining.Count > 0)
-                        DrawMeshesShadow(_actorShadowRemaining, shadowMatrix, view, projection, shadowOpacity);
-                    return;
-                }
 
-                DrawMeshesShadow(meshes, shadowMatrix, view, projection, shadowOpacity);
-            }
-            else
-            {
-                DrawMeshesShadow(meshIndices, shadowMatrix, view, projection, shadowOpacity);
-            }
+            // One projected shadow per draw invocation for all opaque meshes of the object.
+            if (_meshShadowInvocationId == _drawModelInvocationId)
+                return;
+            _meshShadowInvocationId = _drawModelInvocationId;
+            QueueProjectedShadows(shadowMatrix, shadowOpacity);
         }
 
         private int _meshShadowInvocationId = -1;
-        private readonly List<int> _opaqueShadowMeshes = new();
-        // Mesh list for the per-object shadow call; only the unmerged per-group fallback reads it.
-        private static readonly List<int> s_noShadowMeshes = new(0);
-
-        private List<int> CollectOpaqueShadowMeshes()
-        {
-            _opaqueShadowMeshes.Clear();
-            foreach (var group in GetMeshRenderPlan(false).Values)
-                _opaqueShadowMeshes.AddRange(group);
-            return _opaqueShadowMeshes;
-        }
 
         internal void DrawQueuedCrowdInstancingSidePasses(GameTime gameTime)
         {
@@ -694,28 +665,21 @@ namespace Client.Main.Objects
                         shadowOpacity *= MathHelper.Clamp(1f - lum * 0.6f, 0.35f, 1f);
                     }
 
-                    var meshGroups = GroupMeshesByState(false);
+                    bool drewBlobShadow = rootBlobDrawn;
+                    DrawProjectedShadowPass(
+                        doShadow,
+                        useShadowMap,
+                        shadowMatrix,
+                        view,
+                        projection,
+                        shadowOpacity,
+                        ref drewBlobShadow);
+
+                    if (highlightAllowed)
                     {
-                        bool drewBlobShadow = rootBlobDrawn;
-                        foreach (var kvp in meshGroups)
+                        foreach (var kvp in GroupMeshesByState(false))
                         {
-                            if (kvp.Value.Count == 0)
-                                continue;
-
-                            if (doShadow)
-                            {
-                                DrawProjectedShadowPass(
-                                    kvp.Value,
-                                    doShadow,
-                                    useShadowMap,
-                                    shadowMatrix,
-                                    view,
-                                    projection,
-                                    shadowOpacity,
-                                    ref drewBlobShadow);
-                            }
-
-                            if (highlightAllowed)
+                            if (kvp.Value.Count > 0)
                                 DrawMeshesHighlight(kvp.Value, highlightMatrix, highlightColor);
                         }
                     }
@@ -723,7 +687,6 @@ namespace Client.Main.Objects
             }
 
             DrawCrowdChildren(gameTime);
-            FlushActorShadow();
         }
 
         /// <summary>
@@ -790,9 +753,6 @@ namespace Client.Main.Objects
             }
             DrawModel(false);   // solid pass
             base.Draw(gameTime);
-            var actorShadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
-            FlushActorShadow(); // parts registered their shadow meshes while drawing
-            Client.Main.Diagnostics.DrawPathCounter.StopExtra(actorShadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ActorShadowFlush);
 
             gd.RasterizerState = prevCull;
         }
@@ -865,15 +825,11 @@ namespace Client.Main.Objects
                     effect.Alpha = TotalAlpha;
                 bool drewBlobShadow = rootBlobDrawn;
 
-                // The blob, merged and GPU shadow paths draw (or queue) the whole object once; only the
-                // unmerged fallback shadows group by group.
-                bool shadowPerGroup = doShadow && !useShadowMap && !Constants.ENABLE_MERGED_MESH_SHADOWS &&
-                                      !ShouldUseBlobShadowForCurrentPass();
-                if (doShadow && !shadowPerGroup)
+                // The shadow is decided and drawn (or queued) once for the whole object.
+                if (doShadow)
                 {
                     var shadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
                     DrawProjectedShadowPass(
-                        s_noShadowMeshes,
                         doShadow,
                         useShadowMap,
                         shadowMatrix,
@@ -912,18 +868,6 @@ namespace Client.Main.Objects
                     if (groupUsesAlphaTestEffect && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
 
-                    if (shadowPerGroup)
-                    {
-                        DrawProjectedShadowPass(
-                            meshIndices,
-                            doShadow,
-                            useShadowMap,
-                            shadowMatrix,
-                            view,
-                            projection,
-                            shadowOpacity,
-                            ref drewBlobShadow);
-                    }
                     if (highlightAllowed)
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
 
@@ -961,30 +905,39 @@ namespace Client.Main.Objects
                         continue;
                     }
 
-                    for (int n = 0; n < meshIndices.Count; n++)
+                    // Only mesh draws (DynamicLighting, material and alpha-test effects) happen in this loop.
+                    int enclosingScope = BeginMeshDrawScope();
+                    try
                     {
-                        int mi = meshIndices[n];
-                        if (NeedsSpecialShaderForMesh(mi) || forcePerMeshTransparency)
+                        for (int n = 0; n < meshIndices.Count; n++)
                         {
-                            if (!isAfterDraw && TryDeferActorMeshDraw(mi, stateKey.ShaderKind, stateKey.BlendState))
-                                continue;
-
-                            DrawMesh(mi); // Falls back to full per-mesh path for special shaders or forced transparency
-
-                            // Per-mesh draws can change the active shader; reapply the group effect
-                            // before any fast draws that follow.
-                            if (!forcePerMeshTransparency && groupUsesAlphaTestEffect)
+                            int mi = meshIndices[n];
+                            if (NeedsSpecialShaderForMesh(mi) || forcePerMeshTransparency)
                             {
-                                var passes = effect.CurrentTechnique.Passes;
-                                for (int p = 0; p < passes.Count; p++)
-                                    passes[p].Apply();
-                                ApplyQualityModelSampler(gd);
+                                if (!isAfterDraw && TryDeferActorMeshDraw(mi, stateKey.ShaderKind, stateKey.BlendState))
+                                    continue;
+
+                                DrawMesh(mi); // Falls back to full per-mesh path for special shaders or forced transparency
+
+                                // Per-mesh draws can change the active shader; reapply the group effect
+                                // before any fast draws that follow.
+                                if (!forcePerMeshTransparency && groupUsesAlphaTestEffect)
+                                {
+                                    var passes = effect.CurrentTechnique.Passes;
+                                    for (int p = 0; p < passes.Count; p++)
+                                        passes[p].Apply();
+                                    ApplyQualityModelSampler(gd);
+                                }
+                            }
+                            else
+                            {
+                                DrawMeshFastAlpha(mi); // Fast path: VB/IB bind + draw only
                             }
                         }
-                        else
-                        {
-                            DrawMeshFastAlpha(mi); // Fast path: VB/IB bind + draw only
-                        }
+                    }
+                    finally
+                    {
+                        EndMeshDrawScope(enclosingScope);
                     }
                     Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 2);
                 }
@@ -1442,47 +1395,6 @@ namespace Client.Main.Objects
         private Dictionary<MeshStateKey, List<int>> GroupMeshesByState(bool isAfterDraw)
         {
             return GetMeshRenderPlan(isAfterDraw);
-        }
-
-        private void DrawMeshesShadow(List<int> meshIndices, Matrix shadowMatrix, Matrix view, Matrix projection, float shadowOpacity)
-        {
-            long diagStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-            // Render state is set once for all meshes of the object; only texture and matrix change per mesh.
-            bool begun = false;
-            bool merged = false;
-            ShadowMeshBatchState state = default;
-            try
-            {
-                for (int n = 0; n < meshIndices.Count; n++)
-                {
-                    int meshIndex = meshIndices[n];
-                    if (IsStaticMapMeshQueuedForInstancing(meshIndex))
-                        continue;
-
-                    if (!begun)
-                    {
-                        if (!TryBeginShadowMeshBatch(view, projection, shadowMatrix, shadowOpacity, out state))
-                            return;
-                        begun = true;
-                        merged = TryDrawMergedTerrainShadow(meshIndices, shadowMatrix, in state);
-                    }
-
-                    if (merged && IsTerrainShadowMeshMerged(meshIndex))
-                        continue;
-
-                    DrawShadowMeshInBatch(meshIndex, shadowMatrix, in state);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogDebug("Error in DrawMeshesShadow: {Message}", ex.Message);
-            }
-            finally
-            {
-                if (begun)
-                    EndShadowMeshBatch(in state);
-                DiagShadowDrawTicks += System.Diagnostics.Stopwatch.GetTimestamp() - diagStarted;
-            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -2082,10 +1994,11 @@ namespace Client.Main.Objects
                         : 0;
 
                     // DynamicLightingEffect is shared by terrain, shadows, hover and all
-                    // objects. Rebind the technique and bone palette for every mesh draw;
-                    // invocation-level caching allowed another pass to leave Highlight or
-                    // Terrain active and caused an intermittent CPU fallback.
-                    PrepareDynamicLightingEffect(effect, useGpuSkinning, requiredBoneCount);
+                    // objects. Rebind the technique and bone palette unless the previous draw of
+                    // this mesh-draw scope prepared it for this object; invocation-level caching
+                    // allowed another pass to leave Highlight or Terrain active and caused an
+                    // intermittent CPU fallback, which the scope rules out.
+                    PrepareDynamicLightingEffectOncePerScope(effect, useGpuSkinning, requiredBoneCount);
                     _dynamicLightingPreparedInvocationId = _drawModelInvocationId;
                     _dynamicLightingPreparedWithGpuSkinning = useGpuSkinning;
                     _dynamicLightingPreparedGpuBoneCount = useGpuSkinning ? requiredBoneCount : 0;

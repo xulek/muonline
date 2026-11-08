@@ -291,12 +291,7 @@ namespace Client.Main.Objects
             if (!RenderShadow || LowQuality || isNight)
                 return false;
 
-            bool shadowMapReady = Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
-                                  GraphicsManager.Instance.ShadowMapRenderer?.IsReady == true;
-            bool representedInShadowMap = UsesRenderedShadowMapForCurrentObject();
-            bool actorMeshShadow = IsPlayerOrNpcShadowPart();
-
-            if (representedInShadowMap)
+            if (UsesRenderedShadowMapForCurrentObject())
             {
                 // The shadow-map pass normally consumes immutable GPU geometry. When the
                 // effect lacks ShadowCaster_Skinned, keep CPU buffers as a correctness
@@ -304,32 +299,9 @@ namespace Client.Main.Objects
                 return !SupportsGpuSkinnedShadowCaster();
             }
 
-            // The terrain-conformed projected-shadow path owns a compact persistent shadow
-            // vertex buffer and reads animation bones directly. Do not keep a second complete
-            // CPU-skinned model copy solely for this pass when GPU skinning is active.
-            if (actorMeshShadow)
-                return !CanUseCachedTerrainConformedShadowPath();
-
-            // A ready map can still omit this actor because of caster limits or a stale
-            // selection. Other walkers use one root blob shadow and do not need duplicate
-            // CPU-skinned copies for linked equipment.
-            if (shadowMapReady && (ShouldUseBlobShadowForCurrentPass() || LinkParentAnimation || ParentBoneLink >= 0))
-                return false;
-
-            if (LinkParentAnimation || ParentBoneLink >= 0)
-                return false;
-
-            // Blob shadows use a static quad and do not consume the model's CPU-skinned mesh.
-            if (ShouldUseBlobShadowForCurrentPass())
-                return false;
-
-            // Projected mesh shadows of walkers (e.g. ForceMonsterMeshShadows) use the same
-            // terrain-conformed path as actor shadows: it skins the shadow vertices from the bones.
-            // A complete CPU-skinned model copy per pose change is only needed for its fallback.
-            if (this is WalkerObject)
-                return !CanUseCachedTerrainConformedShadowPath();
-
-            return true;
+            // Projected ground shadows draw the geometry of the main pass (GPU-skinned or CPU-built,
+            // ModelObject.ProjectedShadows) and blob shadows a quad: no CPU copy is needed for them.
+            return false;
         }
 
         private bool CanFullyUseWalkerCrowdInstancingForCpuSkip()

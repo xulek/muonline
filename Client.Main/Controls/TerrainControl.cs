@@ -344,30 +344,81 @@ namespace Client.Main.Controls
 
         private Texture2D _groundHeightTexture;
         private bool _groundHeightTextureValid;
+        private float[] _groundHeights;
+        private float[] _surfaceHeights;
+        private float[] _snowWindowHeights;
+        private long _snowHeightsVersion = -1;
+        private int _snowHeightsFrame = int.MinValue;
+
+        // Snow surface refresh: a node window around the camera, at most every few frames after a change.
+        private const int SnowHeightWindow = 64;
+        private const int SnowHeightRefreshFrames = 15;
 
         /// <summary>
-        /// Rendered terrain height per height-map node (R32F, TERRAIN_SIZE squared), the same values
-        /// <see cref="RequestTerrainHeight"/> interpolates. Used by shaders that put geometry on the ground.
+        /// Rendered ground height per height-map node (R32F, TERRAIN_SIZE squared): the values
+        /// <see cref="RequestTerrainHeight"/> interpolates, raised to the Devias snow surface where it lies above.
+        /// Used by shaders that put geometry on the ground.
         /// </summary>
         internal Texture2D GetGroundHeightTexture()
         {
             if (_physics == null || GraphicsDevice == null)
                 return null;
-            if (_groundHeightTextureValid && _groundHeightTexture is { IsDisposed: false })
-                return _groundHeightTexture;
 
             const int size = Constants.TERRAIN_SIZE;
-            var heights = new float[size * size];
-            for (int y = 0; y < size; y++)
+            if (!_groundHeightTextureValid || _groundHeightTexture is not { IsDisposed: false })
             {
-                for (int x = 0; x < size; x++)
-                    heights[y * size + x] = _physics.GetRenderedNodeHeight(x, y);
+                _groundHeights ??= new float[size * size];
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                        _groundHeights[y * size + x] = _physics.GetRenderedNodeHeight(x, y);
+                }
+
+                // Terrain only; the snow surface goes into _surfaceHeights (and the texture) on top of it.
+                _surfaceHeights ??= new float[size * size];
+                Array.Copy(_groundHeights, _surfaceHeights, _groundHeights.Length);
+                _groundHeightTexture ??= new Texture2D(GraphicsDevice, size, size, false, SurfaceFormat.Single);
+                _groundHeightTexture.SetData(_surfaceHeights);
+                _groundHeightTextureValid = true;
+                _snowHeightsVersion = -1;
             }
 
-            _groundHeightTexture ??= new Texture2D(GraphicsDevice, size, size, false, SurfaceFormat.Single);
-            _groundHeightTexture.SetData(heights);
-            _groundHeightTextureValid = true;
+            if (_renderer?.Snow is { } snow && snow.SurfaceVersion != _snowHeightsVersion &&
+                (uint)(MuGame.FrameIndex - _snowHeightsFrame) >= SnowHeightRefreshFrames)
+                UpdateSnowGroundHeights(snow);
+
             return _groundHeightTexture;
+        }
+
+        /// <summary>Height of one node of <see cref="GetGroundHeightTexture"/> (wrapped like the terrain lookups).</summary>
+        internal float GetGroundNodeHeight(int x, int y) =>
+            _surfaceHeights == null ? 0f : _surfaceHeights[(y & Constants.TERRAIN_SIZE_MASK) * Constants.TERRAIN_SIZE + (x & Constants.TERRAIN_SIZE_MASK)];
+
+        private void UpdateSnowGroundHeights(DeviasSnowRenderer snow)
+        {
+            const int size = Constants.TERRAIN_SIZE;
+            var target = Camera.Instance?.Target ?? Vector3.Zero;
+            int x0 = Math.Clamp((int)(target.X / Constants.TERRAIN_SCALE) - SnowHeightWindow / 2, 0, size - SnowHeightWindow);
+            int y0 = Math.Clamp((int)(target.Y / Constants.TERRAIN_SCALE) - SnowHeightWindow / 2, 0, size - SnowHeightWindow);
+
+            _snowWindowHeights ??= new float[SnowHeightWindow * SnowHeightWindow];
+            for (int y = 0; y < SnowHeightWindow; y++)
+            {
+                for (int x = 0; x < SnowHeightWindow; x++)
+                {
+                    int nodeX = x0 + x, nodeY = y0 + y;
+                    float ground = _groundHeights[nodeY * size + nodeX];
+                    float worldX = nodeX * Constants.TERRAIN_SCALE, worldY = nodeY * Constants.TERRAIN_SCALE;
+                    float height = snow.TryGetSurfaceHeight(worldX, worldY, out float surface) ? MathF.Max(ground, surface) : ground;
+                    _snowWindowHeights[y * SnowHeightWindow + x] = height;
+                    _surfaceHeights[nodeY * size + nodeX] = height;
+                }
+            }
+
+            _groundHeightTexture.SetData(0, new Rectangle(x0, y0, SnowHeightWindow, SnowHeightWindow),
+                _snowWindowHeights, 0, _snowWindowHeights.Length);
+            _snowHeightsVersion = snow.SurfaceVersion;
+            _snowHeightsFrame = MuGame.FrameIndex;
         }
 
         internal bool HasSnowShadowSurface => _renderer?.Snow != null;

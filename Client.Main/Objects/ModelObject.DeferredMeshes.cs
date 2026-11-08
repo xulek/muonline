@@ -83,12 +83,21 @@ namespace Client.Main.Objects
 
         private static void DrawDeferredMeshList(List<DeferredMeshDraw> draws)
         {
-            for (int i = 0; i < draws.Count; i++)
+            // Only mesh draws happen here: consecutive meshes of one object share their lighting setup.
+            int enclosingScope = BeginMeshDrawScope();
+            try
             {
-                DeferredMeshDraw draw = draws[i];
-                if (draw.Owner == null || draw.Owner.Status == Models.GameControlStatus.Disposed || !draw.Owner.Visible)
-                    continue;
-                draw.Owner.DrawDeferred(draw.Mesh);
+                for (int i = 0; i < draws.Count; i++)
+                {
+                    DeferredMeshDraw draw = draws[i];
+                    if (draw.Owner == null || draw.Owner.Status == Models.GameControlStatus.Disposed || !draw.Owner.Visible)
+                        continue;
+                    draw.Owner.DrawDeferred(draw.Mesh);
+                }
+            }
+            finally
+            {
+                EndMeshDrawScope(enclosingScope);
             }
         }
 
@@ -155,14 +164,13 @@ namespace Client.Main.Objects
                 return true;
             }
 
-            // Effect first, then the technique variant the draw will pick (skinned, vertex lit), then texture,
-            // then submission order.
+            // Effect first, then the technique variant the draw will pick (skinned, vertex lit), then submission
+            // order: the meshes of one object stay next to each other and share their lighting setup
+            // (PrepareDynamicLightingEffectOncePerScope). Texture changes measured cheaper than that setup.
             int variant = CanUseGpuSkinningForMesh(mesh) ? 1 : 0;
             if (shaderKind == MeshShaderKind.DynamicLighting && ShouldUseVertexDynamicLighting(WorldPosition.Translation))
                 variant |= 2;
-            Texture2D texture = _meshes?[mesh]?.Texture;
-            long textureKey = texture == null ? 0 : (RuntimeHelpers.GetHashCode(texture) & 0xFFFFFF);
-            long sortKey = ((long)shaderKind << 56) | ((long)variant << 48) | (textureKey << 24) |
+            long sortKey = ((long)shaderKind << 56) | ((long)variant << 48) |
                            (uint)(s_deferredOpaqueMeshDraws.Count & 0xFFFFFF);
             s_deferredOpaqueMeshDraws.Add(new DeferredMeshDraw(this, mesh, sortKey));
             return true;

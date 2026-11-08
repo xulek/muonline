@@ -1280,24 +1280,44 @@ technique ShadowCaster_SkinnedInstanced
 }
 #endif
 
-#if !OPENGL
 // ============================================================================
-// PROJECTED GROUND SHADOWS (player/NPC actors)
+// PROJECTED GROUND SHADOWS
 // ============================================================================
-// The GPU-skinned mesh is flattened by ProjectedShadowMatrix (ModelObject.TryGetShadowMatrix) and put on the
-// rendered terrain surface, the same result the CPU path builds per vertex. GroundHeightTexture holds the
-// rendered height of every height-map node (R32F, 256x256, TerrainControl.GetGroundHeightTexture).
-Texture2D GroundHeightTexture SM6_REGISTER(t6);
+// The mesh is flattened by ProjectedShadowMatrix (ModelObject.TryGetShadowMatrix) and every vertex is put on
+// the rendered ground under it. GroundHeightTexture holds the rendered height of every height-map node
+// (R32F, 256x256, TerrainControl.GetGroundHeightTexture; the Devias snow surface included).
+// ProjectedShadow_Skinned draws the GPU-skinned geometry of the main pass, ProjectedShadow the CPU-built
+// buffers (OpenGL backends, static and deformed meshes). OpenGL reads the heights from GroundPatch instead.
 float4x4 ProjectedShadowMatrix;
 UNIFORM_DEFAULT(float, ProjectedShadowOpacity, 0.5);
 
 static const float GroundTileSize = 100.0;   // Constants.TERRAIN_SCALE
-static const float GroundShadowBias = 1.25;  // ModelObject.TerrainShadowSurfaceBias
+static const float GroundShadowBias = 1.25;  // shadow surface bias above the ground
+
+#if OPENGL
+// The GLSL translation of the effect pipeline has no vertex-shader samplers: the heights of a 10x10 node
+// window around the shadow (GroundPatchOrigin = its first node) come as constants, four per register.
+float4 GroundPatch[25];
+float2 GroundPatchOrigin;
+
+float GroundNodeHeight(int x, int y)
+{
+    int lx = clamp(x - (int)GroundPatchOrigin.x, 0, 9);
+    int ly = clamp(y - (int)GroundPatchOrigin.y, 0, 9);
+    int index = ly * 10 + lx;
+    int slot = index / 4;
+    float4 packed = GroundPatch[slot];
+    int component = index - slot * 4;
+    return component == 0 ? packed.x : component == 1 ? packed.y : component == 2 ? packed.z : packed.w;
+}
+#else
+Texture2D GroundHeightTexture SM6_REGISTER(t6);
 
 float GroundNodeHeight(int x, int y)
 {
     return GroundHeightTexture.Load(int3(x & 255, y & 255, 0)).r;
 }
+#endif
 
 // TerrainPhysics.RequestTerrainHeight: the tile is split along the h00 -> h11 diagonal.
 float GroundHeightAt(float2 worldXY)
@@ -1325,16 +1345,28 @@ struct ProjectedShadowOutput
     float2 TexCoord : TEXCOORD0;
 };
 
-ProjectedShadowOutput ProjectedShadowVS_Skinned(VertexInputSkinned input)
+ProjectedShadowOutput ProjectToGround(float4 modelPos, float2 texCoord)
 {
     ProjectedShadowOutput output;
-    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
-    float4 projected = mul(localPos, ProjectedShadowMatrix);
+    float4 projected = mul(modelPos, ProjectedShadowMatrix);
     float3 ground = float3(projected.xy, GroundHeightAt(projected.xy) + GroundShadowBias);
     output.Position = mul(float4(ground, 1.0), ViewProjection);
-    output.TexCoord = input.TexCoord;
+    output.TexCoord = texCoord;
     return output;
 }
+
+ProjectedShadowOutput ProjectedShadowVS(VertexInput input)
+{
+    return ProjectToGround(float4(input.Position, 1.0), input.TexCoord);
+}
+
+#if !OPENGL
+ProjectedShadowOutput ProjectedShadowVS_Skinned(VertexInputSkinned input)
+{
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
+    return ProjectToGround(localPos, input.TexCoord);
+}
+#endif
 
 float4 ProjectedShadowPS(ProjectedShadowOutput input) : SV_TARGET
 {
@@ -1345,6 +1377,16 @@ float4 ProjectedShadowPS(ProjectedShadowOutput input) : SV_TARGET
     return float4(0.0, 0.0, 0.0, alphaMask * ProjectedShadowOpacity);
 }
 
+technique ProjectedShadow
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL ProjectedShadowVS();
+        PixelShader  = compile PS_SHADERMODEL ProjectedShadowPS();
+    }
+}
+
+#if !OPENGL
 technique ProjectedShadow_Skinned
 {
     pass Pass1

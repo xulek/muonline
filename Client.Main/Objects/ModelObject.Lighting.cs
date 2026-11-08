@@ -73,6 +73,8 @@ namespace Client.Main.Objects
                 ProjectedShadowMatrix = effect.Parameters["ProjectedShadowMatrix"];
                 ProjectedShadowOpacity = effect.Parameters["ProjectedShadowOpacity"];
                 GroundHeightTexture = effect.Parameters["GroundHeightTexture"];
+                GroundPatch = effect.Parameters["GroundPatch"];
+                GroundPatchOrigin = effect.Parameters["GroundPatchOrigin"];
                 ShadowOpaqueCaster = effect.Parameters["ShadowOpaqueCaster"];
             }
 
@@ -130,6 +132,8 @@ namespace Client.Main.Objects
             public EffectParameter ProjectedShadowMatrix { get; }
             public EffectParameter ProjectedShadowOpacity { get; }
             public EffectParameter GroundHeightTexture { get; }
+            public EffectParameter GroundPatch { get; }
+            public EffectParameter GroundPatchOrigin { get; }
             public EffectParameter ShadowOpaqueCaster { get; }
 
             // Palette currently selected in this shared Effect instance (GpuSkinPalette base and generation);
@@ -281,6 +285,48 @@ namespace Client.Main.Objects
         }
 
         public static long DiagDynamicLightingPrepares, DiagDynamicLightingPrepareTicks;
+
+        // Consecutive per-mesh draws of one object inside a mesh-draw scope (a loop that issues nothing but
+        // DrawMesh calls: the mesh loop of DrawModel, the deferred actor mesh flush) share the DynamicLighting
+        // setup; no other pass touches the shared effect between them. A new scope, another object, another
+        // skinning variant or a changed technique prepares the effect again.
+        private static int s_meshDrawScope;
+        private static int s_meshDrawScopeCounter;
+        private static int s_dynamicLightingPreparedScope;
+        private static ModelObject s_dynamicLightingPreparedOwner;
+        private static bool s_dynamicLightingPreparedSkinned;
+        private static int s_dynamicLightingPreparedBones;
+        private static EffectTechnique s_dynamicLightingPreparedTechnique;
+
+        /// <summary>Opens a mesh-draw scope; returns the enclosing one for <see cref="EndMeshDrawScope"/>.</summary>
+        internal static int BeginMeshDrawScope()
+        {
+            int enclosing = s_meshDrawScope;
+            s_meshDrawScope = ++s_meshDrawScopeCounter;
+            return enclosing;
+        }
+
+        // The enclosing scope gets a fresh id: whatever ran in the nested scope may have changed the effect.
+        internal static void EndMeshDrawScope(int enclosing) =>
+            s_meshDrawScope = enclosing == 0 ? 0 : ++s_meshDrawScopeCounter;
+
+        private void PrepareDynamicLightingEffectOncePerScope(Effect effect, bool useGpuSkinning, int requiredBoneCount)
+        {
+            if (s_meshDrawScope != 0 &&
+                s_dynamicLightingPreparedScope == s_meshDrawScope &&
+                ReferenceEquals(s_dynamicLightingPreparedOwner, this) &&
+                s_dynamicLightingPreparedSkinned == useGpuSkinning &&
+                s_dynamicLightingPreparedBones == requiredBoneCount &&
+                ReferenceEquals(effect.CurrentTechnique, s_dynamicLightingPreparedTechnique))
+                return;
+
+            PrepareDynamicLightingEffect(effect, useGpuSkinning, requiredBoneCount);
+            s_dynamicLightingPreparedScope = s_meshDrawScope;
+            s_dynamicLightingPreparedOwner = this;
+            s_dynamicLightingPreparedSkinned = useGpuSkinning;
+            s_dynamicLightingPreparedBones = requiredBoneCount;
+            s_dynamicLightingPreparedTechnique = effect.CurrentTechnique;
+        }
 
         private void PrepareDynamicLightingEffect(Effect effect, bool useGpuSkinning = false, int requiredBoneCount = 0)
         {

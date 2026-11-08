@@ -18,7 +18,7 @@ namespace Client.Main.Diagnostics
         private static readonly string[] ShaderKindNames = { "AlphaTest", "DynLight", "ItemMat", "MonsterMat" };
         private static readonly string[] RouteNames = { "GpuBatch", "FastAlphaBatch", "PerMesh" };
 
-        public enum Extra { Composite, CompositeDraw, ShadowAndHighlight, ActorShadowFlush, SpecialPasses, ChromeUnderlay, Count }
+        public enum Extra { Composite, CompositeDraw, ShadowAndHighlight, GroundShadows, SpecialPasses, ChromeUnderlay, Count }
 
         // [shader kind][after pass][route] then the extra slots.
         private const int MeshSlots = ShaderKinds * 2 * 3;

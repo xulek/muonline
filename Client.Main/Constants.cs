@@ -96,27 +96,6 @@ namespace Client.Main
         public static bool ENABLE_WALKER_CROWD_CHILD_INSTANCING = true;
 
         /// <summary>
-        /// Draws the opaque meshes of an object's projected terrain shadow as one merged draw call.
-        /// </summary>
-        public static bool ENABLE_MERGED_MESH_SHADOWS = true;
-
-        /// <summary>
-        /// Merges the projected shadows of all parts of a player/NPC (body, armor, weapons, wings) into one draw.
-        /// </summary>
-        public static bool ENABLE_ACTOR_MERGED_SHADOWS = true;
-
-        /// <summary>
-        /// Rebuilds the projected mesh shadows of other walkers (remote players, NPCs, monsters) at most every
-        /// other frame; the local hero keeps per-frame shadows.
-        /// </summary>
-        public static bool ENABLE_SHADOW_REBUILD_THROTTLE = true;
-
-        /// <summary>
-        /// Rebuilds projected terrain-conformed shadow meshes of visible objects on worker threads before drawing.
-        /// </summary>
-        public static bool ENABLE_PARALLEL_SHADOW_PREPASS = true;
-
-        /// <summary>
         /// Merges the ItemMaterial meshes of a player's body parts into one mesh (texture atlas) drawn in one or
         /// two calls instead of one per part mesh.
         /// </summary>
@@ -147,8 +126,6 @@ namespace Client.Main
         public static bool ENABLE_DYNAMIC_BUFFER_POOL;
         /// <summary>Opaque per-mesh draws of player/NPC parts are submitted grouped by effect (fewer shader switches).</summary>
         public static bool ENABLE_DEFERRED_ACTOR_MESH_DRAWS;
-        /// <summary>Player/NPC projected ground shadows are skinned and placed on the terrain on the GPU.</summary>
-        public static bool ENABLE_GPU_ACTOR_SHADOWS;
         public static int RENDER_METRICS_LEVEL;
         public static float RENDER_SCALE;
         public static bool HIGH_QUALITY_TEXTURES;
@@ -327,7 +304,6 @@ namespace Client.Main
             ENABLE_ITEM_MATERIAL_ANIMATION = false;
             ENABLE_DYNAMIC_BUFFER_POOL = true;
             ENABLE_DEFERRED_ACTOR_MESH_DRAWS = true;
-            ENABLE_GPU_ACTOR_SHADOWS = true;
             RENDER_METRICS_LEVEL = 1;
             RENDER_SCALE = 1.0f;
             HIGH_QUALITY_TEXTURES = true;
