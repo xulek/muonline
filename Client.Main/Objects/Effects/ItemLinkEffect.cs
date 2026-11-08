@@ -19,7 +19,7 @@ namespace Client.Main.Objects.Effects
     /// Particles follow CreateParticle/MoveParticles and are simulated at the original 25 Hz.
     /// </para>
     /// </summary>
-    public sealed class ItemLinkEffect : EffectObject
+    public sealed class ItemLinkEffect : ItemEffect
     {
         /// <summary>SourceMain BITMAP_* sprite textures used by item effects.</summary>
         public enum Fx
@@ -285,7 +285,6 @@ namespace Client.Main.Objects.Effects
         private readonly Particle[] _particles = new Particle[MaxParticles];
         private readonly Random _random = new();
         private VertexPositionColorTexture[] _vertices;
-        private BasicEffect _effect;
 
         private float _tickAccumulator;
         private int _ticksThisFrame;
@@ -299,8 +298,6 @@ namespace Client.Main.Objects.Effects
         /// <summary>The character carrying the item (root model), when attached to one.</summary>
         public ModelObject Character { get; private set; }
 
-        public ModelObject Owner => Parent as ModelObject;
-
         /// <summary>
         /// Optional emitter used instead of the per-item switch, e.g. character-level effects
         /// such as SourceMain's NextGradeObjectRender (+15 equipment).
@@ -313,26 +310,11 @@ namespace Client.Main.Objects.Effects
         /// </summary>
         public bool StandaloneItem { get; set; }
 
-        public ItemLinkEffect()
+        /// <summary>One frame of emission and particle ticks (run by <see cref="ItemEffectSystem"/>).</summary>
+        internal override void TickEffect(GameTime gameTime)
         {
-            IsTransparent = true;
-            AffectedByTransparency = true;
-            BlendState = Blendings.OneOneAdditive;
-            DepthState = DepthStencilState.DepthRead;
-            BoundingBoxLocal = new BoundingBox(new Vector3(-400f), new Vector3(400f));
-        }
-
-        public override void Update(GameTime gameTime)
-        {
-            if (ItemEffectSystem.TryDeferUpdate(this))
+            if (IsDisposed)
                 return;
-            TickEffect(gameTime);
-        }
-
-        /// <summary>One frame of emission and particle ticks (called by <see cref="ItemEffectSystem"/>).</summary>
-        internal void TickEffect(GameTime gameTime)
-        {
-            base.Update(gameTime);
             _sprites.Clear();
             _beams.Clear();
 
@@ -728,18 +710,10 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        public override void DrawAfter(GameTime gameTime)
+        /// <summary>Writes the effect's quads (into the world batch when it is open; run by <see cref="ItemEffectSystem"/>).</summary>
+        internal override void RenderEffect()
         {
-            base.DrawAfter(gameTime);
-            if (ItemEffectSystem.TryDeferDraw(this))
-                return;
-            RenderEffect();
-        }
-
-        /// <summary>Writes the effect's quads (into the world batch when it is open; called by <see cref="ItemEffectSystem"/>).</summary>
-        internal void RenderEffect()
-        {
-            if (Status == Models.GameControlStatus.Disposed || !Visible)
+            if (IsDisposed || Owner is not { Visible: true })
                 return;
 
             // Textures that have something to draw this frame. The passes below visit only these instead of
@@ -776,148 +750,94 @@ namespace Client.Main.Objects.Effects
             if (alpha <= 0.01f)
                 return;
 
-            _effect ??= new BasicEffect(GraphicsDevice)
-            {
-                VertexColorEnabled = true,
-                TextureEnabled = true,
-                LightingEnabled = false,
-                World = Matrix.Identity,
-            };
             _vertices ??= new VertexPositionColorTexture[(MaxSprites + MaxParticles + 800) * 4];
+            Vector3 right = Camera.Instance.Right;
+            Vector3 up = Camera.Instance.Up;
 
-            var gd = GraphicsDevice;
-            BlendState previousBlend = gd.BlendState;
-            DepthStencilState previousDepth = gd.DepthStencilState;
-            RasterizerState previousRasterizer = gd.RasterizerState;
-            SamplerState previousSampler = gd.SamplerStates[0];
-            try
+            // Quads go into the world batch per texture and blend mode (drawn by EndWorldBatch).
+            for (int t = 0; t < (int)Fx.Count; t++)
             {
-                gd.BlendState = Blendings.OneOneAdditive;
-                gd.DepthStencilState = DepthStencilState.DepthRead;
-                gd.RasterizerState = RasterizerState.CullNone;
-                gd.SamplerStates[0] = SamplerState.LinearClamp;
-                _effect.View = Camera.Instance.View;
-                _effect.Projection = Camera.Instance.Projection;
+                if ((additiveTextures & (1u << t)) == 0)
+                    continue;
+                Texture2D texture = s_textures[t];
+                if (texture == null || texture.IsDisposed)
+                    continue;
 
-                Vector3 right = Camera.Instance.Right;
-                Vector3 up = Camera.Instance.Up;
-
-                // Group by texture so every BITMAP is one draw call.
-                for (int t = 0; t < (int)Fx.Count; t++)
+                int quads = 0;
+                for (int i = 0; i < _sprites.Count; i++)
                 {
-                    if ((additiveTextures & (1u << t)) == 0)
+                    SpriteRequest s = _sprites[i];
+                    if ((int)s.Texture != t || s.Subtract)
                         continue;
-                    Texture2D texture = s_textures[t];
-                    if (texture == null || texture.IsDisposed)
+                    WriteQuad(quads++, texture, s.Position, s.Scale, s.Color * alpha, s.RotationDegrees, right, up);
+                }
+                for (int i = 0; i < _particles.Length; i++)
+                {
+                    ref Particle p = ref _particles[i];
+                    if (!p.Live || (int)p.Texture != t)
                         continue;
-
-                    int quads = 0;
-                    for (int i = 0; i < _sprites.Count; i++)
-                    {
-                        SpriteRequest s = _sprites[i];
-                        if ((int)s.Texture != t || s.Subtract)
-                            continue;
-                        WriteQuad(quads++, texture, s.Position, s.Scale, s.Color * alpha, s.RotationDegrees, right, up);
-                    }
-                    for (int i = 0; i < _particles.Length; i++)
-                    {
-                        ref Particle p = ref _particles[i];
-                        if (!p.Live || (int)p.Texture != t)
-                            continue;
-                        // The star model itself is not reproduced; its sprite is visible mid-life.
-                        if (p.Kind == 100 && (p.LifeTicks > 20f || p.LifeTicks <= 10f))
-                            continue;
-                        WriteQuad(quads++, texture, p.Position, p.Scale, p.Color * alpha, p.Rotation, right, up);
-                    }
-
-                    if (t == (int)Fx.JointLaser)
-                    {
-                        foreach (var trail in _trails)
-                            quads = WriteTrail(quads, trail, alpha);
-                    }
-                    for (int i = 0; i < _beams.Count; i++)
-                    {
-                        if ((int)_beams[i].Texture == t)
-                            quads = WriteBeam(quads, _beams[i], alpha);
-                    }
-
-                    if (t == (int)Fx.Flare)
-                    {
-                        foreach (var ribbon in _ribbons)
-                            quads = WriteRibbon(quads, ribbon, alpha);
-                    }
-
-                    if (t == (int)Fx.JointEnergy)
-                    {
-                        Vector3 anchor = (Character ?? owner)?.WorldPosition.Translation ?? Vector3.Zero;
-                        foreach (var helix in _helices)
-                            quads = WriteHelix(quads, helix, anchor, alpha);
-                    }
-
-                    if (quads == 0)
+                    // The star model itself is not reproduced; its sprite is visible mid-life.
+                    if (p.Kind == 100 && (p.LifeTicks > 20f || p.LifeTicks <= 10f))
                         continue;
-
-                    if (s_worldBatchOpen)
-                    {
-                        AppendToBatch(t, subtract: false, quads);
-                        continue;
-                    }
-
-                    _effect.Texture = texture;
-                    _effect.CurrentTechnique.Passes[0].Apply();
-                    gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, _vertices, 0, quads * 4,
-                        QuadIndexCache.Get(quads), 0, quads * 2);
+                    WriteQuad(quads++, texture, p.Position, p.Scale, p.Color * alpha, p.Rotation, right, up);
                 }
 
-                // Subtractive sprites (EnableAlphaBlendMinus).
-                gd.BlendState = s_minusBlend;
-                for (int t = 0; t < (int)Fx.Count; t++)
+                if (t == (int)Fx.JointLaser)
                 {
-                    if ((subtractTextures & (1u << t)) == 0)
-                        continue;
-                    Texture2D texture = s_textures[t];
-                    if (texture == null || texture.IsDisposed)
-                        continue;
-                    int quads = 0;
-                    for (int i = 0; i < _sprites.Count; i++)
-                    {
-                        SpriteRequest s = _sprites[i];
-                        if ((int)s.Texture == t && s.Subtract)
-                            WriteQuad(quads++, texture, s.Position, s.Scale, s.Color * alpha, s.RotationDegrees, right, up);
-                    }
-                    if (quads == 0)
-                        continue;
-                    if (s_worldBatchOpen)
-                    {
-                        AppendToBatch(t, subtract: true, quads);
-                        continue;
-                    }
-                    _effect.Texture = texture;
-                    _effect.CurrentTechnique.Passes[0].Apply();
-                    gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, _vertices, 0, quads * 4,
-                        QuadIndexCache.Get(quads), 0, quads * 2);
+                    foreach (var trail in _trails)
+                        quads = WriteTrail(quads, trail, alpha);
                 }
+                for (int i = 0; i < _beams.Count; i++)
+                {
+                    if ((int)_beams[i].Texture == t)
+                        quads = WriteBeam(quads, _beams[i], alpha);
+                }
+
+                if (t == (int)Fx.Flare)
+                {
+                    foreach (var ribbon in _ribbons)
+                        quads = WriteRibbon(quads, ribbon, alpha);
+                }
+
+                if (t == (int)Fx.JointEnergy)
+                {
+                    Vector3 anchor = (Character ?? owner)?.WorldPosition.Translation ?? Vector3.Zero;
+                    foreach (var helix in _helices)
+                        quads = WriteHelix(quads, helix, anchor, alpha);
+                }
+
+                if (quads > 0)
+                    AppendToBatch(t, subtract: false, quads);
             }
-            finally
+
+            // Subtractive sprites (EnableAlphaBlendMinus).
+            for (int t = 0; t < (int)Fx.Count; t++)
             {
-                gd.BlendState = previousBlend;
-                gd.DepthStencilState = previousDepth;
-                gd.RasterizerState = previousRasterizer;
-                gd.SamplerStates[0] = previousSampler;
+                if ((subtractTextures & (1u << t)) == 0)
+                    continue;
+                Texture2D texture = s_textures[t];
+                if (texture == null || texture.IsDisposed)
+                    continue;
+                int quads = 0;
+                for (int i = 0; i < _sprites.Count; i++)
+                {
+                    SpriteRequest s = _sprites[i];
+                    if ((int)s.Texture == t && s.Subtract)
+                        WriteQuad(quads++, texture, s.Position, s.Scale, s.Color * alpha, s.RotationDegrees, right, up);
+                }
+                if (quads > 0)
+                    AppendToBatch(t, subtract: true, quads);
             }
         }
 
-        // World batch: every ItemLinkEffect of a DrawAfter pass appends its quads per texture and blend mode,
-        // and the world draws them at once afterwards (additive/subtractive, depth read: order independent).
-        private static bool s_worldBatchOpen;
+        // Batch: every ItemLinkEffect appends its quads per texture and blend mode, and they are drawn at once
+        // afterwards (additive/subtractive, depth read: order independent) - after the world's DrawAfter passes,
+        // or right away for an effect rendered outside a world pass (ItemEffectSystem.Draw).
         private static readonly VertexPositionColorTexture[][] s_batchVertices = new VertexPositionColorTexture[(int)Fx.Count * 2][];
         private static readonly int[] s_batchQuads = new int[(int)Fx.Count * 2];
         private static bool s_batchPending;
         private static BasicEffect s_batchEffect;
         private const int MaxQuadsPerBatchDraw = 8000;
-
-        /// <summary>Starts collecting item link effect quads instead of drawing them per effect.</summary>
-        internal static void BeginWorldBatch() => s_worldBatchOpen = true;
 
         private void AppendToBatch(int texture, bool subtract, int quads)
         {
@@ -939,7 +859,6 @@ namespace Client.Main.Objects.Effects
         /// <summary>Draws and clears the collected quads; called by the world after its DrawAfter passes.</summary>
         internal static void EndWorldBatch(GraphicsDevice gd)
         {
-            s_worldBatchOpen = false;
             if (!s_batchPending || gd == null)
                 return;
 
@@ -1097,11 +1016,5 @@ namespace Client.Main.Objects.Effects
             _vertices[v + 3] = new VertexPositionColorTexture(center - right + up, tint, new Vector2(0f, 0f));
         }
 
-        public override void Dispose()
-        {
-            _effect?.Dispose();
-            _effect = null;
-            base.Dispose();
-        }
     }
 }

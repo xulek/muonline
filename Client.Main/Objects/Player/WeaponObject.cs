@@ -44,7 +44,7 @@ namespace Client.Main.Objects.Player
             LinkParentAnimation = true;
 
             // SourceMain5.2 RenderLinkObject sprite/particle effects of special items.
-            Children.Add(new ItemLinkEffect());
+            AddItemEffect(new ItemLinkEffect());
 
             if (Constants.ENABLE_WEAPON_TRAIL)
             {

@@ -2182,6 +2182,12 @@ namespace Client.Main.Objects
                 gd.RasterizerState = prevCull;
             }
 
+            if (_itemEffects is { } itemEffects)
+            {
+                for (int i = 0; i < itemEffects.Count; i++)
+                    Client.Main.Objects.Effects.ItemEffectSystem.Draw(itemEffects[i]);
+            }
+
             DrawChildrenAfterOnly(gameTime);
         }
     }

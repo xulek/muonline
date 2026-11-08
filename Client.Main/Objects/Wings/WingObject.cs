@@ -187,7 +187,7 @@ namespace Client.Main.Objects.Wings
             Children.Add(_capeCloth);
 
             // RenderPartObjectEffect sprite/particle effects of wings (group 12).
-            Children.Add(new ItemLinkEffect());
+            AddItemEffect(new ItemLinkEffect());
         }
 
         internal bool IsCapeLike => _isCapeLike;

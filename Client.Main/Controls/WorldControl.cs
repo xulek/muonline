@@ -1328,8 +1328,6 @@ namespace Client.Main.Controls
             // Attached fire/glow must wait too: RGBA bridge/grass meshes are submitted
             // in DrawAfter and would otherwise paint over effects in front of them.
             _collectLateEffectDraws = true;
-            Client.Main.Objects.Effects.ItemLinkEffect.BeginWorldBatch();
-            FullSetAuraEffect.BeginWorldBatch();
             ItemEffectSystem.BeginDraw();
             try
             {

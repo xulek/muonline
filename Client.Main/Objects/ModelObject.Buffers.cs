@@ -37,6 +37,9 @@ namespace Client.Main.Objects
             return null;
         }
 
+        // The last full buffer pass found only GPU-skinned meshes (no CPU buffer, no pending texture).
+        private bool _gpuSkinnedOnly;
+
         private void SetDynamicBuffers(bool allowHidden = false)
         {
             if (_invalidatedBufferFlags == MeshDirtyFlags.None || Model?.Meshes == null)
@@ -52,6 +55,16 @@ namespace Client.Main.Objects
 
                 if (ShouldSkipTransformOnlyBufferUpdate())
                     return;
+
+                // Every mesh is GPU-skinned and lit in the shader: pose, transform and light changes leave no
+                // CPU buffer to rebuild (linked equipment receives an animation invalidation every frame).
+                const MeshDirtyFlags gpuOnlyFlags = MeshDirtyFlags.Animation | MeshDirtyFlags.Transform | MeshDirtyFlags.Lighting;
+                if (_gpuSkinnedOnly && (_invalidatedBufferFlags & ~gpuOnlyFlags) == 0)
+                {
+                    _invalidatedBufferFlags = MeshDirtyFlags.None;
+                    return;
+                }
+                bool allMeshesGpuSkinned = true;
 
                 EnsureMeshRuntimeState(meshCount);
 
@@ -140,6 +153,7 @@ namespace Client.Main.Objects
 
                             // Keep building/updating CPU buffers below only for the projected shadow pass.
                         }
+                        allMeshesGpuSkinned = false;
                         // GpuSkinEnabled describes attached immutable GPU geometry, not the
                         // shader selected for this particular frame. Do not clear it during
                         // temporary walk/stop blends, hover transitions or material changes.
@@ -232,6 +246,7 @@ namespace Client.Main.Objects
                 _invalidatedBufferFlags = hasPendingTextureResources
                     ? MeshDirtyFlags.Texture
                     : MeshDirtyFlags.None;
+                _gpuSkinnedOnly = allMeshesGpuSkinned && !hasPendingTextureResources;
             }
             catch (Exception ex)
             {

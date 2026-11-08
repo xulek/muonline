@@ -22,7 +22,7 @@ namespace Client.Main.Objects.NPCS
             Gloves.PcRoomEffect = true;
             Boots.PcRoomEffect = true;
 
-            Children.Add(new Client.Main.Objects.Effects.ItemLinkEffect
+            AddItemEffect(new Client.Main.Objects.Effects.ItemLinkEffect
             {
                 CustomEmitter = effect => Client.Main.Objects.Effects.ItemLinkEffectEmitter.EmitPcRoomPlate(effect),
             });

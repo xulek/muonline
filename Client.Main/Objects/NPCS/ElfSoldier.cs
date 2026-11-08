@@ -49,10 +49,10 @@ namespace Client.Main.Objects.NPCS
             ConfigureSetPart(Boots, 11);
 
             // The soldier uses MODEL_PLAYER, so CheckFullSet gives it the +13 full-set aura too.
-            Children.Add(new FullSetAuraEffect());
+            AddItemEffect(new FullSetAuraEffect());
 
             // CreateJoint(BITMAP_FLARE, ..., 42, o, 15): flare ribbons orbiting the soldier.
-            Children.Add(new ItemLinkEffect
+            AddItemEffect(new ItemLinkEffect
             {
                 CustomEmitter = effect => ItemLinkEffectEmitter.EmitElfOrbit(effect, ref _orbitAngle),
             });

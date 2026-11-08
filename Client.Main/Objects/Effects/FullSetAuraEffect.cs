@@ -18,7 +18,7 @@ namespace Client.Main.Objects.Effects
     /// A valid full set receives six bone-linked lights from +9 and the denser +11/+13 particle
     /// and orbit layers described by the original client.
     /// </summary>
-    public sealed class FullSetAuraEffect : EffectObject
+    public sealed class FullSetAuraEffect : ItemEffect
     {
         private const string LightTexturePath = "Effect/flare01.jpg";
         private const string FlareTexturePath = "Effect/flare.jpg";
@@ -62,7 +62,6 @@ namespace Client.Main.Objects.Effects
         private VertexPositionColorTexture[] _trailVertices;
         private short[] _trailIndices;
 
-        private BasicEffect _effect;
         private Texture2D _lightTexture;
         private Texture2D _flareTexture;
         private Texture2D _torsoTexture;
@@ -90,41 +89,14 @@ namespace Client.Main.Objects.Effects
         private float _renderInterpolation;
         private float _auraTime;
 
-        public FullSetAuraEffect()
+        // No full set (or one that does not show here): nothing is simulated or drawn.
+        private bool _hidden = true;
+
+        /// <summary>One frame of set detection and legacy ticks (run by <see cref="ItemEffectSystem"/>).</summary>
+        internal override void TickEffect(GameTime gameTime)
         {
-            BoundingBoxLocal = new BoundingBox(
-                new Vector3(-260f, -260f, -80f),
-                new Vector3(260f, 260f, 360f));
-            IsTransparent = true;
-            AffectedByTransparency = true;
-            BlendState = Blendings.OneOneAdditive;
-            DepthState = DepthStencilState.DepthRead;
-
-            Hidden = true;
-        }
-
-        public override Task LoadContent() => base.LoadContent();
-
-        public override void Update(GameTime gameTime)
-        {
-            if (Status != GameControlStatus.Ready)
+            if (IsDisposed || !RefreshSetState())
                 return;
-            if (ItemEffectSystem.TryDeferUpdate(this))
-                return;
-            TickEffect(gameTime);
-        }
-
-        /// <summary>One frame of set detection and legacy ticks (called by <see cref="ItemEffectSystem"/>).</summary>
-        internal void TickEffect(GameTime gameTime)
-        {
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            if (!RefreshSetState())
-            {
-                base.Update(gameTime);
-                return;
-            }
 
             float elapsed = MathHelper.Clamp(
                 (float)gameTime.ElapsedGameTime.TotalSeconds,
@@ -148,13 +120,11 @@ namespace Client.Main.Objects.Effects
                 _legacyAccumulator / LegacyStepSeconds,
                 0f,
                 1f);
-
-            base.Update(gameTime);
         }
 
         private bool RefreshSetState()
         {
-            if (Parent is not WalkerObject player ||
+            if (Owner is not WalkerObject player ||
                 player is not IEquippedCharacter gear ||
                 player.Hidden ||
                 player.Model == null ||
@@ -207,7 +177,7 @@ namespace Client.Main.Objects.Effects
                 _primeAuraPending = tier >= 11;
             }
 
-            Hidden = false;
+            _hidden = false;
             return true;
         }
 
@@ -267,19 +237,6 @@ namespace Client.Main.Objects.Effects
             _trailIndices = new short[MaxTrails * (MaxTrailRenderPoints - 1) * 6];
         }
 
-        private void EnsureRenderEffect()
-        {
-            if (_effect != null && !_effect.IsDisposed)
-                return;
-
-            _effect = new BasicEffect(GraphicsDevice)
-            {
-                VertexColorEnabled = true,
-                TextureEnabled = true,
-                LightingEnabled = false,
-                World = Matrix.Identity
-            };
-        }
 
         private static bool AcceptPart(ModelObject part, ref int setIndex, ref int minimumLevel)
         {
@@ -303,7 +260,7 @@ namespace Client.Main.Objects.Effects
 
         private void TickLegacy()
         {
-            if (Parent is not WalkerObject player)
+            if (Owner is not WalkerObject player)
                 return;
 
             UpdateTorsoParticles();
@@ -545,18 +502,10 @@ namespace Client.Main.Objects.Effects
             }
         }
 
-        public override void DrawAfter(GameTime gameTime)
+        /// <summary>Draws the aura (into the world batch when it is open; run by <see cref="ItemEffectSystem"/>).</summary>
+        internal override void RenderEffect()
         {
-            base.DrawAfter(gameTime);
-            if (ItemEffectSystem.TryDeferDraw(this))
-                return;
-            RenderEffect();
-        }
-
-        /// <summary>Draws the aura (into the world batch when it is open; called by <see cref="ItemEffectSystem"/>).</summary>
-        internal void RenderEffect()
-        {
-            if (Status == GameControlStatus.Disposed || !Visible || _activeSetIndex < 0 || Parent is not WalkerObject player)
+            if (IsDisposed || _hidden || _activeSetIndex < 0 || Owner is not WalkerObject { Visible: true } player)
                 return;
 
             EnsureTransientBuffers();
@@ -570,46 +519,11 @@ namespace Client.Main.Objects.Effects
             if (parentAlpha <= 0.05f)
                 return;
 
-            if (s_worldBatchOpen)
-            {
-                // Collected with the other auras of the frame and drawn once (see EndWorldBatch).
-                DrawSoftLights(player, parentAlpha, _renderInterpolation);
-                DrawOrbitFlares(player, parentAlpha, _renderInterpolation);
-                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: false);
-                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: true);
-                return;
-            }
-
-            EnsureRenderEffect();
-            BlendState previousBlend = GraphicsDevice.BlendState;
-            DepthStencilState previousDepth = GraphicsDevice.DepthStencilState;
-            RasterizerState previousRasterizer = GraphicsDevice.RasterizerState;
-            SamplerState previousSampler = GraphicsDevice.SamplerStates[0];
-
-            try
-            {
-                GraphicsDevice.BlendState = Blendings.OneOneAdditive;
-                GraphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
-                GraphicsDevice.RasterizerState = RasterizerState.CullNone;
-                GraphicsDevice.SamplerStates[0] = SamplerState.LinearClamp;
-
-                _effect.World = Matrix.Identity;
-                _effect.View = Camera.Instance.View;
-                _effect.Projection = Camera.Instance.Projection;
-
-                DrawSoftLights(player, parentAlpha, _renderInterpolation);
-                DrawOrbitFlares(player, parentAlpha, _renderInterpolation);
-                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: false);
-                GraphicsDevice.BlendState = InverseSourceAdditive;
-                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: true);
-            }
-            finally
-            {
-                GraphicsDevice.BlendState = previousBlend;
-                GraphicsDevice.DepthStencilState = previousDepth;
-                GraphicsDevice.RasterizerState = previousRasterizer;
-                GraphicsDevice.SamplerStates[0] = previousSampler;
-            }
+            // Collected with the other auras into the batch and drawn at once (EndWorldBatch).
+            DrawSoftLights(player, parentAlpha, _renderInterpolation);
+            DrawOrbitFlares(player, parentAlpha, _renderInterpolation);
+            DrawTrails(parentAlpha, player, _renderInterpolation, expanding: false);
+            DrawTrails(parentAlpha, player, _renderInterpolation, expanding: true);
         }
 
         private void DrawSoftLights(WalkerObject player, float parentAlpha, float interpolation)
@@ -837,23 +751,8 @@ namespace Client.Main.Objects.Effects
             if (vertexCount == 0 || indexCount == 0)
                 return;
 
-            if (s_worldBatchOpen)
-            {
-                AppendToWorldBatch(_flareTexture, expanding ? InverseSourceAdditive : Blendings.OneOneAdditive,
-                    _trailVertices, vertexCount, _trailIndices, indexCount);
-                return;
-            }
-
-            _effect.Texture = _flareTexture;
-            _effect.CurrentTechnique.Passes[0].Apply();
-            GraphicsDevice.DrawUserIndexedPrimitives(
-                PrimitiveType.TriangleList,
-                _trailVertices,
-                0,
-                vertexCount,
-                _trailIndices,
-                0,
-                indexCount / 3);
+            AppendToWorldBatch(_flareTexture, expanding ? InverseSourceAdditive : Blendings.OneOneAdditive,
+                _trailVertices, vertexCount, _trailIndices, indexCount);
         }
 
         // World batch: like ItemLinkEffect, every aura of the DrawAfter passes appends its quads and trails per
@@ -870,12 +769,8 @@ namespace Client.Main.Objects.Effects
             public int IndexCount;
         }
 
-        private static bool s_worldBatchOpen;
         private static readonly List<WorldBatchBucket> s_worldBatchBuckets = new();
         private static BasicEffect s_worldBatchEffect;
-
-        /// <summary>Starts collecting aura geometry instead of drawing it per aura.</summary>
-        internal static void BeginWorldBatch() => s_worldBatchOpen = true;
 
         private static void AppendToWorldBatch(Texture2D texture, BlendState blend,
             VertexPositionColorTexture[] vertices, int vertexCount, short[] indices, int indexCount)
@@ -916,7 +811,6 @@ namespace Client.Main.Objects.Effects
         /// <summary>Draws and clears the collected aura geometry; called by the world after its DrawAfter passes.</summary>
         internal static void EndWorldBatch(GraphicsDevice gd)
         {
-            s_worldBatchOpen = false;
             if (gd == null || s_worldBatchBuckets.Count == 0)
                 return;
 
@@ -976,23 +870,8 @@ namespace Client.Main.Objects.Effects
             if (quadCount <= 0)
                 return;
 
-            if (s_worldBatchOpen)
-            {
-                AppendToWorldBatch(texture, Blendings.OneOneAdditive, _billboardVertices, quadCount * 4,
-                    BillboardIndices, quadCount * 6);
-                return;
-            }
-
-            _effect.Texture = texture;
-            _effect.CurrentTechnique.Passes[0].Apply();
-            GraphicsDevice.DrawUserIndexedPrimitives(
-                PrimitiveType.TriangleList,
-                _billboardVertices,
-                0,
-                quadCount * 4,
-                BillboardIndices,
-                0,
-                quadCount * 2);
+            AppendToWorldBatch(texture, Blendings.OneOneAdditive, _billboardVertices, quadCount * 4,
+                BillboardIndices, quadCount * 6);
         }
 
         private void WriteBillboardQuad(
@@ -1081,7 +960,7 @@ namespace Client.Main.Objects.Effects
             _hasTorsoParticles = false;
             _primeAuraPending = false;
             _renderInterpolation = 0f;
-            Hidden = true;
+            _hidden = true;
         }
 
         private void ClearTransientEffects()
@@ -1227,8 +1106,6 @@ namespace Client.Main.Objects.Effects
         public override void Dispose()
         {
             _disposed = true;
-            _effect?.Dispose();
-            _effect = null;
             if (_ownsLightTexture)
                 _lightTexture?.Dispose();
             if (_ownsFlareTexture)

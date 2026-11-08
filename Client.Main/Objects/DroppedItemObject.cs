@@ -823,7 +823,7 @@ _modelObj = model;
         {
             RenderShadow = false;
             // RenderPartObjectEffect sprites of special items (Devil's Key, potions, weapons, wings).
-            Children.Add(new ItemLinkEffect { StandaloneItem = true });
+            AddItemEffect(new ItemLinkEffect { StandaloneItem = true });
         }
 
         public override void Update(GameTime gameTime)

@@ -632,6 +632,21 @@ namespace Client.Main.Objects
             UpdateBoundings();
         }
 
+        // Item effects carried by this model (item link emitters, auras); run by ItemEffectSystem.
+        private List<Client.Main.Objects.Effects.ItemEffect> _itemEffects;
+
+        /// <summary>Attaches an item effect; it is updated and drawn with this model and disposed with it.</summary>
+        internal void AddItemEffect(Client.Main.Objects.Effects.ItemEffect effect)
+        {
+            effect.Owner = this;
+            // Copy on write: models attach effects while loading, possibly off the main thread.
+            var effects = _itemEffects == null
+                ? new List<Client.Main.Objects.Effects.ItemEffect>(1)
+                : new List<Client.Main.Objects.Effects.ItemEffect>(_itemEffects);
+            effects.Add(effect);
+            _itemEffects = effects;
+        }
+
         public override void Update(GameTime gameTime)
         {
             if (World == null || !_contentLoaded || !Visible) return;
@@ -749,6 +764,12 @@ namespace Client.Main.Objects
             // Track frame time for methods that need it
             _lastFrameTimeMs = gameTime.TotalGameTime.TotalMilliseconds;
 
+            if (_itemEffects is { } itemEffects)
+            {
+                for (int i = 0; i < itemEffects.Count; i++)
+                    Client.Main.Objects.Effects.ItemEffectSystem.Update(itemEffects[i], gameTime);
+            }
+
             // Like old code: always call SetDynamicBuffers when content is loaded
             if (_contentLoaded)
             {
@@ -816,6 +837,12 @@ namespace Client.Main.Objects
             ReleaseTerrainShadowResources();
             _playerComposite?.Dispose();
             _playerComposite = null;
+            if (_itemEffects != null)
+            {
+                foreach (var itemEffect in _itemEffects)
+                    itemEffect.Dispose();
+                _itemEffects = null;
+            }
             Model = null;
             BoneTransform = null;
             _sharedAnimationRenderBones = null;

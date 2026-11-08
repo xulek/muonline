@@ -351,7 +351,8 @@ namespace Client.Main.Objects.Player
                 ItemLinkEffectEmitter.EmitNextGrade(effect, this);
                 ItemLinkEffectEmitter.EmitAncientSet(effect, this, ref _extendStateTime);
             };
-            Children.Add(nextGradeEffect);
+            AddItemEffect(nextGradeEffect);
+            AddItemEffect(FullSetAura);
             // The +15 armor ornaments are attached on demand (AttachNextGradeOrnamentsWhenNeeded).
 
             Children.Add(HelmMask);
@@ -365,7 +366,6 @@ namespace Client.Main.Objects.Player
             Children.Add(EquippedWings);
             Children.Add(EquippedHelper);
             Children.Add(Vehicle);
-            Children.Add(FullSetAura);
 
             // Enable mouse hover interactions so the name is shown
             Interactive = true;
