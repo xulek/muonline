@@ -1,0 +1,15 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: classic MU Online (Webzen) fantasy MMORPG interface - dark burnished bronze and antique gold filigree metal, deep red gemstones, gothic angular shapes, rich painterly game-UI rendering, crisp clean edges, orthographic flat front view, no text, no letters, no watermark.",
+  "sources": {
+    "map_banner": {
+      "prompt": "A wide horizontal LOCATION NAME BANNER shown at the top of the screen when entering a new area: a dark smoky-metal plate with a thin bronze-gold beveled border, both ends tapering into pointed gothic gold filigree flourishes, a small ornate gold crest with a tiny red gem on the top center edge, and a thin gold flourish line with a diamond ornament running below the plate. The plate center is plain, dark and empty (space for a place name). Perfectly left-right symmetric. Very wide aspect ratio about 5:1.",
+      "cut": [
+        {
+          "out": "Frame/map_banner",
+          "width": 768
+        }
+      ]
+    }
+  }
+}

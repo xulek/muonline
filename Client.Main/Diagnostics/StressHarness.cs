@@ -330,8 +330,12 @@ namespace Client.Main.Diagnostics
                     CaptureLoadingShot(game, "loading_mapchange", elapsed);
                     if (elapsed > 3 && game.ActiveScene?.World is Client.Main.Worlds.DeviasWorld { Status: Models.GameControlStatus.Ready, Visible: true })
                     {
-                        SaveScreenshot(game, $"{_label}_loading_arrived");
-                        Finish(game, null);
+                        _arrivedAt ??= elapsed; // the map name banner shows once the loading screen is gone
+                        if (elapsed - _arrivedAt >= 2.5)
+                        {
+                            SaveScreenshot(game, $"{_label}_loading_arrived");
+                            Finish(game, null);
+                        }
                     }
                     else if (elapsed > 90)
                     {
@@ -457,6 +461,7 @@ namespace Client.Main.Diagnostics
         // MU_STRESS_BACKITEMS=1: spawns players with swords, shields, bows + arrows, crossbows + bolts and staffs in the
         // spawn plaza (a safe zone, so the weapons are holstered on their backs), two rows facing opposite ways.
         private static readonly bool BackItemsScene = Environment.GetEnvironmentVariable("MU_STRESS_BACKITEMS") == "1";
+        private static double? _arrivedAt;
         private static bool _backItemsSpawned;
         // MU_STRESS_BACK_AT=x,y: centre tile of the lineup (default: the hero's tile); MU_STRESS_BACK_DIR=0..7: the
         // direction the players face. The lineup is one row of naked players so only the weapons stand out.

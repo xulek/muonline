@@ -1,9 +1,5 @@
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text.Json;
-using Client.Main.Controllers;
+﻿using Client.Main.Controllers;
+using Client.Main.Controls.UI.Ornate;
 using Client.Main.Helpers;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
@@ -11,46 +7,30 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Controls.UI.Game.Map
 {
-    public class MapNameControl : TextureControl
+    /// <summary>Banner with the map name shown for a few seconds after entering a map (Ornate kit, Frame/map_banner).</summary>
+    public class MapNameControl : GameControl
     {
-        private float _displayTimer = 0f;
-        private LabelControl _label;
+        private const float HoldSeconds = 5f, FadeSeconds = 2f;
+        // The name goes on the dark plate: inner width and vertical centre as fractions of the banner art.
+        private const float PlateTextWidth = 0.70f, PlateCenterY = 0.56f;
+        private const int TopY = 64, MinWidth = 460;
+
+        private float _displayTimer;
+        private string _text = string.Empty;
 
         public MapNameControl()
         {
-            var layoutInfo = LoadLayoutInfo();
-            var texRectData = LoadTextureRectData();
-
-            if (layoutInfo != null)
-            {
-                X = (int)layoutInfo.ScreenX;
-                Y = (int)layoutInfo.ScreenY;
-                ViewSize = new Point(layoutInfo.Width, layoutInfo.Height);
-            }
-
-            if (texRectData != null)
-            {
-                TextureRectangle = new Rectangle(texRectData.X, texRectData.Y, texRectData.Width, texRectData.Height);
-            }
-
-            TexturePath = "Interface/GFx/MapName_I2.ozd";
             AutoViewSize = false;
+            ViewSize = new Point(UiScaler.VirtualSize.X, UiScaler.VirtualSize.Y);
+            Interactive = false;
             Visible = true;
-            Alpha = 1f;
+            Alpha = 0f;
+        }
 
-            _label = new LabelControl
-            {
-                FontSize = 24,
-                TextColor = Color.WhiteSmoke,
-                UseManualPosition = true,
-                IsBold = false,
-                IsItalic = true,
-                HasUnderline = false
-            };
-
-            LabelText = "Map Name"; // Default
-
-            UpdateLabelPosition();
+        public string LabelText
+        {
+            get => _text;
+            set => _text = value ?? string.Empty;
         }
 
         public void ShowMapName(string mapName)
@@ -58,109 +38,39 @@ namespace Client.Main.Controls.UI.Game.Map
             _displayTimer = 0f;
             Alpha = 1f;
             Visible = true;
-            _label.Visible = true;
-            LabelText = mapName ?? string.Empty;
-        }
-
-        public string LabelText
-        {
-            get => _label.Text;
-            set
-            {
-                _label.Text = value;
-                UpdateLabelPosition();
-            }
+            _text = mapName ?? string.Empty;
         }
 
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
             _displayTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            if (_displayTimer <= 5f)
-            {
-                Alpha = 1f;
-            }
-            else if (_displayTimer > 5f && _displayTimer <= 7f)
-            {
-                float fadeProgress = (_displayTimer - 5f) / 2f;
-                Alpha = MathHelper.SmoothStep(1f, 0f, fadeProgress);
-            }
-            else
-            {
-                Alpha = 0f;
-            }
-
-            if (Alpha < 0.4f)
-                _label.Visible = false;
-            else
-            {
-                _label.Visible = true;
-                _label.Alpha = Alpha / 2f;
-            }
-
-            UpdateLabelPosition();
+            Alpha = _displayTimer <= HoldSeconds
+                ? 1f
+                : MathHelper.SmoothStep(1f, 0f, MathHelper.Clamp((_displayTimer - HoldSeconds) / FadeSeconds, 0f, 1f));
         }
-
 
         public override void Draw(GameTime gameTime)
         {
-            if (Status != GameControlStatus.Ready || !Visible || Texture == null)
+            if (Status != GameControlStatus.Ready || !Visible || Alpha <= 0.01f || _text.Length == 0)
                 return;
 
             var sb = GraphicsManager.Instance.Sprite;
-
-            using (new SpriteBatchScope(
-                   sb,
-                   SpriteSortMode.Deferred,
-                   BlendState.NonPremultiplied,
-                   SamplerState.PointClamp,
-                   transform: UiScaler.SpriteTransform))
+            using (new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.LinearClamp,
+                       transform: UiScaler.SpriteTransform))
             {
-                sb.Draw(Texture,
-                        DisplayRectangle,
-                        TextureRectangle,
-                        Color.White * Alpha);
-            }
+                Texture2D art = OrnateAssets.Get("Frame/map_banner");
+                float fontSize = 26f;
+                float textWidth = OrnateDraw.Measure(_text, fontSize).X;
+                int width = art != null ? (int)MathF.Max(MinWidth, (textWidth + 48f) / PlateTextWidth) : (int)textWidth + 80;
+                int height = art != null ? (int)(width * art.Height / (float)art.Width) : 56;
+                var banner = new Rectangle((UiScaler.VirtualSize.X - width) / 2, TopY, width, height);
 
-            _label.Draw(gameTime);
-        }
+                if (art != null)
+                    sb.Draw(art, banner, Color.White * Alpha);
 
-        private void UpdateLabelPosition()
-        {
-            _label.X = X + (ViewSize.X - _label.ControlSize.X) / 2 + 10;
-            _label.Y = Y + (ViewSize.Y - _label.ControlSize.Y) / 2;
-        }
-
-        private LayoutInfo LoadLayoutInfo()
-        {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            using (Stream stream = assembly.GetManifestResourceStream("Client.Main.Controls.UI.Game.Layouts.MapNameLayout.json"))
-            {
-                if (stream == null)
-                    return null;
-                using (StreamReader reader = new StreamReader(stream))
-                {
-                    string json = reader.ReadToEnd();
-                    var list = JsonSerializer.Deserialize<List<LayoutInfo>>(json);
-                    return list.FirstOrDefault(item => item.Name == "MapName");
-                }
-            }
-        }
-
-        private TextureRectData LoadTextureRectData()
-        {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            using (Stream stream = assembly.GetManifestResourceStream("Client.Main.Controls.UI.Game.Layouts.MapNameRect.json"))
-            {
-                if (stream == null)
-                    return null;
-                using (StreamReader reader = new StreamReader(stream))
-                {
-                    string json = reader.ReadToEnd();
-                    var list = JsonSerializer.Deserialize<List<TextureRectData>>(json);
-                    return list.FirstOrDefault(item => item.Name == "MapName");
-                }
+                var textArea = new Rectangle(banner.X, (int)(banner.Y + banner.Height * PlateCenterY) - 20, banner.Width, 40);
+                OrnateDraw.TextCentered(sb, _text, textArea, fontSize, OrnateStyle.Gold, Alpha, bold: true);
             }
         }
     }
