@@ -352,8 +352,7 @@ namespace Client.Main.Objects.Player
                 ItemLinkEffectEmitter.EmitAncientSet(effect, this, ref _extendStateTime);
             };
             Children.Add(nextGradeEffect);
-            foreach (var ornament in NextGradeOrnamentObject.CreateAll(this))
-                Children.Add(ornament);
+            // The +15 armor ornaments are attached on demand (AttachNextGradeOrnamentsWhenNeeded).
 
             Children.Add(HelmMask);
             Children.Add(Helm);
@@ -1583,6 +1582,33 @@ namespace Client.Main.Objects.Player
         }
 
         // ───────────────────────────────── UPDATE LOOP ─────────────────────────────────
+        // The nine +15 ornaments (NextGradeOrnamentObject) only exist on players that wear a +15 armor part;
+        // as permanent hidden children they cost every player an update and a draw call per ornament.
+        private bool _nextGradeOrnamentsAttached;
+
+        private void AttachNextGradeOrnamentsWhenNeeded()
+        {
+            if (_nextGradeOrnamentsAttached || Status != GameControlStatus.Ready ||
+                !(IsNextGradePart(Helm) || IsNextGradePart(Armor) || IsNextGradePart(Pants) ||
+                  IsNextGradePart(Gloves) || IsNextGradePart(Boots)))
+                return;
+
+            _nextGradeOrnamentsAttached = true;
+            var ornaments = NextGradeOrnamentObject.CreateAll(this);
+            MuGame.ScheduleOnMainThread(() =>
+            {
+                if (Status == GameControlStatus.Disposed)
+                    return;
+                foreach (var ornament in ornaments)
+                {
+                    Children.Add(ornament);
+                    _ = ornament.Load();
+                }
+            });
+        }
+
+        private static bool IsNextGradePart(ModelObject part) => part != null && part.ItemLevel >= 15;
+
         public override void Update(GameTime gameTime)
         {
             if (IsMainWalker)
@@ -1598,6 +1624,7 @@ namespace Client.Main.Objects.Player
 
             base.Update(gameTime); // movement, camera for main walker, etc.
 
+            AttachNextGradeOrnamentsWhenNeeded();
             UpdateEquipmentAnimationStride();
 
             if (World is not WalkableWorldControl world)

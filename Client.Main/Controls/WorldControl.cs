@@ -1315,6 +1315,7 @@ namespace Client.Main.Controls
             // in DrawAfter and would otherwise paint over effects in front of them.
             _collectLateEffectDraws = true;
             Client.Main.Objects.Effects.ItemLinkEffect.BeginWorldBatch();
+            FullSetAuraEffect.BeginWorldBatch();
             try
             {
                 DrawDedicatedStaticMapObjects(time);
@@ -1374,6 +1375,15 @@ namespace Client.Main.Controls
                 catch (Exception ex)
                 {
                     RecordRenderFailure(null, "DrawAfter.ItemLinkBatch", ex);
+                }
+
+                try
+                {
+                    FullSetAuraEffect.EndWorldBatch(GraphicsDevice);
+                }
+                catch (Exception ex)
+                {
+                    RecordRenderFailure(null, "DrawAfter.FullSetAuraBatch", ex);
                 }
                 RenderDrawCounter.Mark(RenderDrawCounter.Step.After);
             }

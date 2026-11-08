@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MUnique.OpenMU.Network.Packets;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Effects
@@ -547,12 +548,22 @@ namespace Client.Main.Objects.Effects
                 return;
 
             EnsureFallbackTextures();
-            EnsureRenderEffect();
 
             float parentAlpha = MathHelper.Clamp(player.TotalAlpha, 0f, 1f);
             if (parentAlpha <= 0.05f)
                 return;
 
+            if (s_worldBatchOpen)
+            {
+                // Collected with the other auras of the frame and drawn once (see EndWorldBatch).
+                DrawSoftLights(player, parentAlpha, _renderInterpolation);
+                DrawOrbitFlares(player, parentAlpha, _renderInterpolation);
+                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: false);
+                DrawTrails(parentAlpha, player, _renderInterpolation, expanding: true);
+                return;
+            }
+
+            EnsureRenderEffect();
             BlendState previousBlend = GraphicsDevice.BlendState;
             DepthStencilState previousDepth = GraphicsDevice.DepthStencilState;
             RasterizerState previousRasterizer = GraphicsDevice.RasterizerState;
@@ -809,6 +820,13 @@ namespace Client.Main.Objects.Effects
             if (vertexCount == 0 || indexCount == 0)
                 return;
 
+            if (s_worldBatchOpen)
+            {
+                AppendToWorldBatch(_flareTexture, expanding ? InverseSourceAdditive : Blendings.OneOneAdditive,
+                    _trailVertices, vertexCount, _trailIndices, indexCount);
+                return;
+            }
+
             _effect.Texture = _flareTexture;
             _effect.CurrentTechnique.Passes[0].Apply();
             GraphicsDevice.DrawUserIndexedPrimitives(
@@ -821,10 +839,132 @@ namespace Client.Main.Objects.Effects
                 indexCount / 3);
         }
 
+        // World batch: like ItemLinkEffect, every aura of the DrawAfter passes appends its quads and trails per
+        // texture and blend state, and the world draws them at once afterwards. All aura passes are additive
+        // (destination factor One) with read-only depth, so the order between auras does not change the image;
+        // one shared effect replaces a BasicEffect, its shader switch and up to five draws per aura.
+        private sealed class WorldBatchBucket
+        {
+            public Texture2D Texture;
+            public BlendState Blend;
+            public VertexPositionColorTexture[] Vertices = new VertexPositionColorTexture[1024];
+            public int[] Indices = new int[1536];
+            public int VertexCount;
+            public int IndexCount;
+        }
+
+        private static bool s_worldBatchOpen;
+        private static readonly List<WorldBatchBucket> s_worldBatchBuckets = new();
+        private static BasicEffect s_worldBatchEffect;
+
+        /// <summary>Starts collecting aura geometry instead of drawing it per aura.</summary>
+        internal static void BeginWorldBatch() => s_worldBatchOpen = true;
+
+        private static void AppendToWorldBatch(Texture2D texture, BlendState blend,
+            VertexPositionColorTexture[] vertices, int vertexCount, short[] indices, int indexCount)
+        {
+            if (texture == null || texture.IsDisposed || vertexCount <= 0 || indexCount <= 0)
+                return;
+
+            WorldBatchBucket bucket = null;
+            for (int i = 0; i < s_worldBatchBuckets.Count; i++)
+            {
+                var candidate = s_worldBatchBuckets[i];
+                if (ReferenceEquals(candidate.Texture, texture) && ReferenceEquals(candidate.Blend, blend))
+                {
+                    bucket = candidate;
+                    break;
+                }
+            }
+
+            if (bucket == null)
+            {
+                bucket = new WorldBatchBucket { Texture = texture, Blend = blend };
+                s_worldBatchBuckets.Add(bucket);
+            }
+
+            if (bucket.Vertices.Length < bucket.VertexCount + vertexCount)
+                Array.Resize(ref bucket.Vertices, Math.Max(bucket.VertexCount + vertexCount, bucket.Vertices.Length * 2));
+            if (bucket.Indices.Length < bucket.IndexCount + indexCount)
+                Array.Resize(ref bucket.Indices, Math.Max(bucket.IndexCount + indexCount, bucket.Indices.Length * 2));
+
+            int baseVertex = bucket.VertexCount;
+            Array.Copy(vertices, 0, bucket.Vertices, baseVertex, vertexCount);
+            for (int i = 0; i < indexCount; i++)
+                bucket.Indices[bucket.IndexCount + i] = baseVertex + indices[i];
+            bucket.VertexCount += vertexCount;
+            bucket.IndexCount += indexCount;
+        }
+
+        /// <summary>Draws and clears the collected aura geometry; called by the world after its DrawAfter passes.</summary>
+        internal static void EndWorldBatch(GraphicsDevice gd)
+        {
+            s_worldBatchOpen = false;
+            if (gd == null || s_worldBatchBuckets.Count == 0)
+                return;
+
+            BlendState previousBlend = gd.BlendState;
+            DepthStencilState previousDepth = gd.DepthStencilState;
+            RasterizerState previousRasterizer = gd.RasterizerState;
+            SamplerState previousSampler = gd.SamplerStates[0];
+            try
+            {
+                s_worldBatchEffect ??= new BasicEffect(gd)
+                {
+                    VertexColorEnabled = true,
+                    TextureEnabled = true,
+                    LightingEnabled = false,
+                    World = Matrix.Identity,
+                };
+                s_worldBatchEffect.View = Camera.Instance.View;
+                s_worldBatchEffect.Projection = Camera.Instance.Projection;
+                gd.DepthStencilState = DepthStencilState.DepthRead;
+                gd.RasterizerState = RasterizerState.CullNone;
+                gd.SamplerStates[0] = SamplerState.LinearClamp;
+
+                for (int i = 0; i < s_worldBatchBuckets.Count; i++)
+                {
+                    var bucket = s_worldBatchBuckets[i];
+                    if (bucket.IndexCount == 0 || bucket.Texture.IsDisposed)
+                        continue;
+
+                    gd.BlendState = bucket.Blend;
+                    s_worldBatchEffect.Texture = bucket.Texture;
+                    s_worldBatchEffect.CurrentTechnique.Passes[0].Apply();
+                    gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, bucket.Vertices, 0, bucket.VertexCount,
+                        bucket.Indices, 0, bucket.IndexCount / 3);
+                }
+            }
+            finally
+            {
+                // Buckets keep their arrays for the next frame; a bucket whose texture is gone is dropped.
+                for (int i = s_worldBatchBuckets.Count - 1; i >= 0; i--)
+                {
+                    var bucket = s_worldBatchBuckets[i];
+                    bucket.VertexCount = 0;
+                    bucket.IndexCount = 0;
+                    if (bucket.Texture.IsDisposed)
+                        s_worldBatchBuckets.RemoveAt(i);
+                }
+
+                gd.BlendState = previousBlend;
+                gd.DepthStencilState = previousDepth;
+                gd.RasterizerState = previousRasterizer;
+                gd.SamplerStates[0] = previousSampler;
+            }
+        }
+
         private void DrawBillboardBatch(Texture2D texture, int quadCount)
         {
             if (quadCount <= 0)
                 return;
+
+            if (s_worldBatchOpen)
+            {
+                AppendToWorldBatch(texture, Blendings.OneOneAdditive, _billboardVertices, quadCount * 4,
+                    BillboardIndices, quadCount * 6);
+                return;
+            }
 
             _effect.Texture = texture;
             _effect.CurrentTechnique.Passes[0].Apply();

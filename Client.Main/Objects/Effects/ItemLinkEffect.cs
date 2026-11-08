@@ -90,6 +90,8 @@ namespace Client.Main.Objects.Effects
 
         private const float TickSeconds = 1f / 25f;
         private const int MaxTicksPerFrame = 5;
+        // DrawAfter keeps the used textures in a 32-bit mask; this fails to compile when Fx outgrows it.
+        private const uint FxTextureMaskHeadroom = 32 - (uint)Fx.Count;
         private const int MaxSprites = 256;
         private const int MaxParticles = 160;
 
@@ -711,11 +713,31 @@ namespace Client.Main.Objects.Effects
         {
             base.DrawAfter(gameTime);
 
-            bool anyParticle = false;
-            for (int i = 0; i < _particles.Length && !anyParticle; i++)
-                anyParticle = _particles[i].Live;
-            bool anyTrail = _trails[0].Count > 1 || _trails[1].Count > 1 || _helices.Count > 0 || _beams.Count > 0 || _ribbons.Count > 0;
-            if (_sprites.Count == 0 && !anyParticle && !anyTrail)
+            // Textures that have something to draw this frame. The passes below visit only these instead of
+            // scanning every sprite and particle once per texture (27 textures).
+            uint additiveTextures = 0, subtractTextures = 0;
+            for (int i = 0; i < _sprites.Count; i++)
+            {
+                SpriteRequest s = _sprites[i];
+                if (s.Subtract)
+                    subtractTextures |= 1u << (int)s.Texture;
+                else
+                    additiveTextures |= 1u << (int)s.Texture;
+            }
+            for (int i = 0; i < _particles.Length; i++)
+            {
+                if (_particles[i].Live)
+                    additiveTextures |= 1u << (int)_particles[i].Texture;
+            }
+            if (_trails[0].Count > 1 || _trails[1].Count > 1)
+                additiveTextures |= 1u << (int)Fx.JointLaser;
+            for (int i = 0; i < _beams.Count; i++)
+                additiveTextures |= 1u << (int)_beams[i].Texture;
+            if (_ribbons.Count > 0)
+                additiveTextures |= 1u << (int)Fx.Flare;
+            if (_helices.Count > 0)
+                additiveTextures |= 1u << (int)Fx.JointEnergy;
+            if (additiveTextures == 0 && subtractTextures == 0)
                 return;
             if (s_textureLoad == null || !s_textureLoad.IsCompleted)
                 return;
@@ -754,6 +776,8 @@ namespace Client.Main.Objects.Effects
                 // Group by texture so every BITMAP is one draw call.
                 for (int t = 0; t < (int)Fx.Count; t++)
                 {
+                    if ((additiveTextures & (1u << t)) == 0)
+                        continue;
                     Texture2D texture = s_textures[t];
                     if (texture == null || texture.IsDisposed)
                         continue;
@@ -820,6 +844,8 @@ namespace Client.Main.Objects.Effects
                 gd.BlendState = s_minusBlend;
                 for (int t = 0; t < (int)Fx.Count; t++)
                 {
+                    if ((subtractTextures & (1u << t)) == 0)
+                        continue;
                     Texture2D texture = s_textures[t];
                     if (texture == null || texture.IsDisposed)
                         continue;
