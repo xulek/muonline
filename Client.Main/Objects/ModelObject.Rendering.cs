@@ -932,14 +932,18 @@ namespace Client.Main.Objects
                     // coverage are applied even when only this model opts out of lighting.
                     bool forcePerMeshTransparency = stateKey.BlendState != BlendState.Opaque &&
                         (!Constants.ENABLE_DYNAMIC_LIGHTING_SHADER || stateKey.ShaderKind == MeshShaderKind.AlphaTest);
-                    if (!forcePerMeshTransparency &&
+                    // Actor parts in the opaque world pass have one path, the deferred mesh queue (grouped by
+                    // effect); the mesh batches below are for the other objects.
+                    bool actorQueue = !isAfterDraw && stateKey.ShaderKind != MeshShaderKind.AlphaTest &&
+                                      CanDeferActorDraw() && IsPlayerOrNpcShadowPart();
+                    if (!forcePerMeshTransparency && !actorQueue &&
                         TryDrawGpuSkinnedMeshBatch(stateKey, meshIndices, isAfterDraw))
                     {
                         Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 0);
                         continue;
                     }
 
-                    if (!forcePerMeshTransparency &&
+                    if (!forcePerMeshTransparency && !actorQueue &&
                         TryDrawFastAlphaMeshBatch(stateKey, meshIndices, isAfterDraw))
                     {
                         Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 1);

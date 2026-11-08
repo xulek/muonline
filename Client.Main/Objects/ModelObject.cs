@@ -295,6 +295,20 @@ namespace Client.Main.Objects
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsAttachedMesh(int mesh) => mesh >= _firstAttachedMesh;
 
+        // The model has more than one action or an action with more than one key.
+        private bool _modelHasOwnAnimation;
+
+        private static bool HasOwnAnimation(BMD model)
+        {
+            var actions = model?.Actions;
+            if (actions == null || actions.Length == 0)
+                return false;
+            if (actions.Length > 1)
+                return true;
+            var action = actions[0];
+            return action != null && (action.LockPositions ? action.NumAnimationKeys - 1 : action.NumAnimationKeys) > 1;
+        }
+
         /// <summary>The model has meshes appended from linked models.</summary>
         internal bool HasAttachedMeshes => _firstAttachedMesh != int.MaxValue;
 
@@ -307,6 +321,7 @@ namespace Client.Main.Objects
                 {
                     _model = value;
                     _firstAttachedMesh = BMDLoader.Instance.GetFirstAttachedMesh(value);
+                    _modelHasOwnAnimation = HasOwnAnimation(value);
                     InvalidateMeshRenderPlan();
                     // If the model changes after the object has already been loaded,
                     // we need to re-run the content loading logic to update buffers, textures, etc.
@@ -662,7 +677,10 @@ namespace Client.Main.Objects
         {
             if (World == null || !_contentLoaded || !Visible) return;
 
-            if (!LinkParentAnimation && AllowAnimationUpdates && !FreezeAnimationPose)
+            // A part on a parent bone whose model has no animation of its own (one action of one key, e.g. most
+            // weapons) only follows the parent: LoadContent generated its bones once.
+            bool followsParentOnly = ParentBoneLink >= 0 && !ContinuousAnimation && !_modelHasOwnAnimation;
+            if (!LinkParentAnimation && AllowAnimationUpdates && !FreezeAnimationPose && !followsParentOnly)
             {
                 Animation(gameTime);
             }
@@ -831,6 +849,8 @@ namespace Client.Main.Objects
             ReleaseTerrainShadowResources();
             _playerComposite?.Dispose();
             _playerComposite = null;
+            _mergedShadow?.Dispose();
+            _mergedShadow = null;
             if (_itemEffects != null)
             {
                 foreach (var itemEffect in _itemEffects)

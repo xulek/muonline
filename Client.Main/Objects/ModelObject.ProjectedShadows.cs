@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
+using Client.Main.Objects.Player;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -19,11 +20,12 @@ namespace Client.Main.Objects
     {
         private readonly struct ProjectedShadowDraw
         {
-            public ProjectedShadowDraw(ModelObject owner, int mesh, bool skinned, Matrix shadowWorld, float opacity)
+            public ProjectedShadowDraw(ModelObject owner, int mesh, bool skinned, bool opaque, Matrix shadowWorld, float opacity)
             {
                 Owner = owner;
                 Mesh = mesh;
                 Skinned = skinned;
+                Opaque = opaque;
                 ShadowWorld = shadowWorld;
                 Opacity = opacity;
             }
@@ -31,6 +33,8 @@ namespace Client.Main.Objects
             public ModelObject Owner { get; }
             public int Mesh { get; }
             public bool Skinned { get; }
+            /// <summary>Solid shadow mask (else masked by the texture alpha).</summary>
+            public bool Opaque { get; }
             public Matrix ShadowWorld { get; }
             public float Opacity { get; }
         }
@@ -39,6 +43,18 @@ namespace Client.Main.Objects
         private const int ProjectedShadowCompositeMesh = -1;
 
         private static readonly List<ProjectedShadowDraw> s_projectedShadowDraws = new(512);
+
+        // Shadow parameters last set on the shared effect while drawing the queue.
+        private struct ShadowParams
+        {
+            public bool Valid;
+            public Matrix ShadowWorld;
+            public float Opacity;
+            public bool Opaque;
+            public Texture2D Texture;
+        }
+
+        private static ShadowParams s_shadowParams;
         private int _compositeShadowQueuedFrame = -1;
 
         /// <summary>Diagnostics: projected shadow draws issued.</summary>
@@ -57,19 +73,23 @@ namespace Client.Main.Objects
             if (!ValidateWorldMatrix(WorldPosition) || !ValidateWorldMatrix(shadowWorld))
                 return;
 
-            bool compositeCovered = IsCompositeCoveredThisFrame;
+            bool gpuGeometry = CanUseGpuSkinGeometry() && GetVertexDeformer() == null && !UsesMutableMeshData;
+            // Body parts posed by their player hand their solid meshes to the player's merged shadow (one draw);
+            // it includes the meshes of the merged body, so the composite shadow is not needed for them.
+            PlayerObject mergeRoot = gpuGeometry && LinkParentAnimation && Parent is PlayerObject player ? player : null;
+            bool compositeCovered = mergeRoot == null && IsCompositeCoveredThisFrame;
             if (compositeCovered && GetShadowActorRoot() is { } root &&
                 root._compositeShadowQueuedFrame != MuGame.FrameIndex)
             {
                 root._compositeShadowQueuedFrame = MuGame.FrameIndex;
-                s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, ProjectedShadowCompositeMesh, true, shadowWorld, shadowOpacity));
+                // Merged meshes are never RGBA (TryCollectCompositeMeshes): their shadow mask is solid.
+                s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, ProjectedShadowCompositeMesh, true, true, shadowWorld, shadowOpacity));
             }
 
-            bool gpuGeometry = CanUseGpuSkinGeometry() && GetVertexDeformer() == null && !UsesMutableMeshData;
-            QueueProjectedShadowMeshes(GetMeshRenderPlan(false), compositeCovered, gpuGeometry, shadowWorld, shadowOpacity);
+            QueueProjectedShadowMeshes(GetMeshRenderPlan(false), compositeCovered, gpuGeometry, mergeRoot, shadowWorld, shadowOpacity);
             // Like BMD::AddMeshShadowTriangles every mesh but the blend mesh casts a shadow, so the RGBA meshes
             // of the transparent plan (wing feathers, capes) do too, masked by their texture alpha.
-            QueueProjectedShadowMeshes(GetMeshRenderPlan(true), compositeCovered: false, gpuGeometry, shadowWorld, shadowOpacity);
+            QueueProjectedShadowMeshes(GetMeshRenderPlan(true), compositeCovered: false, gpuGeometry, mergeRoot, shadowWorld, shadowOpacity);
 
             // Outside the ground shadow window of the world pass (other scenes) the shadows draw right away.
             if (!s_blobShadowBatchActive)
@@ -77,7 +97,7 @@ namespace Client.Main.Objects
         }
 
         private void QueueProjectedShadowMeshes(Dictionary<MeshStateKey, List<int>> plan, bool compositeCovered,
-            bool gpuGeometry, Matrix shadowWorld, float shadowOpacity)
+            bool gpuGeometry, PlayerObject mergeRoot, Matrix shadowWorld, float shadowOpacity)
         {
             foreach (var group in plan)
             {
@@ -92,11 +112,147 @@ namespace Client.Main.Objects
                         IsStaticMapMeshQueuedForInstancing(mesh) || _meshes[mesh]?.Texture == null)
                         continue;
 
+                    bool opaque = !_meshes[mesh].IsRgba;
                     if (gpuGeometry && CanUseGpuSkinningForMesh(mesh) && EnsureGpuSkinnedMeshForMainPass(mesh))
-                        s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, mesh, true, shadowWorld, shadowOpacity));
+                    {
+                        if (!opaque || mergeRoot == null || !mergeRoot.TryAddMergedShadowMesh(this, mesh, shadowWorld, shadowOpacity))
+                            s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, mesh, true, opaque, shadowWorld, shadowOpacity));
+                    }
                     else if (_meshes[mesh].CpuVertexBuffer != null)
-                        s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, mesh, false, shadowWorld, shadowOpacity));
+                        s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, mesh, false, opaque, shadowWorld, shadowOpacity));
                 }
+            }
+        }
+
+        // Merged shadow of a player's body parts: the solid shadow meshes of the parts posed by the player (same
+        // world matrix and bone palette) in one skinned buffer, rebuilt when the set of meshes changes.
+        private const int ProjectedShadowMergedMesh = -2;
+
+        private sealed class MergedShadowMesh : IDisposable
+        {
+            public VertexBuffer VertexBuffer;
+            public IndexBuffer IndexBuffer;
+            public int PrimitiveCount;
+            public int BoneCount;
+            public long Signature;
+
+            public void Dispose()
+            {
+                VertexBuffer?.Dispose();
+                VertexBuffer = null;
+                IndexBuffer?.Dispose();
+                IndexBuffer = null;
+            }
+        }
+
+        private MergedShadowMesh _mergedShadow;
+        private List<(ModelObject Part, int Mesh)> _mergedShadowSources;
+        private int _mergedShadowFrame = -1;
+        private Matrix _mergedShadowWorld;
+        private float _mergedShadowOpacity;
+
+        /// <summary>
+        /// Adds a solid shadow mesh of a part posed by this player to its merged shadow; false when the part's
+        /// shadow differs from the merged one (it then draws on its own).
+        /// </summary>
+        private bool TryAddMergedShadowMesh(ModelObject part, int mesh, Matrix shadowWorld, float opacity)
+        {
+            int frame = MuGame.FrameIndex;
+            if (_mergedShadowFrame != frame)
+            {
+                _mergedShadowFrame = frame;
+                (_mergedShadowSources ??= new List<(ModelObject, int)>(16)).Clear();
+                _mergedShadowWorld = shadowWorld;
+                _mergedShadowOpacity = opacity;
+                // The first part uploads the shared palette for the merged draw.
+                s_projectedShadowDraws.Add(new ProjectedShadowDraw(part, ProjectedShadowMergedMesh, true, true, shadowWorld, opacity));
+            }
+            else if (_mergedShadowWorld != shadowWorld || _mergedShadowOpacity != opacity)
+            {
+                return false;
+            }
+
+            _mergedShadowSources.Add((part, mesh));
+            return true;
+        }
+
+        private MergedShadowMesh GetMergedShadowMesh()
+        {
+            var sources = _mergedShadowSources;
+            if (sources == null || sources.Count == 0)
+                return null;
+
+            long signature;
+            unchecked
+            {
+                signature = 1469598103934665603L;
+                for (int i = 0; i < sources.Count; i++)
+                {
+                    signature = (signature ^ System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(sources[i].Part.Model)) * 1099511628211L;
+                    signature = (signature ^ sources[i].Mesh) * 1099511628211L;
+                }
+            }
+
+            if (_mergedShadow is { VertexBuffer.IsDisposed: false } cached && cached.Signature == signature)
+                return cached;
+
+            _mergedShadow?.Dispose();
+            _mergedShadow = BuildMergedShadowMesh(sources, signature);
+            return _mergedShadow;
+        }
+
+        private MergedShadowMesh BuildMergedShadowMesh(List<(ModelObject Part, int Mesh)> sources, long signature)
+        {
+            try
+            {
+                var vertices = new List<SkinnedVertexPositionColorNormalTexture>(4096);
+                var indices = new List<int>(8192);
+                int boneCount = 0;
+                for (int i = 0; i < sources.Count; i++)
+                {
+                    if (!Content.BMDLoader.Instance.TryGetSkinnedMeshGeometry(sources[i].Part.Model, sources[i].Mesh,
+                            out var meshVertices, out int[] meshIndices, out int meshBones))
+                        return null;
+
+                    boneCount = Math.Max(boneCount, meshBones);
+                    int baseVertex = vertices.Count;
+                    vertices.AddRange(meshVertices);
+                    for (int k = 0; k < meshIndices.Length; k++)
+                        indices.Add(baseVertex + meshIndices[k]);
+                }
+
+                if (vertices.Count == 0 || boneCount > MaxGpuSkinBones)
+                    return null;
+
+                var gd = GraphicsDevice;
+                var merged = new MergedShadowMesh
+                {
+                    Signature = signature,
+                    BoneCount = boneCount,
+                    PrimitiveCount = indices.Count / 3,
+                    VertexBuffer = new VertexBuffer(gd, SkinnedVertexPositionColorNormalTexture.VertexDeclaration,
+                        vertices.Count, BufferUsage.WriteOnly),
+                };
+                merged.VertexBuffer.SetData(vertices.ToArray());
+                if (vertices.Count <= ushort.MaxValue)
+                {
+                    var shortIndices = new ushort[indices.Count];
+                    for (int i = 0; i < shortIndices.Length; i++)
+                        shortIndices[i] = (ushort)indices[i];
+                    merged.IndexBuffer = new IndexBuffer(gd, IndexElementSize.SixteenBits, shortIndices.Length, BufferUsage.WriteOnly);
+                    merged.IndexBuffer.SetData(shortIndices);
+                }
+                else
+                {
+                    merged.IndexBuffer = new IndexBuffer(gd, IndexElementSize.ThirtyTwoBits, indices.Count, BufferUsage.WriteOnly);
+                    merged.IndexBuffer.SetData(indices.ToArray());
+                }
+                return merged;
+            }
+            catch (Exception ex)
+            {
+                AppLoggerFactory?.CreateLogger<ModelObject>()?.LogDebug(ex, "Building the merged player shadow failed");
+                return null;
             }
         }
 
@@ -133,10 +289,14 @@ namespace Client.Main.Objects
                 bindings.ViewProjection?.SetValue(camera.ViewProjection);
                 bindings.GroundHeightTexture?.SetValue(groundHeights);
 
-                // Two passes keep each technique's draws together (one shader switch).
-                for (int pass = 0; pass < 2; pass++)
+                // The shadow blend only darkens, so the draws may go in any order: grouped by technique (one
+                // shader switch) and by mask kind, the parts of one actor follow each other and share their
+                // shadow matrix, opacity and palette, which are then not set again.
+                s_shadowParams = default;
+                for (int pass = 0; pass < 4; pass++)
                 {
-                    bool skinnedPass = pass == 0;
+                    bool skinnedPass = pass < 2;
+                    bool opaquePass = (pass & 1) == 0;
                     EffectTechnique technique = skinnedPass ? skinnedTechnique : staticTechnique;
                     if (technique == null)
                         continue;
@@ -144,7 +304,7 @@ namespace Client.Main.Objects
                     for (int i = 0; i < s_projectedShadowDraws.Count; i++)
                     {
                         ProjectedShadowDraw draw = s_projectedShadowDraws[i];
-                        if (draw.Skinned == skinnedPass)
+                        if (draw.Skinned == skinnedPass && draw.Opaque == opaquePass)
                             DrawProjectedShadow(gd, effect, bindings, technique, terrain, in draw);
                     }
                 }
@@ -201,9 +361,30 @@ namespace Client.Main.Objects
             VertexBuffer vertexBuffer;
             IndexBuffer indexBuffer;
             int boneCount = 0, primitiveCount;
-            bool opaque;
+            bool opaque = draw.Opaque;
             Texture2D texture = null;
-            if (draw.Mesh == ProjectedShadowCompositeMesh)
+            if (draw.Mesh == ProjectedShadowMergedMesh)
+            {
+                if (owner.Parent is not ModelObject root)
+                    return;
+                MergedShadowMesh merged = root.GetMergedShadowMesh();
+                if (merged == null)
+                {
+                    // Not buildable: the parts' meshes draw one by one.
+                    var sources = root._mergedShadowSources;
+                    for (int i = 0; sources != null && i < sources.Count; i++)
+                    {
+                        var single = new ProjectedShadowDraw(sources[i].Part, sources[i].Mesh, true, true, draw.ShadowWorld, draw.Opacity);
+                        DrawProjectedShadow(gd, effect, bindings, technique, terrain, in single);
+                    }
+                    return;
+                }
+                vertexBuffer = merged.VertexBuffer;
+                indexBuffer = merged.IndexBuffer;
+                boneCount = merged.BoneCount;
+                primitiveCount = merged.PrimitiveCount;
+            }
+            else if (draw.Mesh == ProjectedShadowCompositeMesh)
             {
                 var composite = owner.GetShadowActorRoot()?._playerComposite;
                 if (composite?.VertexBuffer is not { IsDisposed: false } || composite.IndexBuffer is not { IsDisposed: false })
@@ -212,8 +393,6 @@ namespace Client.Main.Objects
                 indexBuffer = composite.IndexBuffer;
                 boneCount = composite.BoneCount;
                 primitiveCount = composite.OneSidedPrimitives + composite.TwoSidedPrimitives;
-                // Merged meshes are never RGBA (TryCollectCompositeMeshes): their shadow mask is solid.
-                opaque = true;
             }
             else
             {
@@ -235,24 +414,42 @@ namespace Client.Main.Objects
                 if (vertexBuffer is not { IsDisposed: false } || indexBuffer is not { IsDisposed: false })
                     return;
                 primitiveCount = indexBuffer.IndexCount / 3;
-                opaque = !state.IsRgba;
                 texture = state.Texture;
             }
 
             if (primitiveCount <= 0)
                 return;
 
-            effect.CurrentTechnique = technique;
+            if (!ReferenceEquals(effect.CurrentTechnique, technique))
+                effect.CurrentTechnique = technique;
             if (draw.Skinned && !owner.TryUploadGpuSkinBoneMatrices(effect, bindings, boneCount))
                 return;
 
-            if (bindings.GroundPatch != null)
-                SetGroundPatch(bindings, terrain, draw.ShadowWorld.Translation);
-            bindings.ProjectedShadowMatrix?.SetValue(draw.ShadowWorld);
-            bindings.ProjectedShadowOpacity?.SetValue(draw.Opacity);
-            bindings.ShadowOpaqueCaster?.SetValue(opaque ? 1f : 0f);
-            if (!opaque)
+            // Every SetValue marks the constant buffer for upload; values shared with the previous draw are kept.
+            ref ShadowParams last = ref s_shadowParams;
+            if (!last.Valid || last.ShadowWorld != draw.ShadowWorld)
+            {
+                if (bindings.GroundPatch != null)
+                    SetGroundPatch(bindings, terrain, draw.ShadowWorld.Translation);
+                bindings.ProjectedShadowMatrix?.SetValue(draw.ShadowWorld);
+                last.ShadowWorld = draw.ShadowWorld;
+            }
+            if (!last.Valid || last.Opacity != draw.Opacity)
+            {
+                bindings.ProjectedShadowOpacity?.SetValue(draw.Opacity);
+                last.Opacity = draw.Opacity;
+            }
+            if (!last.Valid || last.Opaque != opaque)
+            {
+                bindings.ShadowOpaqueCaster?.SetValue(opaque ? 1f : 0f);
+                last.Opaque = opaque;
+            }
+            if (!opaque && !ReferenceEquals(last.Texture, texture))
+            {
                 bindings.DiffuseTexture?.SetValue(texture);
+                last.Texture = texture;
+            }
+            last.Valid = true;
 
             technique.Passes[0].Apply();
             gd.SetVertexBuffer(vertexBuffer);
