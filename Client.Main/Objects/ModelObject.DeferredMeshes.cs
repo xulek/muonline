@@ -83,7 +83,11 @@ namespace Client.Main.Objects
 
         private static void DrawDeferredMeshList(List<DeferredMeshDraw> draws)
         {
-            // Only mesh draws happen here: consecutive meshes of one object share their lighting setup.
+            // Only mesh draws happen here: consecutive meshes of one object share their lighting setup, and the
+            // blend and rasterizer states the draws change are restored once at the end.
+            GraphicsDevice gd = MuGame.Instance.GraphicsDevice;
+            BlendState blend = gd.BlendState;
+            RasterizerState rasterizer = gd.RasterizerState;
             int enclosingScope = BeginMeshDrawScope();
             try
             {
@@ -98,6 +102,8 @@ namespace Client.Main.Objects
             finally
             {
                 EndMeshDrawScope(enclosingScope);
+                SetMeshBlendState(gd, blend);
+                SetMeshRasterizerState(gd, rasterizer);
             }
         }
 

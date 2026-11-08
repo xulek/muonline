@@ -296,6 +296,22 @@ namespace Client.Main.Objects
             return isBlendMesh ? BlendMeshState : BlendState;
         }
 
+        // Mesh draws set the blend and rasterizer states only when they change; DrawModel and the deferred mesh
+        // queue restore them once at the end instead of after every mesh.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void SetMeshBlendState(GraphicsDevice gd, BlendState state)
+        {
+            if (!ReferenceEquals(gd.BlendState, state))
+                gd.BlendState = state;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void SetMeshRasterizerState(GraphicsDevice gd, RasterizerState state)
+        {
+            if (!ReferenceEquals(gd.RasterizerState, state))
+                gd.RasterizerState = state;
+        }
+
         private static float GetAdditiveAlphaCutoff(BlendState blend) =>
             blend != null && blend.ColorBlendFunction == BlendFunction.Add &&
             blend.ColorDestinationBlend == Blend.One &&
@@ -817,9 +833,13 @@ namespace Client.Main.Objects
                 highlightColor = this is MonsterObject ? _redHighlight : _greenHighlight;
             }
 
-            // Render each persistent group with minimal state changes.
+            // Render each persistent group with minimal state changes; the mesh draws only change the blend and
+            // rasterizer states when needed, and the states of the caller are restored once for the object.
+            var gd = GraphicsDevice;
+            BlendState callerBlend = gd.BlendState;
+            RasterizerState callerRasterizer = gd.RasterizerState;
+            try
             {
-                var gd = GraphicsDevice;
                 var effect = GraphicsManager.Instance.AlphaTestEffect3D;
                 // Object-level alpha is constant; set once for the pass
                 if (effect != null && effect.Alpha != TotalAlpha)
@@ -839,6 +859,16 @@ namespace Client.Main.Objects
                         shadowOpacity,
                         ref drewBlobShadow);
                     Client.Main.Diagnostics.DrawPathCounter.StopExtra(shadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ShadowAndHighlight);
+                }
+
+                // The hover highlight is decided and drawn once for the whole object, under its meshes.
+                if (highlightAllowed)
+                {
+                    foreach (var kvp in meshGroups)
+                    {
+                        if (kvp.Value.Count > 0)
+                            DrawMeshesHighlight(kvp.Value, highlightMatrix, highlightColor);
+                    }
                 }
 
                 foreach (var kvp in meshGroups)
@@ -868,9 +898,6 @@ namespace Client.Main.Objects
                     bool groupUsesAlphaTestEffect = effect != null && stateKey.ShaderKind == MeshShaderKind.AlphaTest;
                     if (groupUsesAlphaTestEffect && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
-
-                    if (highlightAllowed)
-                        DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
 
                     if (!isAfterDraw && stateKey.ShaderKind == MeshShaderKind.ItemMaterial && IsCompositeCoveredThisFrame)
                         continue;
@@ -932,10 +959,12 @@ namespace Client.Main.Objects
 
                                 DrawMesh(mi); // Falls back to full per-mesh path for special shaders or forced transparency
 
-                                // Per-mesh draws can change the active shader; reapply the group effect
-                                // before any fast draws that follow.
+                                // Per-mesh draws can change the active shader and states; reapply the group
+                                // effect and states before any fast draws that follow.
                                 if (!forcePerMeshTransparency && groupUsesAlphaTestEffect)
                                 {
+                                    SetMeshBlendState(gd, stateKey.BlendState);
+                                    SetMeshRasterizerState(gd, targetRasterizer);
                                     var passes = effect.CurrentTechnique.Passes;
                                     for (int p = 0; p < passes.Count; p++)
                                         passes[p].Apply();
@@ -954,6 +983,11 @@ namespace Client.Main.Objects
                     }
                     Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 2);
                 }
+            }
+            finally
+            {
+                SetMeshBlendState(gd, callerBlend);
+                SetMeshRasterizerState(gd, callerRasterizer);
             }
         }
 
@@ -1489,14 +1523,9 @@ namespace Client.Main.Objects
 
                 try
                 {
-                    // Apply small depth bias based on object type to reduce Z-fighting
+                    // Small depth bias based on object type to reduce Z-fighting
                     var prevRasterizer = gd.RasterizerState;
                     var depthBias = GetDepthBias();
-                    if (depthBias != 0f)
-                    {
-                        // PERFORMANCE: Use cached RasterizerState to avoid per-mesh allocation
-                        gd.RasterizerState = GraphicsManager.GetCachedRasterizerState(depthBias, prevRasterizer.CullMode, prevRasterizer);
-                    }
 
                     var alphaEffect = GraphicsManager.Instance.AlphaTestEffect3D;
 
@@ -1509,9 +1538,6 @@ namespace Client.Main.Objects
                     var indexBuffer = _meshes[mesh].CpuIndexBuffer;
                     var texture = _meshes[mesh].Texture;
 
-                    // Batch state changes - save current states
-                    var originalRasterizer = gd.RasterizerState;
-                    var prevBlend = gd.BlendState;
                     float prevAlpha = alphaEffect?.Alpha ?? 1f;
 
                     // Get mesh rendering states using helper methods
@@ -1522,11 +1548,11 @@ namespace Client.Main.Objects
                     {
                         // PERFORMANCE: Use cached RasterizerState to avoid per-mesh allocation
                         CullMode cullMode = isTwoSided ? CullMode.None : CullMode.CullClockwiseFace;
-                        gd.RasterizerState = GraphicsManager.GetCachedRasterizerState(depthBias, cullMode, originalRasterizer);
+                        SetMeshRasterizerState(gd, GraphicsManager.GetCachedRasterizerState(depthBias, cullMode, prevRasterizer));
                     }
                     else
                     {
-                        gd.RasterizerState = isTwoSided ? _cullNone : _cullClockwise;
+                        SetMeshRasterizerState(gd, isTwoSided ? _cullNone : _cullClockwise);
                     }
 
                     if (isBlendMesh)
@@ -1543,7 +1569,7 @@ namespace Client.Main.Objects
                         depthStateChanged = true;
                     }
 
-                    gd.BlendState = blendState;
+                    SetMeshBlendState(gd, blendState);
 
                     // Set buffers once
                     gd.SetVertexBuffer(vertexBuffer);
@@ -1598,9 +1624,6 @@ namespace Client.Main.Objects
 
                         alphaEffect.Alpha = prevAlpha;
                     }
-
-                    gd.BlendState = prevBlend;
-                    gd.RasterizerState = originalRasterizer;
                 }
                 finally
                 {
@@ -1727,14 +1750,11 @@ namespace Client.Main.Objects
                     bool isBlendMesh = IsBlendMesh(mesh);
                     var texture = _meshes[mesh].Texture;
 
-                    var prevCull = gd.RasterizerState;
-                    var prevBlend = gd.BlendState;
-
                     // Get mesh rendering states using helper methods
                     bool isTwoSided = IsMeshTwoSided(mesh, isBlendMesh);
                     BlendState blendState = GetMeshBlendState(mesh, isBlendMesh);
 
-                    gd.RasterizerState = isTwoSided ? _cullNone : _cullClockwise;
+                    SetMeshRasterizerState(gd, isTwoSided ? _cullNone : _cullClockwise);
 
                     if (isBlendMesh)
                     {
@@ -1773,7 +1793,7 @@ namespace Client.Main.Objects
                         gd.RasterizerState = _cullNone;
                     }
 
-                    gd.BlendState = blendState;
+                    SetMeshBlendState(gd, blendState);
 
                     Vector3 sunDir = GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
                     if (sunDir.LengthSquared() < 0.0001f)
@@ -1808,8 +1828,6 @@ namespace Client.Main.Objects
                     ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
-                    gd.BlendState = prevBlend;
-                    gd.RasterizerState = prevCull;
                 }
                 finally
                 {
@@ -1863,14 +1881,11 @@ namespace Client.Main.Objects
                     bool isBlendMesh = IsBlendMesh(mesh);
                     var texture = _meshes[mesh].Texture;
 
-                    var prevCull = gd.RasterizerState;
-                    var prevBlend = gd.BlendState;
-
                     // Get mesh rendering states using helper methods
                     bool isTwoSided = IsMeshTwoSided(mesh, isBlendMesh);
                     BlendState blendState = GetMeshBlendState(mesh, isBlendMesh);
 
-                    gd.RasterizerState = isTwoSided ? _cullNone : _cullClockwise;
+                    SetMeshRasterizerState(gd, isTwoSided ? _cullNone : _cullClockwise);
 
                     if (isBlendMesh)
                     {
@@ -1886,7 +1901,7 @@ namespace Client.Main.Objects
                         depthStateChanged = true;
                     }
 
-                    gd.BlendState = blendState;
+                    SetMeshBlendState(gd, blendState);
 
                     Vector3 sunDir = GraphicsManager.Instance.ShadowMapRenderer?.LightDirection ?? Constants.SUN_DIRECTION;
                     if (sunDir.LengthSquared() < 0.0001f)
@@ -1927,8 +1942,6 @@ namespace Client.Main.Objects
                     ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
-                    gd.BlendState = prevBlend;
-                    gd.RasterizerState = prevCull;
                 }
                 finally
                 {
@@ -1976,14 +1989,11 @@ namespace Client.Main.Objects
                     if (vertexBuffer == null || indexBuffer == null)
                         return;
 
-                    var prevCull = gd.RasterizerState;
-                    var prevBlend = gd.BlendState;
-
                     // Get mesh rendering states using helper methods
                     bool isTwoSided = IsMeshTwoSided(mesh, isBlendMesh);
                     BlendState blendState = GetMeshBlendState(mesh, isBlendMesh);
 
-                    gd.RasterizerState = isTwoSided ? _cullNone : _cullClockwise;
+                    SetMeshRasterizerState(gd, isTwoSided ? _cullNone : _cullClockwise);
 
                     if (isBlendMesh)
                     {
@@ -1999,7 +2009,7 @@ namespace Client.Main.Objects
                         depthStateChanged = true;
                     }
 
-                    gd.BlendState = blendState;
+                    SetMeshBlendState(gd, blendState);
 
                     int requiredBoneCount = useGpuSkinning &&
                                             _meshes != null &&
@@ -2057,8 +2067,6 @@ namespace Client.Main.Objects
                     ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
-                    gd.BlendState = prevBlend;
-                    gd.RasterizerState = prevCull;
                 }
                 finally
                 {

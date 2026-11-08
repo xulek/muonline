@@ -693,27 +693,10 @@ namespace Client.Main.Objects
                 }
             }
 
+            // Parts that inherit their pose only follow the parent; their animation stride is set by the walker
+            // (PlayerObject.UpdateEquipmentAnimationStride).
             if (ParentBoneLink >= 0 || LinkParentAnimation)
-            {
                 RecalculateWorldPosition();
-
-                if (Parent is WalkerObject walker)
-                {
-                    int desiredStride = 1;
-                    if (!walker.IsMainWalker)
-                    {
-                        // Keep nearby animations smooth; only throttle when low-quality is active.
-                        // Attachments with animated material effects (e.g. item glow) must stay per-frame.
-                        bool forcePerFrameStride = HasRealtimeMaterialAnimation();
-                        desiredStride = (walker.IsOneShotPlaying || forcePerFrameStride)
-                            ? 1
-                            : walker.AnimationUpdateStride;
-                    }
-
-                    if (AnimationUpdateStride != desiredStride)
-                        SetAnimationUpdateStride(desiredStride);
-                }
-            }
 
             base.Update(gameTime);
 
@@ -920,11 +903,6 @@ namespace Client.Main.Objects
                 current = current.Parent as ModelObject;
             }
             return false;
-        }
-
-        private bool HasRealtimeMaterialAnimation()
-        {
-            return Constants.ENABLE_ITEM_MATERIAL_SHADER && HasItemMaterialEffect;
         }
 
         private void SetDrawShaderTimeSeconds(float timeSeconds)
