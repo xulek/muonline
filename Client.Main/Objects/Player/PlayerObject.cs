@@ -1582,32 +1582,43 @@ namespace Client.Main.Objects.Player
         }
 
         // ───────────────────────────────── UPDATE LOOP ─────────────────────────────────
-        // The nine +15 ornaments (NextGradeOrnamentObject) only exist on players that wear a +15 armor part;
-        // as permanent hidden children they cost every player an update and a draw call per ornament.
-        private bool _nextGradeOrnamentsAttached;
+        // The +15 ornaments (NextGradeOrnamentObject) belong to the armor part they decorate and are drawn with
+        // it. They are attached to a part the first time it reaches +15; as permanent hidden children of every
+        // player they cost an update and a draw per ornament. One bit per decorated part.
+        private int _nextGradeOrnamentParts;
 
         private void AttachNextGradeOrnamentsWhenNeeded()
         {
-            if (_nextGradeOrnamentsAttached || Status != GameControlStatus.Ready ||
-                !(IsNextGradePart(Helm) || IsNextGradePart(Armor) || IsNextGradePart(Pants) ||
-                  IsNextGradePart(Gloves) || IsNextGradePart(Boots)))
+            if (Status != GameControlStatus.Ready)
                 return;
 
-            _nextGradeOrnamentsAttached = true;
-            var ornaments = NextGradeOrnamentObject.CreateAll(this);
+            AttachNextGradeOrnaments(Helm, 1);
+            AttachNextGradeOrnaments(Armor, 2);
+            AttachNextGradeOrnaments(Pants, 4);
+            AttachNextGradeOrnaments(Gloves, 8);
+            AttachNextGradeOrnaments(Boots, 16);
+        }
+
+        private void AttachNextGradeOrnaments(ModelObject part, int bit)
+        {
+            if ((_nextGradeOrnamentParts & bit) != 0 || part == null || part.ItemLevel < 15)
+                return;
+
+            _nextGradeOrnamentParts |= bit;
             MuGame.ScheduleOnMainThread(() =>
             {
-                if (Status == GameControlStatus.Disposed)
+                if (Status == GameControlStatus.Disposed || part.Status == GameControlStatus.Disposed)
                     return;
-                foreach (var ornament in ornaments)
+                foreach (var ornament in NextGradeOrnamentObject.CreateAll(this))
                 {
-                    Children.Add(ornament);
+                    if (!ReferenceEquals(ornament.DecoratedPart, part))
+                        continue;
+                    // Bone-linked to the character skeleton, which the part shares (LinkParentAnimation).
+                    part.Children.Add(ornament);
                     _ = ornament.Load();
                 }
             });
         }
-
-        private static bool IsNextGradePart(ModelObject part) => part != null && part.ItemLevel >= 15;
 
         public override void Update(GameTime gameTime)
         {

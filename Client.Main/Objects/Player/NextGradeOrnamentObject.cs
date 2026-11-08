@@ -32,6 +32,9 @@ namespace Client.Main.Objects.Player
             Hidden = true;
         }
 
+        /// <summary>The armor part this ornament decorates (its parent once attached).</summary>
+        internal ModelObject DecoratedPart => _part();
+
         public static NextGradeOrnamentObject[] CreateAll(PlayerObject player)
         {
             return new[]

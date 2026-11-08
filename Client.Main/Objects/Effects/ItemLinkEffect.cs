@@ -324,6 +324,14 @@ namespace Client.Main.Objects.Effects
 
         public override void Update(GameTime gameTime)
         {
+            if (ItemEffectSystem.TryDeferUpdate(this))
+                return;
+            TickEffect(gameTime);
+        }
+
+        /// <summary>One frame of emission and particle ticks (called by <see cref="ItemEffectSystem"/>).</summary>
+        internal void TickEffect(GameTime gameTime)
+        {
             base.Update(gameTime);
             _sprites.Clear();
             _beams.Clear();
@@ -622,8 +630,12 @@ namespace Client.Main.Objects.Effects
 
         private int _nextParticle;
 
+        // False when no particle is live: idle emitters (most items) skip the particle array in ticks and draws.
+        private bool _hasLiveParticles;
+
         private ref Particle Allocate()
         {
+            _hasLiveParticles = true;
             for (int i = 0; i < _particles.Length; i++)
             {
                 int index = (_nextParticle + i) % _particles.Length;
@@ -640,11 +652,17 @@ namespace Client.Main.Objects.Effects
 
         private void TickParticles()
         {
+            if (!_hasLiveParticles)
+                return;
+
+            // Particles that die in this tick keep the flag set for one more tick; harmless.
+            bool anyLive = false;
             for (int i = 0; i < _particles.Length; i++)
             {
                 ref Particle p = ref _particles[i];
                 if (!p.Live)
                     continue;
+                anyLive = true;
 
                 p.LifeTicks -= 1f;
                 if (p.LifeTicks <= 0f)
@@ -690,6 +708,7 @@ namespace Client.Main.Objects.Effects
                         p.Live = false;
                 }
             }
+            _hasLiveParticles = anyLive;
         }
 
         // ───────────────────────────── Rendering ─────────────────────────────
@@ -712,6 +731,16 @@ namespace Client.Main.Objects.Effects
         public override void DrawAfter(GameTime gameTime)
         {
             base.DrawAfter(gameTime);
+            if (ItemEffectSystem.TryDeferDraw(this))
+                return;
+            RenderEffect();
+        }
+
+        /// <summary>Writes the effect's quads (into the world batch when it is open; called by <see cref="ItemEffectSystem"/>).</summary>
+        internal void RenderEffect()
+        {
+            if (Status == Models.GameControlStatus.Disposed || !Visible)
+                return;
 
             // Textures that have something to draw this frame. The passes below visit only these instead of
             // scanning every sprite and particle once per texture (27 textures).
@@ -724,7 +753,7 @@ namespace Client.Main.Objects.Effects
                 else
                     additiveTextures |= 1u << (int)s.Texture;
             }
-            for (int i = 0; i < _particles.Length; i++)
+            for (int i = 0; _hasLiveParticles && i < _particles.Length; i++)
             {
                 if (_particles[i].Live)
                     additiveTextures |= 1u << (int)_particles[i].Texture;

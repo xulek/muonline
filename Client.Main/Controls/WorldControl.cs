@@ -500,6 +500,20 @@ namespace Client.Main.Controls
 
         public override void Update(GameTime time)
         {
+            // Item effects reached by the update register with the system and are ticked together at the end.
+            ItemEffectSystem.BeginUpdate();
+            try
+            {
+                UpdateWorld(time);
+            }
+            finally
+            {
+                ItemEffectSystem.EndUpdate(time);
+            }
+        }
+
+        private void UpdateWorld(GameTime time)
+        {
             long worldBaseStarted = UpdatePassProfiler.Start();
             base.Update(time);
             UpdatePassProfiler.AddWorldBase(worldBaseStarted);
@@ -1316,6 +1330,7 @@ namespace Client.Main.Controls
             _collectLateEffectDraws = true;
             Client.Main.Objects.Effects.ItemLinkEffect.BeginWorldBatch();
             FullSetAuraEffect.BeginWorldBatch();
+            ItemEffectSystem.BeginDraw();
             try
             {
                 DrawDedicatedStaticMapObjects(time);
@@ -1368,6 +1383,15 @@ namespace Client.Main.Controls
             finally
             {
                 _collectLateEffectDraws = false;
+                try
+                {
+                    ItemEffectSystem.EndDraw();
+                }
+                catch (Exception ex)
+                {
+                    RecordRenderFailure(null, "DrawAfter.ItemEffectSystem", ex);
+                }
+
                 try
                 {
                     Client.Main.Objects.Effects.ItemLinkEffect.EndWorldBatch(GraphicsDevice);

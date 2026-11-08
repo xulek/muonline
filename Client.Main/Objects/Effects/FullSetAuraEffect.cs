@@ -109,6 +109,16 @@ namespace Client.Main.Objects.Effects
         {
             if (Status != GameControlStatus.Ready)
                 return;
+            if (ItemEffectSystem.TryDeferUpdate(this))
+                return;
+            TickEffect(gameTime);
+        }
+
+        /// <summary>One frame of set detection and legacy ticks (called by <see cref="ItemEffectSystem"/>).</summary>
+        internal void TickEffect(GameTime gameTime)
+        {
+            if (Status != GameControlStatus.Ready)
+                return;
 
             if (!RefreshSetState())
             {
@@ -538,8 +548,15 @@ namespace Client.Main.Objects.Effects
         public override void DrawAfter(GameTime gameTime)
         {
             base.DrawAfter(gameTime);
+            if (ItemEffectSystem.TryDeferDraw(this))
+                return;
+            RenderEffect();
+        }
 
-            if (!Visible || _activeSetIndex < 0 || Parent is not WalkerObject player)
+        /// <summary>Draws the aura (into the world batch when it is open; called by <see cref="ItemEffectSystem"/>).</summary>
+        internal void RenderEffect()
+        {
+            if (Status == GameControlStatus.Disposed || !Visible || _activeSetIndex < 0 || Parent is not WalkerObject player)
                 return;
 
             EnsureTransientBuffers();
