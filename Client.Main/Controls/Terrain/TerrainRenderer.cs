@@ -1,4 +1,4 @@
-using Client.Main.Controllers;
+﻿using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Graphics;
 using Microsoft.Xna.Framework;
@@ -566,12 +566,13 @@ namespace Client.Main.Controls.Terrain
 
                 _activeWaterCausticsTexture = ResolveWaterCausticsTexture();
 
+                Effect snowEffect = Snow != null ? ResolveSnowEffect() : null;
                 if (Snow != null)
                 {
                     // Fully opaque snow fills depth first, rejecting the terrain hidden
                     // underneath. Tapered edges and footprints retain the later snow pass.
                     Snow.AmbientLight = AmbientLight;
-                    Snow.Draw(_useDynamicLightingShader ? GraphicsManager.Instance.DynamicLightingEffect : null, opaqueOnly: true);
+                    Snow.Draw(snowEffect, opaqueOnly: true);
                     _lastBoundTexture = null;
                     ApplyTerrainTextureSampler();
                 }
@@ -619,7 +620,7 @@ namespace Client.Main.Controls.Terrain
                 if (Snow != null)
                 {
                     Snow.AmbientLight = AmbientLight;
-                    Snow.Draw(_useDynamicLightingShader ? GraphicsManager.Instance.DynamicLightingEffect : null);
+                    Snow.Draw(snowEffect);
                 }
 
                 // The original Atlans terrain pass does not render standard grass.
@@ -1174,6 +1175,22 @@ namespace Client.Main.Controls.Terrain
                 Snow.AmbientLight = AmbientLight;
                 Snow.Draw(shadowEffect, shadow: true);
             }
+        }
+
+        /// <summary>
+        /// Effect for the Devias snow layer. The snow techniques live in the dynamic lighting effect and read the
+        /// terrain light baked into the snow vertices, so they match the CPU-lit terrain as well: when terrain GPU
+        /// lighting is off (Low/Medium presets) the effect is configured just for the snow. The untextured
+        /// BasicEffect fallback inside the snow renderer is only for a missing shader.
+        /// </summary>
+        private Effect ResolveSnowEffect()
+        {
+            Effect effect = GraphicsManager.Instance.DynamicLightingEffect;
+            if (effect == null)
+                return null;
+            if (_useDynamicLightingShader)
+                return effect;
+            return ConfigureDynamicLightingEffect() ? effect : null;
         }
 
         private bool ConfigureDynamicLightingEffect()

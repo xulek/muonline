@@ -1,4 +1,4 @@
-using Client.Main.Content;
+﻿using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Graphics;
@@ -123,6 +123,18 @@ namespace Client.Main.Objects
         private BlendState _plannedBlendMeshState;
         private bool _plannedLowQuality;
         private bool _plannedPreserveBlendMeshes;
+        private int _plannedShaderConfig;
+
+        /// <summary>
+        /// Options that decide which shader (and GPU or CPU skinning) a mesh uses. Caches built from those decisions
+        /// (the mesh render plan, the GPU-skinned-only shortcut) must be rebuilt when this changes: the quality
+        /// preset and the settings window change the options at runtime.
+        /// </summary>
+        internal static int CurrentShaderConfig =>
+            (Constants.ENABLE_GPU_SKINNING ? 1 : 0) |
+            (Constants.ENABLE_DYNAMIC_LIGHTING_SHADER ? 2 : 0) |
+            (Constants.ENABLE_ITEM_MATERIAL_SHADER ? 4 : 0) |
+            (Constants.ENABLE_MONSTER_MATERIAL_SHADER ? 8 : 0);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private List<int> RentMeshList()
@@ -174,12 +186,18 @@ namespace Client.Main.Objects
 
         private void EnsureMeshRenderPlans()
         {
+            // A shader option changed at runtime: everything planned from shader decisions (static map
+            // instancing plan, fast mesh batches) goes stale together with the render plan.
+            if (_builtMeshRenderPlanVersion != 0 && _plannedShaderConfig != CurrentShaderConfig)
+                InvalidateMeshRenderPlan();
+
             bool preserveBlendMeshes = RenderPolicy.PreserveBlendMeshesInLowQuality;
             if (_builtMeshRenderPlanVersion == _meshRenderPlanVersion &&
                 ReferenceEquals(_plannedBlendState, BlendState) &&
                 ReferenceEquals(_plannedBlendMeshState, BlendMeshState) &&
                 _plannedLowQuality == LowQuality &&
-                _plannedPreserveBlendMeshes == preserveBlendMeshes)
+                _plannedPreserveBlendMeshes == preserveBlendMeshes &&
+                _plannedShaderConfig == CurrentShaderConfig)
             {
                 return;
             }
@@ -229,6 +247,7 @@ namespace Client.Main.Objects
             _plannedBlendMeshState = BlendMeshState;
             _plannedLowQuality = LowQuality;
             _plannedPreserveBlendMeshes = preserveBlendMeshes;
+            _plannedShaderConfig = CurrentShaderConfig;
             _builtMeshRenderPlanVersion = _meshRenderPlanVersion;
         }
 

@@ -1,4 +1,4 @@
-using Client.Data.BMD;
+﻿using Client.Data.BMD;
 using Client.Data.Texture;
 using Client.Main.Content;
 using Client.Main.Controllers;
@@ -37,8 +37,11 @@ namespace Client.Main.Objects
             return null;
         }
 
-        // The last full buffer pass found only GPU-skinned meshes (no CPU buffer, no pending texture).
+        // The last full buffer pass found only GPU-skinned meshes (no CPU buffer, no pending texture). Valid only
+        // for the shader configuration it was computed with: switching the quality preset or a shader option at
+        // runtime can move meshes back to CPU buffers, which a stale flag would never build (invisible actors).
         private bool _gpuSkinnedOnly;
+        private int _gpuSkinnedOnlyConfig;
 
         private void SetDynamicBuffers(bool allowHidden = false)
         {
@@ -59,7 +62,8 @@ namespace Client.Main.Objects
                 // Every mesh is GPU-skinned and lit in the shader: pose, transform and light changes leave no
                 // CPU buffer to rebuild (linked equipment receives an animation invalidation every frame).
                 const MeshDirtyFlags gpuOnlyFlags = MeshDirtyFlags.Animation | MeshDirtyFlags.Transform | MeshDirtyFlags.Lighting;
-                if (_gpuSkinnedOnly && (_invalidatedBufferFlags & ~gpuOnlyFlags) == 0)
+                if (_gpuSkinnedOnly && _gpuSkinnedOnlyConfig == CurrentShaderConfig &&
+                    (_invalidatedBufferFlags & ~gpuOnlyFlags) == 0)
                 {
                     _invalidatedBufferFlags = MeshDirtyFlags.None;
                     return;
@@ -247,11 +251,27 @@ namespace Client.Main.Objects
                     ? MeshDirtyFlags.Texture
                     : MeshDirtyFlags.None;
                 _gpuSkinnedOnly = allMeshesGpuSkinned && !hasPendingTextureResources;
+                _gpuSkinnedOnlyConfig = CurrentShaderConfig;
             }
             catch (Exception ex)
             {
                 _logger?.LogCritical(ex, "SetDynamicBuffers FATAL");
             }
+        }
+
+        /// <summary>Diagnostics (StressHarness): buffer and plan state of this object.</summary>
+        internal string DescribeDrawStateForDiagnostics()
+        {
+            int meshes = _meshes?.Length ?? 0, cpu = 0, valid = 0, hidden = 0;
+            for (int i = 0; i < meshes; i++)
+            {
+                if (_meshes[i]?.CpuVertexBuffer != null) cpu++;
+                if (_meshes[i]?.BufferCache.IsValid == true) valid++;
+                if (IsHiddenMesh(i)) hidden++;
+            }
+            return $"{GetType().Name} visible={Visible} lowQ={LowQuality} flags={_invalidatedBufferFlags} gpuOnly={_gpuSkinnedOnly} " +
+                   $"meshes={meshes} cpuBuf={cpu} cacheValid={valid} hiddenMeshes={hidden} " +
+                   $"opaquePlan={_opaqueMeshPlan.Count} transparentPlan={_transparentMeshPlan.Count} alpha={TotalAlpha:F2} model={Model?.Name}";
         }
 
         private void EnsureMeshRuntimeState(int meshCount)
@@ -432,6 +452,15 @@ namespace Client.Main.Objects
                     DynamicBufferPool.ReturnIndexBuffer(ms.CpuIndexBuffer);
                     ms.CpuIndexBuffer = null;
                 }
+
+                // A valid cache entry without buffers would never be rebuilt: the mesh would stay invisible
+                // whenever the CPU path is needed again (e.g. after a GPU-only side pass released them).
+                ms.BufferCache.VertexBuffer = null;
+                ms.BufferCache.IndexBuffer = null;
+                ms.BufferCache.IsValid = false;
+                // Ask the next update for a buffer pass (SetDynamicBuffers resets the flags at its end, so a
+                // release inside that pass does not loop); GPU-only objects skip it via _gpuSkinnedOnly.
+                _invalidatedBufferFlags |= MeshDirtyFlags.Lighting;
             }
         }
 
@@ -506,10 +535,12 @@ namespace Client.Main.Objects
             if (!CanUseGpuSkinGeometry())
                 return false;
 
+            // Side passes (the hover highlight) use GPU geometry even when the main pass draws this mesh from CPU
+            // buffers (no dynamic lighting shader on the Low preset): keep those buffers then.
             return TryEnableGpuSkinnedMesh(
                 meshIndex,
                 Model.Meshes[meshIndex],
-                preserveCpuBuffers: RequiresCpuProjectedShadowBuffers());
+                preserveCpuBuffers: RequiresCpuProjectedShadowBuffers() || !CanUseGpuSkinningForMesh(meshIndex));
         }
 
         private bool TryEnableGpuSkinnedMesh(

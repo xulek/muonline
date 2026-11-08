@@ -1,4 +1,4 @@
-using Client.Data.BMD;
+﻿using Client.Data.BMD;
 using Client.Main.Content;
 using Client.Main.Controls;
 using Client.Main.Controllers;
@@ -1620,6 +1620,7 @@ namespace Client.Main.Objects
 
         private bool EnsureStaticMapInstancingPlan()
         {
+            EnsureMeshRenderPlans(); // picks up runtime shader option changes before the plan version is compared
             int frame = MuGame.FrameIndex;
             if (_builtStaticMapInstancingPlanVersion == _meshRenderPlanVersion &&
                 frame < _staticMapInstancingPlanValidationFrame &&
