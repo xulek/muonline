@@ -107,6 +107,9 @@ namespace Client.Main.Controls.Terrain
                  + (ty - tx) * h01;
         }
 
+        /// <summary>Rendered height of one height-map node (scale and TWFlags.Height applied).</summary>
+        internal float GetRenderedNodeHeight(int x, int y) => _data.HeightMap == null ? 0f : GetRenderedSampleHeight(x, y);
+
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private float GetRenderedSampleHeight(int x, int y)

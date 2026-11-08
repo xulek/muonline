@@ -147,6 +147,8 @@ namespace Client.Main
         public static bool ENABLE_DYNAMIC_BUFFER_POOL;
         /// <summary>Opaque per-mesh draws of player/NPC parts are submitted grouped by effect (fewer shader switches).</summary>
         public static bool ENABLE_DEFERRED_ACTOR_MESH_DRAWS;
+        /// <summary>Player/NPC projected ground shadows are skinned and placed on the terrain on the GPU.</summary>
+        public static bool ENABLE_GPU_ACTOR_SHADOWS;
         public static int RENDER_METRICS_LEVEL;
         public static float RENDER_SCALE;
         public static bool HIGH_QUALITY_TEXTURES;
@@ -325,6 +327,7 @@ namespace Client.Main
             ENABLE_ITEM_MATERIAL_ANIMATION = false;
             ENABLE_DYNAMIC_BUFFER_POOL = true;
             ENABLE_DEFERRED_ACTOR_MESH_DRAWS = true;
+            ENABLE_GPU_ACTOR_SHADOWS = true;
             RENDER_METRICS_LEVEL = 1;
             RENDER_SCALE = 1.0f;
             HIGH_QUALITY_TEXTURES = true;

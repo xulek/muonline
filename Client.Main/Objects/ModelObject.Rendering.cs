@@ -606,6 +606,8 @@ namespace Client.Main.Objects
                 if (_meshShadowInvocationId == _drawModelInvocationId)
                     return;
                 _meshShadowInvocationId = _drawModelInvocationId;
+                if (TryQueueGpuActorShadows(shadowMatrix, shadowOpacity))
+                    return;
                 List<int> meshes = CollectOpaqueShadowMeshes();
                 if (IsPlayerOrNpcShadowPart() &&
                     TryRegisterActorShadowMeshes(meshes, shadowMatrix, shadowOpacity, _actorShadowRemaining))
@@ -625,6 +627,8 @@ namespace Client.Main.Objects
 
         private int _meshShadowInvocationId = -1;
         private readonly List<int> _opaqueShadowMeshes = new();
+        // Mesh list for the per-object shadow call; only the unmerged per-group fallback reads it.
+        private static readonly List<int> s_noShadowMeshes = new(0);
 
         private List<int> CollectOpaqueShadowMeshes()
         {
@@ -861,6 +865,25 @@ namespace Client.Main.Objects
                     effect.Alpha = TotalAlpha;
                 bool drewBlobShadow = rootBlobDrawn;
 
+                // The blob, merged and GPU shadow paths draw (or queue) the whole object once; only the
+                // unmerged fallback shadows group by group.
+                bool shadowPerGroup = doShadow && !useShadowMap && !Constants.ENABLE_MERGED_MESH_SHADOWS &&
+                                      !ShouldUseBlobShadowForCurrentPass();
+                if (doShadow && !shadowPerGroup)
+                {
+                    var shadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
+                    DrawProjectedShadowPass(
+                        s_noShadowMeshes,
+                        doShadow,
+                        useShadowMap,
+                        shadowMatrix,
+                        view,
+                        projection,
+                        shadowOpacity,
+                        ref drewBlobShadow);
+                    Client.Main.Diagnostics.DrawPathCounter.StopExtra(shadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ShadowAndHighlight);
+                }
+
                 foreach (var kvp in meshGroups)
                 {
                     var stateKey = kvp.Key;
@@ -888,37 +911,29 @@ namespace Client.Main.Objects
                     bool groupUsesAlphaTestEffect = effect != null && stateKey.ShaderKind == MeshShaderKind.AlphaTest;
                     if (groupUsesAlphaTestEffect && effect.Texture != stateKey.Texture)
                         effect.Texture = stateKey.Texture;
-                    // Bind effect once per group. Rebind the sampler afterwards because
-                    // Effect.Apply can restore the sampler state embedded in the shader.
-                    if (groupUsesAlphaTestEffect)
-                    {
-                        var passes = effect.CurrentTechnique.Passes;
-                        for (int p = 0; p < passes.Count; p++)
-                            passes[p].Apply();
-                        ApplyQualityModelSampler(gd);
-                    }
 
-                    // Object-level shadow and highlight passes
-                    var shadowPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
-                    DrawProjectedShadowPass(
-                        meshIndices,
-                        doShadow,
-                        useShadowMap,
-                        shadowMatrix,
-                        view,
-                        projection,
-                        shadowOpacity,
-                        ref drewBlobShadow);
+                    if (shadowPerGroup)
+                    {
+                        DrawProjectedShadowPass(
+                            meshIndices,
+                            doShadow,
+                            useShadowMap,
+                            shadowMatrix,
+                            view,
+                            projection,
+                            shadowOpacity,
+                            ref drewBlobShadow);
+                    }
                     if (highlightAllowed)
                         DrawMeshesHighlight(meshIndices, highlightMatrix, highlightColor);
-                    Client.Main.Diagnostics.DrawPathCounter.StopExtra(shadowPathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ShadowAndHighlight);
 
                     if (!isAfterDraw && stateKey.ShaderKind == MeshShaderKind.ItemMaterial && IsCompositeCoveredThisFrame)
                         continue;
 
                     var meshPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
 
-                    // Shadow/highlight passes change the active shader; reapply the main effect before fast draws.
+                    // Bind the alpha-test effect once per group, after the shadow/highlight passes changed the
+                    // shader. Rebind the sampler because Effect.Apply can restore the one embedded in the shader.
                     if (groupUsesAlphaTestEffect)
                     {
                         var passes = effect.CurrentTechnique.Passes;

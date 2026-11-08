@@ -70,6 +70,10 @@ namespace Client.Main.Objects
                 IsWaterTexture = effect.Parameters["IsWaterTexture"];
                 TextureCoordinateOffset = effect.Parameters["TextureCoordinateOffset"];
                 MaterialTint = effect.Parameters["MaterialTint"];
+                ProjectedShadowMatrix = effect.Parameters["ProjectedShadowMatrix"];
+                ProjectedShadowOpacity = effect.Parameters["ProjectedShadowOpacity"];
+                GroundHeightTexture = effect.Parameters["GroundHeightTexture"];
+                ShadowOpaqueCaster = effect.Parameters["ShadowOpaqueCaster"];
             }
 
             public EffectParameter BonePaletteTexture { get; }
@@ -123,6 +127,10 @@ namespace Client.Main.Objects
             public EffectParameter IsWaterTexture { get; }
             public EffectParameter TextureCoordinateOffset { get; }
             public EffectParameter MaterialTint { get; }
+            public EffectParameter ProjectedShadowMatrix { get; }
+            public EffectParameter ProjectedShadowOpacity { get; }
+            public EffectParameter GroundHeightTexture { get; }
+            public EffectParameter ShadowOpaqueCaster { get; }
 
             // Palette currently selected in this shared Effect instance (GpuSkinPalette base and generation);
             // consecutive meshes of the same pose keep it without touching the parameters.

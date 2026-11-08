@@ -336,8 +336,38 @@ namespace Client.Main.Controls
 
             if (changed > 0 && (flag & TWFlags.NoGround) != 0)
                 _renderer?.InvalidateTerrainAttributes();
+            if (changed > 0 && (flag & TWFlags.Height) != 0)
+                _groundHeightTextureValid = false;
 
             return changed;
+        }
+
+        private Texture2D _groundHeightTexture;
+        private bool _groundHeightTextureValid;
+
+        /// <summary>
+        /// Rendered terrain height per height-map node (R32F, TERRAIN_SIZE squared), the same values
+        /// <see cref="RequestTerrainHeight"/> interpolates. Used by shaders that put geometry on the ground.
+        /// </summary>
+        internal Texture2D GetGroundHeightTexture()
+        {
+            if (_physics == null || GraphicsDevice == null)
+                return null;
+            if (_groundHeightTextureValid && _groundHeightTexture is { IsDisposed: false })
+                return _groundHeightTexture;
+
+            const int size = Constants.TERRAIN_SIZE;
+            var heights = new float[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                    heights[y * size + x] = _physics.GetRenderedNodeHeight(x, y);
+            }
+
+            _groundHeightTexture ??= new Texture2D(GraphicsDevice, size, size, false, SurfaceFormat.Single);
+            _groundHeightTexture.SetData(heights);
+            _groundHeightTextureValid = true;
+            return _groundHeightTexture;
         }
 
         internal bool HasSnowShadowSurface => _renderer?.Snow != null;
@@ -371,6 +401,8 @@ namespace Client.Main.Controls
         {
             _renderer?.Dispose();
             _grassRenderer?.Dispose();
+            _groundHeightTexture?.Dispose();
+            _groundHeightTexture = null;
             base.Dispose();
             _data = null; // Allow GC to collect all data
             GC.SuppressFinalize(this);

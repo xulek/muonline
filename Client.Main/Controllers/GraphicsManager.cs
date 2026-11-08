@@ -76,11 +76,9 @@ namespace Client.Main.Controllers
         private static readonly Dictionary<(float bias, CullMode cull), RasterizerState> _rasterizerCache = new();
         
         // Cached DepthStencilState for highlight rendering to avoid allocations
-        public static readonly DepthStencilState ReadOnlyDepth = new DepthStencilState
-        {
-            DepthBufferEnable = true,
-            DepthBufferWriteEnable = false
-        };
+        // Same state as DepthStencilState.DepthRead (depth test, no writes). Sharing the instance lets the device
+        // skip the switch between blend meshes and the depth-read passes and batches that use the built-in one.
+        public static readonly DepthStencilState ReadOnlyDepth = DepthStencilState.DepthRead;
 
         public void Init(GraphicsDevice graphicsDevice, ContentManager content)
         {

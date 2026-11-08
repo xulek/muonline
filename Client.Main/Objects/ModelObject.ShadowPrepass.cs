@@ -119,6 +119,9 @@ namespace Client.Main.Objects
                 return;
             if (ShouldUseBlobShadowForCurrentPass() || GetVertexDeformer() != null)
                 return;
+            // Actor parts on the GPU shadow path have no CPU shadow mesh to rebuild.
+            if (CanUseGpuActorShadows())
+                return;
             if (!TryGetShadowMatrix(out Matrix shadowWorld) ||
                 !ValidateWorldMatrix(WorldPosition) || !ValidateWorldMatrix(shadowWorld))
                 return;

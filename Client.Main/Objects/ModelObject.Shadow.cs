@@ -348,6 +348,7 @@ namespace Client.Main.Objects
             try
             {
                 FlushBlobShadowBatch(graphicsDevice);
+                DrawQueuedGpuShadows(graphicsDevice);
             }
             finally
             {

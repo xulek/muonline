@@ -1280,6 +1280,81 @@ technique ShadowCaster_SkinnedInstanced
 }
 #endif
 
+#if !OPENGL
+// ============================================================================
+// PROJECTED GROUND SHADOWS (player/NPC actors)
+// ============================================================================
+// The GPU-skinned mesh is flattened by ProjectedShadowMatrix (ModelObject.TryGetShadowMatrix) and put on the
+// rendered terrain surface, the same result the CPU path builds per vertex. GroundHeightTexture holds the
+// rendered height of every height-map node (R32F, 256x256, TerrainControl.GetGroundHeightTexture).
+Texture2D GroundHeightTexture SM6_REGISTER(t6);
+float4x4 ProjectedShadowMatrix;
+UNIFORM_DEFAULT(float, ProjectedShadowOpacity, 0.5);
+
+static const float GroundTileSize = 100.0;   // Constants.TERRAIN_SCALE
+static const float GroundShadowBias = 1.25;  // ModelObject.TerrainShadowSurfaceBias
+
+float GroundNodeHeight(int x, int y)
+{
+    return GroundHeightTexture.Load(int3(x & 255, y & 255, 0)).r;
+}
+
+// TerrainPhysics.RequestTerrainHeight: the tile is split along the h00 -> h11 diagonal.
+float GroundHeightAt(float2 worldXY)
+{
+    if (worldXY.x < 0.0 || worldXY.y < 0.0)
+        return 0.0;
+
+    float2 tile = worldXY / GroundTileSize;
+    int x0 = (int)floor(tile.x);
+    int y0 = (int)floor(tile.y);
+    float tx = tile.x - x0;
+    float ty = tile.y - y0;
+    float h00 = GroundNodeHeight(x0, y0);
+    float h10 = GroundNodeHeight(x0 + 1, y0);
+    float h11 = GroundNodeHeight(x0 + 1, y0 + 1);
+    float h01 = GroundNodeHeight(x0, y0 + 1);
+    return tx >= ty
+        ? (1.0 - tx) * h00 + (tx - ty) * h10 + ty * h11
+        : (1.0 - ty) * h00 + tx * h11 + (ty - tx) * h01;
+}
+
+struct ProjectedShadowOutput
+{
+    float4 Position : SV_POSITION;
+    float2 TexCoord : TEXCOORD0;
+};
+
+ProjectedShadowOutput ProjectedShadowVS_Skinned(VertexInputSkinned input)
+{
+    ProjectedShadowOutput output;
+    float4 localPos = mul(float4(input.Position, 1.0), LoadBone(BoneIndex(input.BoneIndices.x)));
+    float4 projected = mul(localPos, ProjectedShadowMatrix);
+    float3 ground = float3(projected.xy, GroundHeightAt(projected.xy) + GroundShadowBias);
+    output.Position = mul(float4(ground, 1.0), ViewProjection);
+    output.TexCoord = input.TexCoord;
+    return output;
+}
+
+float4 ProjectedShadowPS(ProjectedShadowOutput input) : SV_TARGET
+{
+    // Same mask as Shadow.fx: the texture alpha cuts the silhouette (1 for textures without alpha).
+    float alphaMask = 1.0;
+    [branch] if (ShadowOpaqueCaster < 0.5)
+        alphaMask = tex2D(SamplerState0, input.TexCoord).a;
+    return float4(0.0, 0.0, 0.0, alphaMask * ProjectedShadowOpacity);
+}
+
+technique ProjectedShadow_Skinned
+{
+    pass Pass1
+    {
+        VertexShader = compile VS_SHADERMODEL ProjectedShadowVS_Skinned();
+        PixelShader  = compile PS_SHADERMODEL ProjectedShadowPS();
+    }
+}
+#endif
+
 technique AdditiveAlphaTest
 {
     pass Pass1
