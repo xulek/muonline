@@ -16,7 +16,7 @@ namespace Client.Main.Worlds
         public override void Update(GameTime time)
         {
             base.Update(time);
-            if (Walker != null)
+            if (Walker != null && !AudioSuppressed)
                 SoundController.Instance.PlayBufferWithAttenuation(RainSound, Walker.Position, Walker.Position, loop: true);
         }
 

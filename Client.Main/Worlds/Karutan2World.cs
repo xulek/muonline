@@ -75,7 +75,7 @@ namespace Client.Main.Worlds
         public override void Update(GameTime time)
         {
             base.Update(time);
-            if (Status != Models.GameControlStatus.Ready || !Visible)
+            if (Status != Models.GameControlStatus.Ready || !Visible || AudioSuppressed)
                 return;
 
             bool insideKardamahal = HeroTile == 12;

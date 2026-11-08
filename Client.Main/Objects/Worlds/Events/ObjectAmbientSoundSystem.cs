@@ -38,7 +38,8 @@ namespace Client.Main.Objects.Worlds.Events
         {
             base.Update(gameTime);
 
-            if (_world.Status != GameControlStatus.Ready || _world.Walker == null || _world.Terrain == null)
+            if (_world.Status != GameControlStatus.Ready || _world.Walker == null || _world.Terrain == null ||
+                _world.AudioSuppressed)
                 return;
 
             if (!_sourcesCollected)

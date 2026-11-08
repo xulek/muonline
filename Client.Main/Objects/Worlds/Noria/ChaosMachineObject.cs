@@ -58,7 +58,7 @@ namespace Client.Main.Objects.Worlds.Noria
         {
             base.Update(gameTime);
 
-            if (!Visible || World is not WalkableWorldControl walkableWorld)
+            if (!Visible || World is not WalkableWorldControl walkableWorld || walkableWorld.AudioSuppressed)
                 return;
 
             Vector3 listenerPosition = walkableWorld.Walker.Position;

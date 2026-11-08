@@ -43,7 +43,12 @@ namespace Client.Main.Controllers
         {
             public SoundEffectInstance Instance;
             public float BaseVolume;
+            // Last PlayBufferWithAttenuation call of the loop's source.
+            public double LastRefreshMs;
         }
+
+        // A looping sound whose source stopped refreshing it (removed, culled, its world gone) is paused after this.
+        private const double ManagedLoopStaleMs = 250.0;
 
         private sealed class RecentPlayInfo
         {
@@ -69,6 +74,7 @@ namespace Client.Main.Controllers
         public void Update()
         {
             AdvanceBackgroundMusicFade();
+            PauseStaleManagedLoops();
 
             var instance = _activeBackgroundMusicInstance;
             if (instance == null || instance.IsDisposed || _backgroundMusicLooped || _backgroundMusicEndedRaised)
@@ -86,6 +92,23 @@ namespace Client.Main.Controllers
             catch (Exception ex)
             {
                 _logger?.LogDebug(ex, "BackgroundMusicEnded handler failed.");
+            }
+        }
+
+        private void PauseStaleManagedLoops()
+        {
+            if (_managedLoopingInstances.Count == 0)
+                return;
+
+            double nowMs = _playStopwatch.Elapsed.TotalMilliseconds;
+            foreach (var managed in _managedLoopingInstances.Values)
+            {
+                var instance = managed.Instance;
+                if (instance != null && !instance.IsDisposed && instance.State == SoundState.Playing &&
+                    nowMs - managed.LastRefreshMs > ManagedLoopStaleMs)
+                {
+                    instance.Pause();
+                }
             }
         }
 
@@ -289,6 +312,7 @@ namespace Client.Main.Controllers
                 }
 
                 var instance = managed.Instance;
+                managed.LastRefreshMs = _playStopwatch.Elapsed.TotalMilliseconds;
                 managed.BaseVolume = MathHelper.Clamp(volume, 0f, 1f);
                 UpdateManagedLoopVolume(managed);
 
@@ -340,6 +364,24 @@ namespace Client.Main.Controllers
                 managed.Instance.Stop(true);
                 managed.Instance.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Stops every looping sound started through PlayBufferWithAttenuation. Their sources keep them alive by
+        /// calling it every update, so a world that goes away (teleport, scene change) must stop them: nothing
+        /// would update their volume any more.
+        /// </summary>
+        public void StopAllManagedLoops()
+        {
+            foreach (var managed in _managedLoopingInstances.Values)
+            {
+                if (managed.Instance != null && !managed.Instance.IsDisposed)
+                {
+                    managed.Instance.Stop(true);
+                    managed.Instance.Dispose();
+                }
+            }
+            _managedLoopingInstances.Clear();
         }
 
         public void PlayBuffer(string relativePath)

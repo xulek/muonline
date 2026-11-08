@@ -457,13 +457,23 @@ namespace Client.Main.Controls
                     AmbientSoundPath = WorldAudioDatabase.GetAmbient(MapId);
             }
 
-            // Play or stop background music
+            ApplyWorldAudio();
+        }
+
+        /// <summary>
+        /// Set on a world that is being replaced (map change): it keeps updating until the new world is shown, but
+        /// must not change the music, the ambient sound or start looping sounds any more.
+        /// </summary>
+        public bool AudioSuppressed { get; set; }
+
+        /// <summary>Plays this world's background music and ambient sound, or stops them when it has none.</summary>
+        public void ApplyWorldAudio()
+        {
             if (!string.IsNullOrEmpty(BackgroundMusicPath))
                 SoundController.Instance.PlayBackgroundMusic(BackgroundMusicPath);
             else
                 SoundController.Instance.StopBackgroundMusic();
 
-            // Play or stop ambient sound
             if (!string.IsNullOrEmpty(AmbientSoundPath))
                 SoundController.Instance.PlayAmbientSound(AmbientSoundPath);
             else
@@ -2986,6 +2996,10 @@ namespace Client.Main.Controls
             // those per-frame queues before releasing world objects to prevent one-frame ghosts
             // or persistent stale batches after a teleport.
             ModelObject.ResetWorldScopedInstancingState();
+
+            // Looping object sounds (chaos machine, rain, weather) live in the sound controller and are kept up by
+            // their sources' updates; once this world stops updating nothing would silence them.
+            SoundController.Instance.StopAllManagedLoops();
 
             // Dispose and remove all objects except the local player
             foreach (var obj in Objects.ToArray())

@@ -138,6 +138,11 @@ namespace Client.Main.Scenes
                     $"MapChange.{worldType.Name}.Begin",
                     MainThreadDispatcher.WorkPriority.Critical);
 
+                // The old world keeps updating until the new one is shown; its area audio (pubs, buildings,
+                // rain, looping objects) would follow the hero's new coordinates and override the new map's.
+                if (previousWorld != null)
+                    previousWorld.AudioSuppressed = true;
+
                 _scopeImportController?.ClearObjectTracking();
                 EnsureLoadingScreen($"Loading {worldType.Name}...");
                 _loadingScreen.Progress = 0f;
@@ -254,7 +259,6 @@ namespace Client.Main.Scenes
                     previousWorld = null;
                     _logger?.LogDebug("GameScene.ChangeMap: Disposed previous world.");
                 }
-
                 await MuGame.YieldToNextFrameAsync(
                     $"MapChange.{worldType.Name}.NotifyReady",
                     MainThreadDispatcher.WorkPriority.High);
@@ -304,6 +308,8 @@ namespace Client.Main.Scenes
                         previousWorld.Objects.Add(_scene.Hero);
 
                     previousWorld.Visible = true;
+                    previousWorld.AudioSuppressed = false;
+                    previousWorld.ApplyWorldAudio();
                 }
                 else if (nextWorld != null)
                 {

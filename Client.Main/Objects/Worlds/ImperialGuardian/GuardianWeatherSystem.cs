@@ -70,7 +70,7 @@ namespace Client.Main.Objects.Worlds.ImperialGuardian
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
-            if (_world.Status != GameControlStatus.Ready || _world.Walker == null)
+            if (_world.Status != GameControlStatus.Ready || _world.Walker == null || _world.AudioSuppressed)
                 return;
 
             string? sound = _world.MapId == 72

@@ -179,6 +179,10 @@ namespace Client.Main.Worlds
             // Update bird system
             _birdManager?.Update(time);
 
+            // A world being replaced (map change) leaves the audio to the new one.
+            if (AudioSuppressed)
+                return;
+
             if (IsRaining && walkableWorld.HeroTile != 4 && Walker != null)
                 SoundController.Instance.PlayBufferWithAttenuation(RainSoundPath, Walker.Position, Walker.Position, loop: true);
             else

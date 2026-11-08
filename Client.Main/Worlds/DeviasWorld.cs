@@ -114,7 +114,8 @@ namespace Client.Main.Worlds
             base.Update(time);
             if (Status == Models.GameControlStatus.Ready)
             {
-                if (Visible)
+                // A world being replaced (map change) leaves the audio to the new one.
+                if (Visible && !AudioSuppressed)
                 {
                     bool insideBuilding = HeroTile == 3 || HeroTile >= 10;
                     if (_insideBuilding != insideBuilding)
