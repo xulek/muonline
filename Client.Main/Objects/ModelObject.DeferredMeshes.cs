@@ -109,6 +109,91 @@ namespace Client.Main.Objects
                 DrawMesh(mesh);
         }
 
+        // The after pass (transparent meshes) queues the actors' additive blend meshes: they write no depth and
+        // their blending is commutative, so grouping them by effect leaves the image unchanged. In the after pass
+        // of the opaque list, whose objects are sorted for batching and not by depth, the depth-writing RGBA
+        // meshes are queued too. Every other draw of the pass flushes the queue first.
+        private static bool s_deferActorAfterMeshDraws;
+        private static bool s_deferActorAfterRgbaMeshDraws;
+        private static readonly List<DeferredMeshDraw> s_deferredAdditiveMeshDraws = new(256);
+
+        internal static void BeginDeferredActorAfterMeshDraws(bool includeRgbaMeshes)
+        {
+            s_deferredAdditiveMeshDraws.Clear();
+            s_deferActorAfterMeshDraws = Constants.ENABLE_DEFERRED_ACTOR_MESH_DRAWS;
+            s_deferActorAfterRgbaMeshDraws = includeRgbaMeshes;
+        }
+
+        internal static void EndDeferredActorAfterMeshDraws(GraphicsDevice graphicsDevice)
+        {
+            try
+            {
+                FlushDeferredActorAfterMeshDraws(graphicsDevice);
+            }
+            finally
+            {
+                s_deferActorAfterMeshDraws = false;
+            }
+        }
+
+        /// <summary>Submits the queued additive actor meshes of the after pass, grouped by effect.</summary>
+        internal static void FlushDeferredActorAfterMeshDraws(GraphicsDevice graphicsDevice)
+        {
+            if (s_flushingDeferredMeshDraws || s_deferredAdditiveMeshDraws.Count == 0)
+                return;
+
+            s_flushingDeferredMeshDraws = true;
+            DepthStencilState depthState = graphicsDevice.DepthStencilState;
+            try
+            {
+                s_deferredAdditiveMeshDraws.Sort(s_deferredMeshOrder);
+                DrawDeferredMeshList(s_deferredAdditiveMeshDraws);
+            }
+            finally
+            {
+                s_deferredAdditiveMeshDraws.Clear();
+                graphicsDevice.DepthStencilState = depthState;
+                s_flushingDeferredMeshDraws = false;
+            }
+        }
+
+        private static bool IsCommutativeBlend(BlendState blend) =>
+            blend != null &&
+            blend.ColorBlendFunction == BlendFunction.Add && blend.ColorDestinationBlend == Blend.One &&
+            blend.AlphaBlendFunction == BlendFunction.Add && blend.AlphaDestinationBlend == Blend.One;
+
+        /// <summary>
+        /// Queues the after-pass draws of a mesh group of an actor part when all of them are additive blend
+        /// meshes; false (nothing queued) when the group must draw now.
+        /// </summary>
+        private bool TryDeferActorAfterMeshGroup(MeshShaderKind shaderKind, List<int> meshIndices)
+        {
+            if (!s_deferActorAfterMeshDraws || s_flushingDeferredMeshDraws ||
+                shaderKind == MeshShaderKind.AlphaTest || _activeOverlayMode != ItemOverlayMode.None ||
+                !IsPlayerOrNpcShadowPart())
+                return false;
+
+            for (int i = 0; i < meshIndices.Count; i++)
+            {
+                int mesh = meshIndices[i];
+                bool queueable = IsBlendMesh(mesh)
+                    ? IsCommutativeBlend(GetMeshBlendState(mesh, true))
+                    : s_deferActorAfterRgbaMeshDraws;
+                if (!queueable)
+                    return false;
+            }
+
+            for (int i = 0; i < meshIndices.Count; i++)
+            {
+                int mesh = meshIndices[i];
+                int variant = CanUseGpuSkinningForMesh(mesh) ? 1 : 0;
+                long sortKey = ((long)shaderKind << 56) | ((long)variant << 48) |
+                               (uint)(s_deferredAdditiveMeshDraws.Count & 0xFFFFFF);
+                s_deferredAdditiveMeshDraws.Add(new DeferredMeshDraw(this, mesh, sortKey));
+            }
+            return true;
+        }
+
         private static bool CanDeferActorDraw() => s_deferActorMeshDraws && !s_flushingDeferredMeshDraws;
 
         /// <summary>Queues this player's merged body; it is drawn first, before the other actor meshes.</summary>
@@ -122,7 +207,8 @@ namespace Client.Main.Objects
         private void FlushOwnDeferredMeshDraws()
         {
             if (s_flushingDeferredMeshDraws ||
-                (s_deferredOpaqueMeshDraws.Count == 0 && s_deferredBlendedMeshDraws.Count == 0))
+                (s_deferredOpaqueMeshDraws.Count == 0 && s_deferredBlendedMeshDraws.Count == 0 &&
+                 s_deferredAdditiveMeshDraws.Count == 0))
                 return;
 
             s_flushingDeferredMeshDraws = true;
@@ -130,6 +216,7 @@ namespace Client.Main.Objects
             {
                 DrawAndRemoveOwn(s_deferredOpaqueMeshDraws);
                 DrawAndRemoveOwn(s_deferredBlendedMeshDraws);
+                DrawAndRemoveOwn(s_deferredAdditiveMeshDraws);
             }
             finally
             {

@@ -876,6 +876,18 @@ namespace Client.Main.Objects
 
                     var meshPathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
 
+                    // After pass: actor parts' additive blend meshes are queued and drawn grouped by effect;
+                    // any other draw goes out after the meshes queued before it.
+                    if (isAfterDraw)
+                    {
+                        if (TryDeferActorAfterMeshGroup(stateKey.ShaderKind, meshIndices))
+                        {
+                            Client.Main.Diagnostics.DrawPathCounter.StopMesh(meshPathToken, (int)stateKey.ShaderKind, isAfterDraw, 2);
+                            continue;
+                        }
+                        FlushDeferredActorAfterMeshDraws(gd);
+                    }
+
                     // Bind the alpha-test effect once per group, after the shadow/highlight passes changed the
                     // shader. Rebind the sampler because Effect.Apply can restore the one embedded in the shader.
                     if (groupUsesAlphaTestEffect)

@@ -1980,42 +1980,64 @@ namespace Client.Main.Controls
                 }
             }
 
-            for (int i = 0; i < objCount; i++)
+            // Actor parts' transparent meshes are queued and drawn grouped by effect (ModelObject.DeferredMeshes);
+            // the opaque list is not depth sorted, so its depth-writing RGBA meshes may be regrouped as well.
+            ModelObject.BeginDeferredActorAfterMeshDraws(includeRgbaMeshes: ReferenceEquals(list, _solidBehind));
+            try
             {
-                WorldObject obj = list[i];
-                if (obj == null || ShouldSkipRender(obj))
-                    continue;
-
-                if (obj is DamageTextObject damageText)
+                for (int i = 0; i < objCount; i++)
                 {
-                    _queuedDamageTexts.Add(damageText);
-                    continue;
-                }
-
-                if (obj is ModelObject model && model.CanSkipDefaultDrawAfterPass())
-                {
-                    FrameMetrics.DrawAfterSkips++;
-                    continue;
-                }
-
-                SetDepthState(ResolveObjectDepthState(obj, state));
-                try
-                {
-                    if (obj is ModelObject cutout && !cutout.IsStaticTransparentQueuedThisFrame &&
-                        _cutoutMapBatch.TryQueue(cutout, time))
+                    WorldObject obj = list[i];
+                    if (obj == null || ShouldSkipRender(obj))
                         continue;
 
-                    _cutoutMapBatch.Flush(time);
-                    long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
-                    obj.DrawAfter(time);
-                    Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.DrawAfter, typeProfileStarted);
-                    ClearRenderFault(obj, "DrawAfter");
+                    if (obj is DamageTextObject damageText)
+                    {
+                        _queuedDamageTexts.Add(damageText);
+                        continue;
+                    }
+
+                    if (obj is ModelObject model && model.CanSkipDefaultDrawAfterPass())
+                    {
+                        FrameMetrics.DrawAfterSkips++;
+                        continue;
+                    }
+
+                    // The queued actor meshes go out before any other object draws over them.
+                    if (obj is not PlayerObject and not NPCObject)
+                        ModelObject.FlushDeferredActorAfterMeshDraws(GraphicsDevice);
+
+                    SetDepthState(ResolveObjectDepthState(obj, state));
+                    try
+                    {
+                        if (obj is ModelObject cutout && !cutout.IsStaticTransparentQueuedThisFrame &&
+                            _cutoutMapBatch.TryQueue(cutout, time))
+                            continue;
+
+                        _cutoutMapBatch.Flush(time);
+                        long typeProfileStarted = Client.Main.Diagnostics.ObjectTypeProfiler.Start();
+                        obj.DrawAfter(time);
+                        Client.Main.Diagnostics.ObjectTypeProfiler.Stop(obj, Client.Main.Diagnostics.ObjectTypeProfiler.Phase.DrawAfter, typeProfileStarted);
+                        ClearRenderFault(obj, "DrawAfter");
+                    }
+                    catch (Exception ex)
+                    {
+                        _cutoutMapBatch.Flush(time);
+                        RecordRenderFailure(obj, "DrawAfter", ex);
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    ModelObject.EndDeferredActorAfterMeshDraws(GraphicsDevice);
                 }
                 catch (Exception ex)
                 {
-                    _cutoutMapBatch.Flush(time);
-                    RecordRenderFailure(obj, "DrawAfter", ex);
+                    RecordRenderFailure(null, "DrawAfter.DeferredActorMeshes", ex);
                 }
+                SetDepthState(state);
             }
 
             _cutoutMapBatch.Flush(time);
