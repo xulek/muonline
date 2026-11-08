@@ -66,7 +66,20 @@ namespace Client.Main.Objects
             }
 
             bool gpuGeometry = CanUseGpuSkinGeometry() && GetVertexDeformer() == null && !UsesMutableMeshData;
-            foreach (var group in GetMeshRenderPlan(false))
+            QueueProjectedShadowMeshes(GetMeshRenderPlan(false), compositeCovered, gpuGeometry, shadowWorld, shadowOpacity);
+            // Like BMD::AddMeshShadowTriangles every mesh but the blend mesh casts a shadow, so the RGBA meshes
+            // of the transparent plan (wing feathers, capes) do too, masked by their texture alpha.
+            QueueProjectedShadowMeshes(GetMeshRenderPlan(true), compositeCovered: false, gpuGeometry, shadowWorld, shadowOpacity);
+
+            // Outside the ground shadow window of the world pass (other scenes) the shadows draw right away.
+            if (!s_blobShadowBatchActive)
+                DrawQueuedProjectedShadows(GraphicsDevice);
+        }
+
+        private void QueueProjectedShadowMeshes(Dictionary<MeshStateKey, List<int>> plan, bool compositeCovered,
+            bool gpuGeometry, Matrix shadowWorld, float shadowOpacity)
+        {
+            foreach (var group in plan)
             {
                 if (compositeCovered && group.Key.ShaderKind == MeshShaderKind.ItemMaterial)
                     continue;
@@ -75,7 +88,7 @@ namespace Client.Main.Objects
                 for (int n = 0; n < meshes.Count; n++)
                 {
                     int mesh = meshes[n];
-                    if ((uint)mesh >= (uint)_meshes.Length || IsHiddenMesh(mesh) ||
+                    if ((uint)mesh >= (uint)_meshes.Length || IsHiddenMesh(mesh) || IsBlendMesh(mesh) ||
                         IsStaticMapMeshQueuedForInstancing(mesh) || _meshes[mesh]?.Texture == null)
                         continue;
 
@@ -85,10 +98,6 @@ namespace Client.Main.Objects
                         s_projectedShadowDraws.Add(new ProjectedShadowDraw(this, mesh, false, shadowWorld, shadowOpacity));
                 }
             }
-
-            // Outside the ground shadow window of the world pass (other scenes) the shadows draw right away.
-            if (!s_blobShadowBatchActive)
-                DrawQueuedProjectedShadows(GraphicsDevice);
         }
 
         /// <summary>Draws the queued projected shadows, skinned ones first; called at the ground shadow batch end.</summary>

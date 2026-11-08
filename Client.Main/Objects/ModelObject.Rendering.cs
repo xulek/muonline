@@ -798,7 +798,8 @@ namespace Client.Main.Objects
 
             // Resolve the persistent plan before touching the remaining graphics state.
             var meshGroups = GroupMeshesByState(isAfterDraw);
-            if (meshGroups.Count == 0)
+            // A model made only of transparent meshes (e.g. RGBA wings) still casts its shadow in the opaque pass.
+            if (meshGroups.Count == 0 && (isAfterDraw || GetMeshRenderPlan(true).Count == 0))
                 return;
 
             // Pre-calculate shadow and highlight states at object level
