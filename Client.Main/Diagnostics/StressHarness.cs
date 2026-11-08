@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -31,7 +31,7 @@ namespace Client.Main.Diagnostics
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Done }
 
         // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
         private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
@@ -130,6 +130,10 @@ namespace Client.Main.Diagnostics
                 Constants.OPTIMIZE_FOR_INTEGRATED_GPU = igpu == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_DL_SHADER") is { } dlShader)
                 Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = dlShader == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_DYN_LIGHTS") is { } dynLights)
+                Constants.ENABLE_DYNAMIC_LIGHTS = dynLights == "1";
+            if (Environment.GetEnvironmentVariable("MU_STRESS_MONSTER_MATERIAL") is { } monsterMaterial)
+                Constants.ENABLE_MONSTER_MATERIAL_SHADER = monsterMaterial == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_GRASS") is { } grass)
                 Constants.DRAW_GRASS = grass == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_TERRAIN_GPU") is { } terrainGpu)
@@ -191,7 +195,10 @@ namespace Client.Main.Diagnostics
                 {
                     try
                     {
-                        game.ChangeScene(new GameScene(("Stress", CharacterClassNumber.DarkKnight, (ushort)400, appearance)));
+                        if (SelectScene)
+                            game.ChangeScene(new SelectCharacterScene(SelectSceneCharacters(), MuGame.Network));
+                        else
+                            game.ChangeScene(new GameScene(("Stress", CharacterClassNumber.DarkKnight, (ushort)400, appearance)));
                     }
                     catch (Exception ex)
                     {
@@ -219,6 +226,11 @@ namespace Client.Main.Diagnostics
         public static void OnFrame(MuGame game, FrameProfiler.Snapshot frame)
         {
             if (!Enabled || _phase == Phase.Done) return;
+            if (SelectScene)
+            {
+                UpdateSelectSceneShots(game);
+                return;
+            }
             FlickerStressLights();
             // MU_STRESS_SPIN_US: extra busy CPU time per frame. A CPU-bound frame slows down by that amount,
             // a GPU-bound one hides it while waiting for the GPU.
@@ -232,6 +244,7 @@ namespace Client.Main.Diagnostics
             switch (_phase)
             {
                 case Phase.WaitingForScene:
+                    CaptureLoadingShot(game, "loading_initial", elapsed);
                     if (game.ActiveScene is GameScene { Hero: not null } scene && scene.World is WalkableWorldControl { Status: Models.GameControlStatus.Ready } world && world.Visible)
                         Next(Phase.Settle);
                     else if (game.ActiveScene?.World is { Status: Models.GameControlStatus.Error, InitializationError: { } worldError } && !_worldErrorReported)
@@ -255,7 +268,37 @@ namespace Client.Main.Diagnostics
                     if (elapsed >= 3)
                     {
                         AddStressLights(game);
-                        if (InventoryScene)
+                        if (LoadingShots)
+                        {
+                            _loadingShotTimes.Clear();
+                            _ = (game.ActiveScene as GameScene)?.ChangeMap(typeof(Client.Main.Worlds.DeviasWorld));
+                            Next(Phase.MapChange);
+                        }
+                        else if (HoverScene)
+                        {
+                            _hoverStep = -1;
+                            Next(Phase.Hover);
+                        }
+                        else if (GrassToggleScene)
+                        {
+                            _grassStep = 0;
+                            Next(Phase.GrassToggle);
+                        }
+                        else if (BirdsScene)
+                        {
+                            Next(Phase.Birds);
+                        }
+                        else if (BackItemsScene)
+                        {
+                            _backItemsSpawned = false;
+                            Next(Phase.BackItems);
+                        }
+                        else if (PauseMenuScene)
+                        {
+                            _pauseShot = -1;
+                            Next(Phase.PauseMenu);
+                        }
+                        else if (InventoryScene)
                         {
                             FillInventory(game);
                             Next(Phase.Inventory);
@@ -265,6 +308,39 @@ namespace Client.Main.Diagnostics
                             Next(Phase.Spawn);
                         }
                     }
+                    break;
+
+                case Phase.Hover:
+                    UpdateHoverShots(game, elapsed);
+                    break;
+
+                case Phase.GrassToggle:
+                    UpdateGrassToggleShots(game, elapsed);
+                    break;
+
+                case Phase.Birds:
+                    UpdateBirdShots(game, elapsed);
+                    break;
+
+                case Phase.BackItems:
+                    UpdateBackItemShots(game, elapsed);
+                    break;
+
+                case Phase.MapChange:
+                    CaptureLoadingShot(game, "loading_mapchange", elapsed);
+                    if (elapsed > 3 && game.ActiveScene?.World is Client.Main.Worlds.DeviasWorld { Status: Models.GameControlStatus.Ready, Visible: true })
+                    {
+                        SaveScreenshot(game, $"{_label}_loading_arrived");
+                        Finish(game, null);
+                    }
+                    else if (elapsed > 90)
+                    {
+                        Finish(game, "map change did not finish");
+                    }
+                    break;
+
+                case Phase.PauseMenu:
+                    UpdatePauseMenuShots(game, elapsed);
                     break;
 
                 case Phase.Inventory:
@@ -287,6 +363,7 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Warmup:
                     Wander(game);
+                    SwitchPresetOnce(elapsed);
                     if (elapsed >= _warmupSeconds) Next(Phase.Measure);
                     break;
 
@@ -318,6 +395,328 @@ namespace Client.Main.Diagnostics
         // MU_STRESS_INVENTORY=1: fills equipment and inventory with sample items, opens the inventory window and
         // saves a screenshot (MU_STRESS_SHOTS) to check item model previews without a server.
         private static readonly bool InventoryScene = Environment.GetEnvironmentVariable("MU_STRESS_INVENTORY") == "1";
+
+        // MU_STRESS_SWITCH_PRESET=Low: switches the quality preset during the warmup the way the settings window does
+        // (the scene is already loaded with MU_STRESS_PRESET), to catch state left over from the previous preset.
+        private static bool _presetSwitched;
+
+        private static void SwitchPresetOnce(double elapsed)
+        {
+            if (_presetSwitched || elapsed < 1.0 ||
+                !System.Enum.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_SWITCH_PRESET"), true, out Graphics.GraphicsQualityPreset preset))
+                return;
+            _presetSwitched = true;
+            Console.WriteLine($"[stress] switching quality preset to {preset}");
+            Client.Main.Controls.UI.Game.PauseMenu.Settings.SettingsActions.ApplyQualityPreset(preset);
+        }
+
+        // MU_STRESS_GRASS_TOGGLE=1: switches the Grass setting off and on through the settings path and screenshots every
+        // state; the grass pass state is printed at each step (batches, textures, ready flag).
+        private static readonly bool GrassToggleScene = Environment.GetEnvironmentVariable("MU_STRESS_GRASS_TOGGLE") == "1";
+        private static int _grassStep;
+        private static bool _grassMoved;
+
+        private static void UpdateGrassToggleShots(MuGame game, double elapsed)
+        {
+            var terrain = game.ActiveScene?.World?.Terrain;
+            if (terrain == null)
+            {
+                if (elapsed > 90)
+                    Finish(game, "no terrain for grass toggle");
+                return;
+            }
+
+            // The spawn plaza has no terrain grass: walk the hero to the nearest grass tile so the shots show it.
+            if (!_grassMoved && game.ActiveScene is GameScene { Hero: { } hero } &&
+                terrain.TryFindGrassTile(hero.Position, 1500f, out Vector2 grassTile))
+            {
+                _grassMoved = true;
+                hero.Location = grassTile;
+                hero.Position = hero.TargetPosition;
+                Console.WriteLine($"[stress] hero moved to grass tile {grassTile}");
+            }
+
+            if (elapsed < 4)
+                return;
+
+            string[] names = { "start", "off", "on_again" };
+            Console.WriteLine($"[stress] grass {names[_grassStep]}: {terrain.DescribeGrassForDiagnostics()}");
+            SaveScreenshot(game, $"{_label}_grass_{names[_grassStep]}");
+            if (++_grassStep >= names.Length)
+            {
+                Finish(game, null);
+                return;
+            }
+            Client.Main.Controls.UI.Game.PauseMenu.Settings.SettingsActions.SetGrass(_grassStep != 1);
+            PhaseClock.Restart();
+        }
+
+        // MU_STRESS_BIRDS=1: lets the Lorencia flock spawn and prints how many birds fly over town (SafeZone) tiles.
+        private static readonly bool BirdsScene = Environment.GetEnvironmentVariable("MU_STRESS_BIRDS") == "1";
+
+        // MU_STRESS_BACKITEMS=1: spawns players with swords, shields, bows + arrows, crossbows + bolts and staffs in the
+        // spawn plaza (a safe zone, so the weapons are holstered on their backs), two rows facing opposite ways.
+        private static readonly bool BackItemsScene = Environment.GetEnvironmentVariable("MU_STRESS_BACKITEMS") == "1";
+        private static bool _backItemsSpawned;
+        // MU_STRESS_BACK_AT=x,y: centre tile of the lineup (default: the hero's tile); MU_STRESS_BACK_DIR=0..7: the
+        // direction the players face. The lineup is one row of naked players so only the weapons stand out.
+        private static readonly int BackDirection = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_BACK_DIR"), out int backDir) ? backDir : 0;
+        private static readonly byte BackAtX = ParsePair("MU_STRESS_BACK_AT", 0, HeroX), BackAtY = ParsePair("MU_STRESS_BACK_AT", 1, HeroY);
+
+        private static byte ParsePair(string name, int index, byte fallback)
+        {
+            var parts = (Environment.GetEnvironmentVariable(name) ?? string.Empty).Split(',');
+            return parts.Length == 2 && byte.TryParse(parts[index], out byte value) ? value : fallback;
+        }
+
+        private static readonly (byte Class, (byte, short) Slot0, (byte, short) Slot1)[] BackItemSets =
+        {
+            (4, (0, 0), (6, 0)),   // Dark Knight: sword + small shield
+            (4, (0, 5), (6, 6)),   // sword + large shield
+            (4, (0, 1), (0, 2)),   // two swords
+            (8, (4, 15), (4, 2)),  // Elf: arrows + bow
+            (8, (4, 8), (4, 7)),   // crossbow + bolts
+            (0, (5, 0), (6, 3)),   // Dark Wizard: staff + shield
+        };
+
+        private static void UpdateBackItemShots(MuGame game, double elapsed)
+        {
+            if (!_backItemsSpawned)
+            {
+                _backItemsSpawned = true;
+                for (int i = 0; i < BackItemSets.Length; i++)
+                {
+                    var set = BackItemSets[i];
+                    byte x = (byte)(BackAtX - 3 + i), y = BackAtY;
+                    Inject(BuildPlayerPacket((ushort)(FirstPlayerId + i), x, y, $"Back{i}", set.Class, i,
+                        set.Slot0, set.Slot1, BackDirection, bare: true));
+                }
+                Console.WriteLine($"[stress] back item placement self check (max matrix error): {Client.Main.Objects.Player.BackItemPlacement.SelfCheck():E2}");
+                Constants.FOV_SCALE = 0.4f; // zoom in on the lineup (the camera controller applies it every frame)
+                PhaseClock.Restart();
+                return;
+            }
+
+            if (elapsed < 9)
+                return;
+
+            if (game.ActiveScene is GameScene { Hero: { } backHero })
+                Console.WriteLine($"[stress] back items: hero tile {backHero.Location}, lineup at {BackAtX},{BackAtY}");
+            SaveScreenshot(game, $"{_label}_backitems");
+            Finish(game, null);
+        }
+
+        private static bool _birdsLanded, _birdsGroundShot;
+
+        // Waits for the flock, sends three birds down next to the hero, then samples for 30 s: birds inside map
+        // objects (bounding boxes) and how high the feet of landed birds are above the terrain.
+        private static void UpdateBirdShots(MuGame game, double elapsed)
+        {
+            if (elapsed < 8)
+                return;
+
+            if (game.ActiveScene?.World is not Client.Main.Worlds.LorenciaWorld { BirdsForDiagnostics: { } birds } ||
+                game.ActiveScene is not GameScene { Hero: { } hero })
+            {
+                Finish(game, "birds check needs Lorencia (MU_STRESS_MAP=0)");
+                return;
+            }
+
+            if (!_birdsLanded)
+            {
+                _birdsLanded = true;
+                birds.LandNear(hero.Position, 3);
+            }
+
+            birds.SampleForDiagnostics();
+            if (!_birdsGroundShot && elapsed >= 14)
+            {
+                _birdsGroundShot = true;
+                SaveScreenshot(game, $"{_label}_birds_ground");
+            }
+
+            if (elapsed < 38)
+                return;
+
+            Console.WriteLine($"[stress] birds: {birds.DescribeForDiagnostics()}");
+            Console.WriteLine($"[stress] birds samples: {birds.DescribeSamplesForDiagnostics()}");
+            Console.WriteLine($"[stress] birds inside: {birds.DescribeInsideForDiagnostics()}");
+            Console.WriteLine($"[stress] birds obstacle types: {birds.DescribeObstacleTypesForDiagnostics()}");
+            SaveScreenshot(game, $"{_label}_birds");
+            Finish(game, null);
+        }
+
+        // MU_STRESS_HOVER=1: hovers the nearest interactive map object (no mouse needed) and screenshots it before,
+        // during and after the hover; the object's draw state is printed at every step.
+        private static readonly bool HoverScene = Environment.GetEnvironmentVariable("MU_STRESS_HOVER") == "1";
+        private static int _hoverStep;
+        private static ModelObject _hoverTarget;
+
+        private static void UpdateHoverShots(MuGame game, double elapsed)
+        {
+            if (_hoverStep == -1)
+            {
+                var hero = (game.ActiveScene as GameScene)?.Hero;
+                float best = float.MaxValue;
+                foreach (var obj in game.ActiveScene.World.Objects.GetSnapshotArray())
+                {
+                    if (obj is not ModelObject model || obj is WalkerObject || !obj.Interactive || !obj.Visible || hero == null)
+                        continue;
+                    float d = Vector3.DistanceSquared(obj.WorldPosition.Translation, hero.WorldPosition.Translation);
+                    if (d < best) { best = d; _hoverTarget = model; }
+                }
+                Console.WriteLine($"[stress] hover target: {_hoverTarget?.GetType().Name} at {_hoverTarget?.WorldPosition.Translation} dist={MathF.Sqrt(best):F0}");
+                if (_hoverTarget == null) { Finish(game, "no interactive object"); return; }
+                _hoverStep = 0;
+                PhaseClock.Restart();
+                return;
+            }
+
+            if (_hoverStep == 1)
+                _hoverTarget.IsMouseHover = true;
+            if (elapsed < 1.5)
+                return;
+
+            string[] names = { "before", "hovered", "after" };
+            Console.WriteLine($"[stress] hover {names[_hoverStep]}: {_hoverTarget.DescribeDrawStateForDiagnostics()}");
+            SaveScreenshot(game, $"{_label}_hover_{names[_hoverStep]}");
+            if (_hoverStep == 1)
+                _hoverTarget.IsMouseHover = false;
+            if (++_hoverStep >= names.Length)
+            {
+                Finish(game, null);
+                return;
+            }
+            PhaseClock.Restart();
+        }
+
+        // MU_STRESS_LOADING=1: screenshots of the initial game loading screen and of a map change to Devias.
+        private static readonly bool LoadingShots = Environment.GetEnvironmentVariable("MU_STRESS_LOADING") == "1";
+        private static readonly double[] LoadingShotSeconds = { 0.25, 1.2, 3.0 };
+        private static readonly HashSet<double> _loadingShotTimes = new();
+
+        private static void CaptureLoadingShot(MuGame game, string name, double elapsed)
+        {
+            if (!LoadingShots)
+                return;
+            foreach (double at in LoadingShotSeconds)
+            {
+                if (elapsed >= at && _loadingShotTimes.Add(at))
+                    SaveScreenshot(game, $"{_label}_{name}_{at:0.0#}s");
+            }
+        }
+
+        // MU_STRESS_SELECT=1: character selection with fake characters, screenshots with hover states.
+        private static readonly bool SelectScene = Environment.GetEnvironmentVariable("MU_STRESS_SELECT") == "1";
+        private static int _selectShot = -1;
+
+        private static List<(string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance)> SelectSceneCharacters()
+        {
+            var list = new List<(string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance)>();
+            foreach (var (name, cls, level) in new[]
+                     {
+                         ("Arthas", CharacterClassNumber.BladeKnight, (ushort)400),
+                         ("Merlin", CharacterClassNumber.SoulMaster, (ushort)356),
+                         ("Sylvana", CharacterClassNumber.MuseElf, (ushort)220),
+                     })
+            {
+                var appearance = new byte[25];
+                appearance[0] = (byte)((int)cls << 3);
+                list.Add((name, cls, level, appearance));
+            }
+            return list;
+        }
+
+        // One step per screenshot: what to open first, where the pointer is (virtual 1280x720), how long to wait.
+        private static readonly (Action<SelectCharacterScene> Setup, Point? Pointer, double Wait)[] SelectShots =
+        {
+            (null, null, 5),                                          // roster, first character selected
+            (null, new Point(1100, 248), 1.5),                         // hover a character card
+            (null, new Point(1100, 432), 1.5),                         // hover an empty slot
+            (null, new Point(640, 660), 1.5),                          // hover Enter Game
+            (s => s.DiagnosticsOpenCreation(), new Point(1097, 210), 3), // creation, hover a class emblem
+            (null, new Point(1127, 583), 1.5),                         // hover Create
+            (s => { s.DiagnosticsCloseCreation(); s.DiagnosticsOpenDeletion(); }, new Point(739, 475), 1.5),
+            (s => { s.DiagnosticsCloseDeletion(); s.DiagnosticsShowMessage(); }, null, 1.5),
+        };
+
+        private static void UpdateSelectSceneShots(MuGame game)
+        {
+            if (game.ActiveScene is not SelectCharacterScene { Status: Models.GameControlStatus.Ready } scene || scene.World?.Visible != true)
+            {
+                if (PhaseClock.Elapsed.TotalSeconds > 90)
+                    Finish(game, "select scene did not load");
+                return;
+            }
+
+            if (_selectShot < 0)
+            {
+                _selectShot = 0;
+                PhaseClock.Restart();
+                SelectShots[0].Setup?.Invoke(scene);
+            }
+
+            var shot = SelectShots[_selectShot];
+            Client.Main.Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = shot.Pointer;
+            if (PhaseClock.Elapsed.TotalSeconds < shot.Wait)
+                return;
+
+            SaveScreenshot(game, $"{_label}_select_{_selectShot}");
+            if (++_selectShot >= SelectShots.Length)
+            {
+                Finish(game, null);
+                return;
+            }
+            SelectShots[_selectShot].Setup?.Invoke(scene);
+            PhaseClock.Restart();
+        }
+
+        // MU_STRESS_PAUSE=1: opens the pause menu and every settings category, one screenshot each.
+        private static readonly bool PauseMenuScene = Environment.GetEnvironmentVariable("MU_STRESS_PAUSE") == "1";
+        private static int _pauseShot;
+
+        private static void UpdatePauseMenuShots(MuGame game, double elapsed)
+        {
+            var pauseMenu = (game.ActiveScene as GameScene)?.PauseMenu;
+            if (pauseMenu == null)
+            {
+                Finish(game, "pause menu missing");
+                return;
+            }
+
+            if (_pauseShot == -1)
+            {
+                pauseMenu.Visible = true;
+                pauseMenu.BringToFront();
+                _pauseShot = 0;
+                PhaseClock.Restart();
+                return;
+            }
+
+            // Hover a representative element in some shots: main menu button, selector arrow, slider row, tab.
+            Client.Main.Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = _pauseShot switch
+            {
+                0 => new Point(640, 294),
+                1 => new Point(1027, 256),
+                3 => new Point(560, 358),
+                6 => new Point(330, 314),
+                _ => null
+            };
+
+            if (elapsed < 1.5)
+                return;
+
+            SaveScreenshot(game, _pauseShot == 0 ? $"{_label}_pause_menu" : $"{_label}_pause_settings_{_pauseShot - 1}");
+            if (_pauseShot >= pauseMenu.SettingsCategoryCount)
+            {
+                Finish(game, null);
+                return;
+            }
+
+            pauseMenu.ShowSettingsCategory(_pauseShot);
+            _pauseShot++;
+            PhaseClock.Restart();
+        }
 
         private static byte[] SampleItem(byte group, short number, byte level = 0, byte flags = 0) =>
             new byte[] { (byte)((group << 4) | ((number >> 8) & 0x0F)), (byte)number, level, 255, flags };
@@ -776,7 +1175,8 @@ namespace Client.Main.Diagnostics
             }
         }
 
-        private static byte[] BuildPlayerPacket(ushort id, byte x, byte y, string name, byte classValue, int variant)
+        private static byte[] BuildPlayerPacket(ushort id, byte x, byte y, string name, byte classValue, int variant,
+            (byte Group, short Number)? slot0 = null, (byte Group, short Number)? slot1 = null, int? direction = null, bool bare = false)
         {
             var data = new byte[54];
             data[0] = 0xC2;
@@ -785,7 +1185,7 @@ namespace Client.Main.Diagnostics
             data[3] = 0x12;
             data[4] = (byte)id; data[5] = (byte)(id >> 8);
             data[6] = x; data[7] = y; data[8] = x; data[9] = y;
-            data[10] = (byte)((variant % 8) << 4);
+            data[10] = (byte)(((direction ?? variant) % 8) << 4);
             System.Text.Encoding.UTF8.GetBytes(name, 0, Math.Min(name.Length, 10), data, 16);
             var app = data.AsSpan(26);
             app[0] = classValue;
@@ -805,10 +1205,19 @@ namespace Client.Main.Diagnostics
                 24 or 25 => ((byte)0, (short)(32 + variant % 4)),
                 _ => ((byte)0, (short)(variant % 21)),
             };
-            WriteShiny(items[0..3], weapon.Group, weapon.Number, glow, excellent, ancient);
-            WriteShiny(items[3..6], 6, (short)(variant % 15), glow, excellent, ancient);
+            var first = slot0 ?? weapon;
+            var second = slot1 ?? ((byte)6, (short)(variant % 15));
+            WriteShiny(items[0..3], first.Group, first.Number, glow, excellent, ancient);
+            WriteShiny(items[3..6], second.Group, second.Number, glow, excellent, ancient);
             for (int part = 0; part < 5; part++)
+            {
+                if (bare)
+                {
+                    items[6 + part * 3] = 0xFF; items[7 + part * 3] = 0xFF; items[8 + part * 3] = 0;
+                    continue;
+                }
                 WriteShiny(items[(6 + part * 3)..(9 + part * 3)], (byte)(7 + part), (short)set, glow, excellent, ancient);
+            }
             if (PlayerWings)
             {
                 short wing = PlayerWingNumbers[variant % PlayerWingNumbers.Length];

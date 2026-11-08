@@ -40,7 +40,21 @@ namespace Client.Main.Objects.Worlds.Lorencia
         private const float LandCheckDistance = 200f; // Start checking for landing at 200 units
         private const float LandCheckMaxDistance = 400f; // Stop checking at 400 units
         private const float VerticalLerpSpeed = 0.3f; // Moderate vertical movement
-        private const float GroundOffset = 65f; // Height above terrain when on ground (increased to prevent underground)
+        private const float DescendSpeed = 300f; // Units per second while landing
+
+        // OBSTACLE AVOIDANCE (BirdObstacleMap): climb over what is ahead, turn away from what is too tall to climb
+        private const float ClimbSpeed = 500f;
+        private const float ObstacleClearance = 80f; // Margin above an obstacle's top
+        private const float MaxClimbAltitude = 700f; // Above terrain; taller obstacles are flown around
+        private const float MinLookAhead = 300f;
+        private const float LookAheadSeconds = 0.9f;
+        private const float LookAheadStep = 100f;
+        private const float TurnLookAheadFactor = 1.5f;
+        private static readonly float[] TurnAngles = { 0.7f, 1.4f, 2.1f, MathF.PI };
+
+        private float _requiredZ = BirdObstacleMap.None; // Altitude needed to clear what is ahead this frame
+        private float _avoidTimer; // While > 0 the bird keeps the heading it turned to
+        private float _footHeight; // Origin height above the lowest point of the mesh (the feet)
 
         public enum BirdAIState
         {
@@ -65,6 +79,15 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
         public int SubType { get; set; }
         public BirdAIState AIState => _aiState;
+
+        /// <summary>Solid map objects to avoid; set by <see cref="BirdManager"/>.</summary>
+        internal BirdObstacleMap Obstacles { get; set; }
+
+        /// <summary>Seconds since the bird spawned.</summary>
+        internal float Age { get; private set; }
+
+        /// <summary>True while the bird holds the heading it just turned to, away from an obstacle.</summary>
+        internal bool IsAvoiding => _avoidTimer > 0f;
 
         public BirdObject()
         {
@@ -149,6 +172,9 @@ namespace Client.Main.Objects.Worlds.Lorencia
             _timer += deltaTime;
             _stateTimer += deltaTime;
             _directionChangeTimer += deltaTime;
+            Age += deltaTime;
+            if (_avoidTimer > 0f)
+                _avoidTimer -= deltaTime;
 
             float distanceFromHero = Vector2.Distance(
                 new Vector2(Position.X, Position.Y),
@@ -193,7 +219,9 @@ namespace Client.Main.Objects.Worlds.Lorencia
             _currentSpeed = MathHelper.Lerp(_currentSpeed, _targetSpeed, MathHelper.Clamp(deltaTime * 0.8f, 0f, 1f));
 
             // Direction changes (less chaotic than butterflies)
-            if (_directionChangeTimer >= DirectionChangeInterval)
+            // The random heading changes below are paused while the bird holds a heading it turned to
+            // to get away from an obstacle.
+            if (_directionChangeTimer >= DirectionChangeInterval && _avoidTimer <= 0f)
             {
                 _directionChangeTimer = 0f;
                 float randomAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
@@ -209,7 +237,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
             }
 
             // CHAOTIC MOVEMENT - frequent erratic direction changes like butterflies
-            if (_random.NextDouble() < 0.4f) // 40% chance per frame for chaotic flight
+            if (_avoidTimer <= 0f && _random.NextDouble() < 0.4f) // 40% chance per frame for chaotic flight
             {
                 float nudgeAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
                 Vector3 nudge = new Vector3(MathF.Cos(nudgeAngle), MathF.Sin(nudgeAngle), 0f);
@@ -221,7 +249,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
             }
 
             // Additional erratic movement
-            if (_random.NextDouble() < deltaTime * 8f) // Frequent small adjustments
+            if (_avoidTimer <= 0f && _random.NextDouble() < deltaTime * 8f) // Frequent small adjustments
             {
                 float erraticAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
                 Vector3 erratic = new Vector3(MathF.Cos(erraticAngle), MathF.Sin(erraticAngle), 0f);
@@ -248,8 +276,9 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
         private void UpdateDescendingState(float deltaTime)
         {
-            // Descend rapidly - o->Direction[2] = -20.f
-            _currentSpeed = _baseSpeed * 1.0f; // Maintain speed
+            // Descend rapidly - o->Direction[2] = -20.f. The bird slows down on the way so it lands near where it
+            // started the descent instead of far ahead of it.
+            _currentSpeed = MathHelper.Lerp(_currentSpeed, _baseSpeed * 0.35f, MathHelper.Clamp(deltaTime * 2f, 0f, 1f));
             // No horizontal direction changes while descending
         }
 
@@ -293,6 +322,41 @@ namespace Client.Main.Objects.Worlds.Lorencia
             }
         }
 
+        /// <summary>Lowest world-space Z of the mesh in the current pose, over all vertices.</summary>
+        internal float MeasureLowestWorldZ()
+        {
+            var bones = BoneTransform;
+            var meshes = Model?.Meshes;
+            if (bones == null || meshes == null)
+                return Position.Z;
+
+            Matrix world = WorldPosition;
+            float lowest = float.MaxValue;
+            foreach (var mesh in meshes)
+            {
+                if (mesh.Vertices == null)
+                    continue;
+                foreach (var vertex in mesh.Vertices)
+                {
+                    if (vertex.Node < 0 || vertex.Node >= bones.Length)
+                        continue;
+                    float z = Vector3.Transform(Vector3.Transform(vertex.Position, bones[vertex.Node]), world).Z;
+                    if (z < lowest)
+                        lowest = z;
+                }
+            }
+            return lowest == float.MaxValue ? Position.Z : lowest;
+        }
+
+        /// <summary>Diagnostics (StressHarness): drop straight down from the current position.</summary>
+        internal void DiagnosticsDescend()
+        {
+            _aiState = BirdAIState.Descending;
+            _stateTimer = 0f;
+            _desiredDirection = Vector3.Zero;
+            _currentVelocity = Vector3.Zero;
+        }
+
         /// <summary>
         /// Returns distance from hero (used by BirdManager for despawning)
         /// </summary>
@@ -317,6 +381,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
                 return;
 
             float terrainHeight = walkableWorld.Terrain.RequestTerrainHeight(Position.X, Position.Y);
+
+            AvoidObstacles(terrainHeight);
 
             // Calculate target velocity (horizontal movement)
             Vector3 targetVelocity = _desiredDirection * _currentSpeed;
@@ -366,13 +432,19 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     break;
 
                 case BirdAIState.Descending:
-                    // Slow descent - 3-4x slower (was 20, now 5)
-                    float newDescendZ = Position.Z - 5f * deltaTime * 60f;
-                    float groundLevel = terrainHeight + GroundOffset;
+                    float newDescendZ = Position.Z - DescendSpeed * deltaTime;
+                    float groundLevel = terrainHeight + FootHeight();
 
-                    // Never go below ground
-                    if (newDescendZ <= groundLevel)
+                    if (_requiredZ > newDescendZ)
                     {
+                        // Something solid is in the way, or the ground below is taken: give up landing.
+                        _aiState = BirdAIState.Ascending;
+                        _stateTimer = 0f;
+                        _currentSpeed = _baseSpeed * 1.1f;
+                    }
+                    else if (newDescendZ <= groundLevel)
+                    {
+                        // The feet touch the terrain
                         Position = new Vector3(Position.X, Position.Y, groundLevel);
                         _aiState = BirdAIState.OnGround;
                         _stateTimer = 0f;
@@ -387,8 +459,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     break;
 
                 case BirdAIState.OnGround:
-                    // Stay on ground at terrain level - recalculate each frame for terrain changes
-                    Position = new Vector3(Position.X, Position.Y, terrainHeight + GroundOffset);
+                    // Stand on the terrain: the lowest point of the mesh (feet) sits on it in every animation pose
+                    Position = new Vector3(Position.X, Position.Y, terrainHeight + FootHeight());
                     break;
 
                 case BirdAIState.Ascending:
@@ -401,6 +473,13 @@ namespace Client.Main.Objects.Worlds.Lorencia
                         PlayBirdSound();
                     }
                     break;
+            }
+
+            // Climb over whatever is ahead, faster than the relaxed height changes above
+            if ((_aiState == BirdAIState.Flying || _aiState == BirdAIState.Ascending) && _requiredZ > Position.Z)
+            {
+                Position = new Vector3(Position.X, Position.Y,
+                    MathF.Min(_requiredZ, Position.Z + ClimbSpeed * deltaTime));
             }
 
             // Update visual orientation
@@ -416,6 +495,114 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
                 Angle = new Vector3(Angle.X, Angle.Y, currentAngle + rotationStep);
             }
+        }
+
+        /// <summary>
+        /// Looks along the heading for solid map objects. Sets <see cref="_requiredZ"/> to the altitude that clears
+        /// them and, when they are too tall to climb over, turns the bird to a clear heading.
+        /// </summary>
+        private void AvoidObstacles(float terrainHeight)
+        {
+            _requiredZ = BirdObstacleMap.None;
+            if (Obstacles == null || _aiState == BirdAIState.OnGround)
+                return;
+
+            float maxZ = terrainHeight + MaxClimbAltitude;
+            var velocity = new Vector2(_currentVelocity.X, _currentVelocity.Y);
+            float speed = velocity.Length();
+
+            // Hardly moving (just taking off or landing): only what is right under the bird counts
+            if (speed < 1f)
+            {
+                _requiredZ = MathF.Min(RequiredAltitude(Position.X, Position.Y), maxZ);
+                return;
+            }
+
+            Vector2 heading = velocity / speed;
+            float lookAhead = MathF.Max(MinLookAhead, speed * LookAheadSeconds);
+            float required = RequiredAltitudeAlong(heading, lookAhead);
+
+            // Turning takes time, so what is too tall to climb over is looked for further ahead than what is climbed
+            float turnLookAhead = lookAhead * TurnLookAheadFactor;
+            if (RequiredAltitudeAlong(heading, turnLookAhead) > maxZ)
+                TurnAway(heading, turnLookAhead, maxZ);
+
+            _requiredZ = MathF.Min(required, maxZ);
+        }
+
+        private float RequiredAltitude(float x, float y)
+        {
+            float top = Obstacles.TopAt(x, y);
+            return top == BirdObstacleMap.None ? BirdObstacleMap.None : top + ObstacleClearance;
+        }
+
+        /// <summary>Highest altitude needed to clear the obstacles on the way, sampled once per tile.</summary>
+        private float RequiredAltitudeAlong(Vector2 direction, float distance)
+        {
+            float required = BirdObstacleMap.None;
+            for (float d = 0f; d <= distance; d += LookAheadStep)
+            {
+                float z = RequiredAltitude(Position.X + direction.X * d, Position.Y + direction.Y * d);
+                if (z > required)
+                    required = z;
+            }
+            return required;
+        }
+
+        /// <summary>Picks the nearest heading (left or right of the current one, random side first) with nothing
+        /// ahead that is too tall to climb over, and holds it for a second.</summary>
+        private void TurnAway(Vector2 heading, float lookAhead, float maxZ)
+        {
+            if (_avoidTimer > 0f)
+                return;
+
+            float baseAngle = MathF.Atan2(heading.Y, heading.X);
+            float side = _random.Next(2) == 0 ? 1f : -1f;
+            foreach (float turn in TurnAngles)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    float angle = baseAngle + (i == 0 ? side : -side) * turn;
+                    var direction = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+                    if (RequiredAltitudeAlong(direction, lookAhead) <= maxZ)
+                    {
+                        _desiredDirection = new Vector3(direction, 0f);
+                        _avoidTimer = 1f;
+                        return;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Height of the origin above the lowest point of the mesh in its current pose (the feet), scaled. The bird
+        /// stands on the terrain when its origin is this high.
+        /// </summary>
+        private float FootHeight()
+        {
+            var bones = BoneTransform;
+            var meshes = Model?.Meshes;
+            if (bones == null || meshes == null)
+                return _footHeight;
+
+            float lowest = float.MaxValue;
+            foreach (var mesh in meshes)
+            {
+                if (mesh.Vertices == null)
+                    continue;
+                foreach (var vertex in mesh.Vertices)
+                {
+                    if (vertex.Node < 0 || vertex.Node >= bones.Length)
+                        continue;
+                    float z = Vector3.Transform(vertex.Position, bones[vertex.Node]).Z;
+                    if (z < lowest)
+                        lowest = z;
+                }
+            }
+
+            if (lowest != float.MaxValue)
+                _footHeight = -lowest * TotalScale;
+            return _footHeight;
         }
 
         /// <summary>

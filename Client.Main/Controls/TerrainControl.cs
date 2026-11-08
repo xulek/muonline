@@ -143,6 +143,15 @@ namespace Client.Main.Controls
             _grassRenderer?.EnsureContentLoaded(WorldIndex);
             _grassRenderer?.BuildAllGrass();
         }
+
+        /// <summary>Diagnostics (StressHarness): grass pass state.</summary>
+        internal string DescribeGrassForDiagnostics() => _grassRenderer?.DescribeForDiagnostics() ?? "none";
+
+        internal bool TryFindGrassTile(Vector3 from, float minDistance, out Vector2 tile)
+        {
+            tile = default;
+            return _grassRenderer != null && _grassRenderer.TryFindGrassTile(from, minDistance, out tile);
+        }
         public TerrainFrameMetrics FrameMetrics { get; } = new TerrainFrameMetrics();
 
         public void ConfigureDeviasSnow(DeviasGroundSnowSettings settings)

@@ -67,19 +67,7 @@ namespace Client.Main.Objects.Player
         private const short WingOfRuinIndex = 39;
         private string _helmModelPath;
 
-        // Safe-zone weapon placement (editable XYZ values for clarity)
-        private static readonly Vector3[] WeaponHolsterOffsets =
-        {
-            new(-20f, 8f, 50f), // Weapon 1 (left hand) XYZ offset
-            new(20f, 8f, 50f)  // Weapon 2 (right hand) XYZ offset
-        };
-
-        private static readonly Vector3[] WeaponHolsterRotationDegrees =
-        {
-            new(60f, 0f, 90f), // Weapon 1 (left hand) rotation in degrees (X,Y,Z)
-            new(60f, 0f, -90f)  // Weapon 2 (right hand) rotation in degrees (X,Y,Z)
-        };
-
+        // Weapons ride on the back in the safe zone (placement per item: BackItemPlacement)
         private bool _weaponsHolstered;
         private FlyingHelperKind _equippedHelperSlotKind = FlyingHelperKind.None;
         private bool _darkRavenWeaponEquipped;
@@ -2847,38 +2835,24 @@ namespace Client.Main.Objects.Player
             ApplyWeaponAttachment(weapon, isLeftHand, _weaponsHolstered);
         }
 
-        private static Vector3 GetHolsterOffset(bool isLeftHand) => WeaponHolsterOffsets[isLeftHand ? 0 : 1];
-
-        private static Vector3 GetHolsterRotationRadians(bool isLeftHand)
-        {
-            var degrees = WeaponHolsterRotationDegrees[isLeftHand ? 0 : 1];
-            return new Vector3(
-                MathHelper.ToRadians(degrees.X),
-                MathHelper.ToRadians(degrees.Y),
-                MathHelper.ToRadians(degrees.Z));
-        }
-
+        /// <param name="isLeftHand">True for Weapon1, the first equipment slot (SourceMain's Weapon[0]).</param>
         private void ApplyWeaponAttachment(WeaponObject weapon, bool isLeftHand, bool holster)
         {
             if (weapon == null)
                 return;
 
-            if (holster)
-            {
-                weapon.ParentBoneLink = BackWeaponBoneIndex;
-                weapon.Position = GetHolsterOffset(isLeftHand);
-                weapon.Angle = GetHolsterRotationRadians(isLeftHand);
+            // The item's own group and index decide where it sits on the back. They are set on the weapon object by
+            // every equipment path (inventory, appearance, appearance config); ItemGroup only by the inventory one.
+            int group = weapon.MaterialItemGroup >= 0 ? weapon.MaterialItemGroup : weapon.ItemGroup;
+            int index = weapon.MaterialItemIndex;
 
-                // Apply specific offsets for shields, bows, and crossbows when holstered
-                if (weapon.ItemGroup == 6) // Shields
-                {
-                    weapon.Position = new Vector3(weapon.Position.X - 15f, weapon.Position.Y - 5f, weapon.Position.Z - 80f);
-                    weapon.Angle = new Vector3(weapon.Angle.X + MathHelper.ToRadians(100f), weapon.Angle.Y + MathHelper.ToRadians(180f), weapon.Angle.Z); // Rotate 90 degrees around Y
-                }
-                else if (weapon.ItemGroup == 4) // Bows and Crossbows
-                {
-                    weapon.Position = new Vector3(weapon.Position.X, weapon.Position.Y, weapon.Position.Z - 30f); // Slightly lower
-                }
+            // Holstered in the safe zone; arrows and bolts always ride on the back
+            if (holster || BackItemPlacement.IsAmmo(group, index))
+            {
+                BackItemPlacement.Get(group, index, rightHandItem: isLeftHand, out Vector3 position, out Vector3 angle);
+                weapon.ParentBoneLink = BackWeaponBoneIndex;
+                weapon.Position = position;
+                weapon.Angle = angle;
             }
             else
             {

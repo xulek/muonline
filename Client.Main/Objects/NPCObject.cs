@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Client.Main.Content;
+using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
 using Client.Main.Models;
 using System;
@@ -152,11 +153,32 @@ namespace Client.Main.Objects
             await Task.WhenAll(tasks);
         }
 
+        /// <summary>
+        /// Loads the five armour parts of an item set from the item database, the lookup players use. Sets whose
+        /// model files do not follow the item index resolve correctly this way (e.g. index 30 = Venom Mist is
+        /// <c>HDK_*02</c>, not <c>ArmorMale31</c>).
+        /// </summary>
+        protected async Task SetBodyPartsFromItemsAsync(short itemIndex)
+        {
+            await Task.WhenAll(
+                LoadPartAsync(Helm, ItemPlayerModelPath(7, itemIndex)),
+                LoadPartAsync(Armor, ItemPlayerModelPath(8, itemIndex)),
+                LoadPartAsync(Pants, ItemPlayerModelPath(9, itemIndex)),
+                LoadPartAsync(Gloves, ItemPlayerModelPath(10, itemIndex)),
+                LoadPartAsync(Boots, ItemPlayerModelPath(11, itemIndex)));
+        }
+
+        private static string ItemPlayerModelPath(byte group, short itemIndex) =>
+            ItemDatabase.GetItemDefinition(group, itemIndex)?.TexturePath?.Replace("Item/", "Player/");
+
         private async Task LoadPartAsync(ModelObject part, string modelPath)
         {
-            if (part != null)
+            if (part != null && !string.IsNullOrEmpty(modelPath))
             {
                 part.Model = await BMDLoader.Instance.Prepare(modelPath);
+                if (part == Helm)
+                    Helm.ModelPath = modelPath;
+
                 if (part.Model == null)
                 {
                     _logger?.LogDebug("Model part not found (this is often normal for NPCs): {Path}", modelPath);

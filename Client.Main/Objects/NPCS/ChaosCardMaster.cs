@@ -14,8 +14,8 @@ namespace Client.Main.Objects.NPCS
         public override async Task Load()
         {
             Model = await BMDLoader.Instance.Prepare("Player/Player.bmd");
-            // Venom Mist is item index 30 of every armor group (file number 31).
-            await SetBodyPartsAsync("Player/", "HelmMale", "ArmorMale", "PantMale", "GloveMale", "BootMale", 31);
+            // Venom Mist = item index 30 of every armour group. Its files are HDK_*02 (item.bmd), not ArmorMale31.
+            await SetBodyPartsFromItemsAsync(30);
 
             ConfigureSetPart(Helm, 7);
             ConfigureSetPart(Armor, 8);

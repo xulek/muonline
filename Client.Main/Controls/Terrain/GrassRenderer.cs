@@ -193,7 +193,9 @@ namespace Client.Main.Controls.Terrain
         {
             lock (_contentLoadLock)
             {
-                if (_contentLoadTask == null)
+                // An attempt made while grass was off completes without loading anything. Reusing that
+                // finished task would leave the textures missing when grass is switched on later.
+                if (_contentLoadTask == null || (_contentLoadTask.IsCompleted && !_contentReady))
                     _contentLoadTask = LoadContentCoreAsync(worldIndex);
 
                 return _contentLoadTask;
@@ -210,6 +212,8 @@ namespace Client.Main.Controls.Terrain
 
             for (int i = 0; i < GrassTextureCount; i++)
             {
+                // Grass sprites are the .tga files (BITMAP_MAPGRASS + Layer1). TileGrass02.jpg/.OZJ is the ground
+                // tile (BITMAP_MAPTILE + 1), not a sprite, so a missing TileGrass02/03.ozt means no sprite.
                 string fileName = i == GrassTextureBaseIndex && specialBlendMap
                     ? "TileGrass01_R.jpg"
                     : $"TileGrass0{i + 1}.ozt";
@@ -230,6 +234,38 @@ namespace Client.Main.Controls.Terrain
 
             _contentReady = true;
             _rebuildPending = true;
+        }
+
+        /// <summary>Diagnostics (StressHarness): what the grass pass currently holds.</summary>
+        internal string DescribeForDiagnostics()
+        {
+            int textures = 0;
+            for (int i = 0; i < _grassTextures.Length; i++)
+                if (_grassTextures[i] != null) textures++;
+            return $"draw={Constants.DRAW_GRASS} world={_worldIndex} ready={_contentReady} pending={_rebuildPending} " +
+                   $"batches={_batches.Count} textures={textures}/{GrassTextureCount} indices={GrassTextureIndices.Count}";
+        }
+
+        /// <summary>Diagnostics (StressHarness): the grass tile closest to <paramref name="from"/> that is at least
+        /// <paramref name="minDistance"/> away, as terrain tile coordinates.</summary>
+        internal bool TryFindGrassTile(Vector3 from, float minDistance, out Vector2 tile)
+        {
+            tile = default;
+            float best = float.MaxValue, min = minDistance * minDistance;
+            foreach (var batch in _batches)
+            {
+                foreach (var quad in batch.Quads)
+                {
+                    float dx = quad.BottomLeft.X - from.X, dy = quad.BottomLeft.Y - from.Y;
+                    float d = dx * dx + dy * dy;
+                    if (d < min || d >= best)
+                        continue;
+                    best = d;
+                    tile = new Vector2(MathF.Floor(quad.BottomLeft.X / Constants.TERRAIN_SCALE),
+                                       MathF.Floor(quad.BottomLeft.Y / Constants.TERRAIN_SCALE));
+                }
+            }
+            return best < float.MaxValue;
         }
 
         public void ResetMetrics()

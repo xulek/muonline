@@ -169,6 +169,9 @@ namespace Client.Main.Worlds
                 MapTileObjects[151 + i] = typeof(BeerObject);
         }
 
+        /// <summary>Diagnostics (StressHarness).</summary>
+        internal BirdManager BirdsForDiagnostics => _birdManager;
+
         public override void Update(GameTime time)
         {
             if (World is not WalkableWorldControl walkableWorld)

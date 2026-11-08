@@ -10,7 +10,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
     /// Manages bird spawning, movement, and despawning in Lorencia world.
     /// Birds fly in loose flocks with less cohesion than fish.
     /// </summary>
-    public class BirdManager
+    public partial class BirdManager
     {
         private const int MAX_BIRDS = 20; // More birds than butterflies
         private const float NEIGHBOR_RADIUS = 200f; // Distance to consider as neighbor
@@ -21,6 +21,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
         private const float SPAWN_DISTANCE = 2500f; // Spawn radius around player
         private const int MAX_SPAWN_PER_FRAME = 3; // Spawn 3 birds per frame
         private const float NORMAL_SPAWN_COOLDOWN = 0.6f; // Spawn every 0.6 seconds
+        private const float SPAWN_OBSTACLE_CLEARANCE = 100f; // Spawn this far above a building or tree
+        private const float MAX_SPAWN_ALTITUDE = 700f; // Above terrain; no spawn over taller obstacles
 
         private List<BirdObject> _birds = new List<BirdObject>();
         private WalkableWorldControl _world;
@@ -28,9 +30,16 @@ namespace Client.Main.Objects.Worlds.Lorencia
         private float _spawnCooldown = 0f;
         private bool _isSpawning = false;
 
+        // Buildings, walls and trees load in after the world, so the obstacle map is rebuilt soon after
+        // the start, then at growing intervals up to every 15 seconds.
+        private readonly BirdObstacleMap _obstacles;
+        private float _obstacleRebuildTimer;
+        private float _obstacleRebuildInterval = 0.5f;
+
         public BirdManager(WalkableWorldControl world)
         {
             _world = world;
+            _obstacles = new BirdObstacleMap(world);
         }
 
         public void Update(GameTime gameTime)
@@ -43,6 +52,14 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
             // Update spawn cooldown
             _spawnCooldown -= deltaTime;
+
+            _obstacleRebuildTimer -= deltaTime;
+            if (_obstacleRebuildTimer <= 0f)
+            {
+                _obstacles.Rebuild();
+                _obstacleRebuildInterval = MathF.Min(_obstacleRebuildInterval * 2f, 15f);
+                _obstacleRebuildTimer = _obstacleRebuildInterval;
+            }
 
             // Spawn birds if needed
             if (_birds.Count < MAX_BIRDS && _spawnCooldown <= 0f && !_isSpawning)
@@ -70,7 +87,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
                 bird.UpdateMovement(gameTime, heroPosition);
 
                 // Apply weak boid behavior (only when flying, not when landing/taking off)
-                if (bird.AIState == BirdObject.BirdAIState.Flying)
+                if (bird.AIState == BirdObject.BirdAIState.Flying && !bird.IsAvoiding)
                 {
                     ApplyBoidBehavior(bird, i, gameTime);
                 }
@@ -144,20 +161,21 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     continue;
                 }
 
-                // Check terrain flags - avoid NoMove, Height, and SafeZone
-                var spawnTerrainFlag = _world.Terrain.RequestTerrainFlag(spawnX, spawnY);
-                if (spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.NoMove) ||
-                    spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.Height) ||
-                    spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.SafeZone))
-                {
-                    continue;
-                }
-
                 // Get terrain height
                 float terrainHeight = _world.Terrain.RequestTerrainHeight(spawnPos.X, spawnPos.Y);
 
                 // Spawn at flying height (200-600 above terrain)
                 float spawnHeight = terrainHeight + 200f + (float)(_random.NextDouble() * 400f);
+
+                // Never inside a building or tree: spawn above what stands there, or elsewhere when it is too tall
+                float obstacleTop = _obstacles.TopAt(spawnPos.X, spawnPos.Y);
+                if (obstacleTop != BirdObstacleMap.None)
+                {
+                    float clear = obstacleTop + SPAWN_OBSTACLE_CLEARANCE;
+                    if (clear - terrainHeight > MAX_SPAWN_ALTITUDE)
+                        continue;
+                    spawnHeight = MathF.Max(spawnHeight, clear);
+                }
 
                 spawnPos = new Vector3(spawnPos.X, spawnPos.Y, spawnHeight);
 
@@ -174,6 +192,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
                 var bird = new BirdObject
                 {
+                    Obstacles = _obstacles,
                     Position = spawnPos,
                     Scale = randomScale,
                     Angle = initialAngle,
@@ -266,8 +285,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
         }
 
         /// <summary>
-        /// Checks terrain boundaries and turns bird around if needed
-        /// Birds avoid NoMove, Height, and SafeZone areas
+        /// Hides birds that leave the terrain. Walls and towns do not stop birds: GOBoid.cpp MoveBird checks no terrain
+        /// flags, so birds fly over the SafeZone town and over NoMove walls as well.
         /// </summary>
         private void CheckBoundaries(BirdObject bird)
         {
@@ -276,45 +295,10 @@ namespace Client.Main.Objects.Worlds.Lorencia
             int terrainX = (int)(bird.Position.X / terrainScale);
             int terrainY = (int)(bird.Position.Y / terrainScale);
 
-            // Check if out of bounds
             if (terrainX < 0 || terrainX >= TERRAIN_SIZE ||
                 terrainY < 0 || terrainY >= TERRAIN_SIZE)
             {
                 bird.Hidden = true;
-                return;
-            }
-
-            // Get terrain flags
-            var terrainFlag = _world.Terrain.RequestTerrainFlag(terrainX, terrainY);
-
-            // Check for obstacles or safe zones
-            bool hitObstacle = terrainFlag.HasFlag(Client.Data.ATT.TWFlags.NoMove) ||
-                              terrainFlag.HasFlag(Client.Data.ATT.TWFlags.SafeZone);
-
-            if (hitObstacle)
-            {
-                // Turn around 180 degrees
-                bird.Angle = new Vector3(bird.Angle.X, bird.Angle.Y, bird.Angle.Z + MathF.PI);
-                if (bird.Angle.Z >= MathHelper.TwoPi)
-                    bird.Angle = new Vector3(bird.Angle.X, bird.Angle.Y, bird.Angle.Z - MathHelper.TwoPi);
-
-                // Update direction to match new angle
-                float angleRad = bird.Angle.Z;
-                bird.Direction = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
-
-                bird.SubType++;
-
-                // Despawn if turned around too many times
-                if (bird.SubType >= 3)
-                {
-                    bird.Hidden = true;
-                }
-            }
-            else
-            {
-                // Reset turn counter
-                if (bird.SubType > 0)
-                    bird.SubType--;
             }
         }
 
