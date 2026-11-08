@@ -74,7 +74,8 @@
     <EmbeddedResource Include="Data\S6\player.bmd" />
     <EmbeddedResource Include="Data\S6\skill_eng.bmd" />
     <EmbeddedResource Include="Data\bmd_blending_config.json" />
-    <EmbeddedResource Include="..\data\patch\files-e.g\Interface\**\*">
+    <!-- Client-bundled UI art, laid out like the game's Data folder (used when Data has no such file). -->
+    <EmbeddedResource Include="Assets\Interface\**\*">
       <LogicalName>BundledUi/Interface/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>

@@ -1,4 +1,4 @@
-using Client.Main.Controllers;
+﻿using Client.Main.Controllers;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
@@ -548,16 +548,8 @@ namespace Client.Main.Controls.UI.SelectCharacter
             UpdateClassDisplay();
         }
 
-        private static string GetPreviewModel(CharacterClassNumber characterClass) => characterClass switch
-        {
-            CharacterClassNumber.DarkKnight => "NewFace01",
-            CharacterClassNumber.DarkWizard => "NewFace02",
-            CharacterClassNumber.FairyElf => "NewFace03",
-            CharacterClassNumber.MagicGladiator => "NewFace04",
-            CharacterClassNumber.DarkLord => "NewFace05",
-            CharacterClassNumber.Summoner => "NewFace06",
-            _ => null
-        };
+        private static string GetPreviewModel(CharacterClassNumber characterClass) =>
+            CharacterClasses.PreviewModelFor(characterClass);
 
         private void UpdateClassDisplay()
         {

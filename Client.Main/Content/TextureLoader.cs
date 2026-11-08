@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic; // Added for Dictionary
 using System.IO;
@@ -45,6 +45,7 @@ namespace Client.Main.Content
             { ".jpg", new OZJReader() },
             { ".ozp", new OZPReader() },
             { ".png", new OZPReader() },
+            { ".webp", new WebPReader() },
             { ".ozd", new OZDReader() },
             { ".dds", new OZDReader() }
         };
@@ -166,8 +167,10 @@ namespace Client.Main.Content
                 }
                 else
                 {
+                    // Client-bundled assets (Client.Main/Assets): exact file name first, then the MU format variant.
                     string resourcePath = Path.ChangeExtension(path, reader.GetType().Name.Replace("Reader", ""));
-                    if (!_bundledUiResources.Value.TryGetValue(NormalizePathKey(resourcePath), out string resourceName))
+                    if (!_bundledUiResources.Value.TryGetValue(NormalizePathKey(path), out string resourceName) &&
+                        !_bundledUiResources.Value.TryGetValue(NormalizePathKey(resourcePath), out resourceName))
                         return null;
 
                     using var stream = typeof(TextureLoader).Assembly.GetManifestResourceStream(resourceName);
@@ -623,8 +626,7 @@ namespace Client.Main.Content
 
         private static bool ShouldGenerateMipMaps(string path, TextureData textureInfo)
         {
-            if (!Constants.HIGH_QUALITY_TEXTURES ||
-                textureInfo == null || textureInfo.IsCompressed ||
+            if (textureInfo == null || textureInfo.IsCompressed ||
                 textureInfo.Width <= 1 && textureInfo.Height <= 1 ||
                 textureInfo.Components is not (3 or 4) ||
                 textureInfo.Data == null)
@@ -634,6 +636,14 @@ namespace Client.Main.Content
 
             string normalized = NormalizePathKey(path);
             if (string.IsNullOrEmpty(normalized))
+                return false;
+
+            // Ornate UI art is painted at high resolution and drawn scaled down (icons 96px -> ~40px),
+            // so it needs mips regardless of the texture quality setting to avoid jagged edges.
+            if (normalized.StartsWith("interface/ornate/", StringComparison.Ordinal))
+                return true;
+
+            if (!Constants.HIGH_QUALITY_TEXTURES)
                 return false;
 
             // UI is rendered in screen space and does not benefit from a mip chain. Excluding

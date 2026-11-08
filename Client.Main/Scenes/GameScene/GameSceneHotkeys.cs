@@ -219,11 +219,14 @@ namespace Client.Main.Scenes
                 return;
             }
 
-            _pauseMenu.Visible = !_pauseMenu.Visible;
             if (_pauseMenu.Visible)
             {
-                _pauseMenu.BringToFront();
+                _pauseMenu.HandleEscape();
+                return;
             }
+
+            _pauseMenu.Visible = true;
+            _pauseMenu.BringToFront();
         }
 
         private void ToggleInventory(HotkeyContext context)

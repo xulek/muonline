@@ -10,8 +10,12 @@ namespace Client.Data.Texture
 
         protected override TextureData Read(byte[] buffer)
         {
-            if (buffer[0] == 137 && buffer[1] == 'P' && buffer[2] == 'N' && buffer[3] == 'G')
-                return this.ReadPNG(buffer[4..]);
+            if (buffer.Length > 8 && buffer[0] == 137 && buffer[1] == 'P' && buffer[2] == 'N' && buffer[3] == 'G')
+            {
+                // OZP prefixes a complete PNG with a second copy of the first four signature bytes.
+                // Plain PNG files are client-bundled UI art, premultiplied like the WebP art.
+                return buffer[4] == 137 ? this.ReadPNG(buffer[4..]) : WebPReader.ReadPremultiplied(buffer);
+            }
 
             throw new ApplicationException($"Invalid file format");
         }

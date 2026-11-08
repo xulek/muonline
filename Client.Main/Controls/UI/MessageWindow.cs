@@ -3,6 +3,7 @@ using Client.Main.Controllers;
 using Client.Main.Helpers;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Ornate;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Extensions.Logging;
@@ -69,8 +70,9 @@ namespace Client.Main.Controls.UI
             if (_label == null || _okButton == null)
                 return;
 
-            int minWidth = 200;
-            int minHeight = 120;
+            bool modern = UiThemeManager.CurrentId == UiThemeId.Modern;
+            int minWidth = modern ? 340 : 200;
+            int minHeight = modern ? 150 : 120;
 
             int textWidth = _label.ControlSize.X;
             int textHeight = _label.ControlSize.Y;
@@ -87,10 +89,10 @@ namespace Client.Main.Controls.UI
             ViewSize = ControlSize;
 
             _label.X = (finalWidth - textWidth) / 2;
-            _label.Y = 25;
+            _label.Y = modern ? 32 : 25;
 
             _okButton.X = (finalWidth - buttonWidth) / 2;
-            _okButton.Y = finalHeight - buttonHeight - 20;
+            _okButton.Y = finalHeight - buttonHeight - (modern ? 26 : 20);
         }
 
         protected override void OnThemeChanged(UiThemeChangedEventArgs e)
@@ -103,8 +105,8 @@ namespace Client.Main.Controls.UI
         {
             bool season6 = UiThemeManager.CurrentId == UiThemeId.Season6;
             _background.Visible = !season6;
-            _label.TextColor = season6 ? ModernHudTheme.TextWhite : Color.White;
-            _okButton.ViewSize = season6 ? new Point(100, 34) : new Point(54, 30);
+            _label.TextColor = season6 ? ModernHudTheme.TextWhite : OrnateStyle.TextLight;
+            _okButton.ViewSize = season6 ? new Point(100, 34) : new Point(130, 38);
             _okButton.ControlSize = _okButton.ViewSize;
             AdjustSizeAndLayout();
         }
@@ -180,17 +182,21 @@ namespace Client.Main.Controls.UI
                 return;
             }
 
+            // Modern: ornate window; the OK button keeps its control for input and is drawn as an ornate plate.
             using (new SpriteBatchScope(
                 GraphicsManager.Instance.Sprite,
                 SpriteSortMode.Deferred,
                 BlendState.AlphaBlend,
                 transform: UiScaler.SpriteTransform))
             {
-                DrawBackground();
-                DrawBorder();
-
+                var sprite = GraphicsManager.Instance.Sprite;
+                OrnateDraw.Window(sprite, DisplayRectangle, 1f);
                 _label?.Draw(gameTime);
-                _okButton?.Draw(gameTime);
+                if (_okButton != null)
+                {
+                    var state = new WidgetState(_okButton.IsMouseOver, _okButton.IsMouseOver && _okButton.IsMousePressed);
+                    OrnateWidgets.Button(sprite, _okButton.DisplayRectangle, "OK", state, 1f);
+                }
             }
         }
     }

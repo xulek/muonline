@@ -1,3 +1,4 @@
+﻿using Client.Main.Controls.UI.Loading;
 using Client.Main.Controllers;
 using Client.Main.Controls.UI;
 using Client.Main.Core.Utilities;
@@ -61,7 +62,7 @@ namespace Client.Main.Scenes
         private Texture2D _backgroundTexture;
         private Texture2D _pixelTexture;
         private BasicEffect _basicEffect;
-        private ProgressBarControl _progressBar;
+        private LoadingScreenView _loadingView;
 
         private readonly object _progressLock = new();
         private DownloadProgress _currentProgress = new();
@@ -178,8 +179,16 @@ namespace Client.Main.Scenes
             _pixelTexture.SetData(new[] { Color.White });
 
             InitializeGraphics();
-            _progressBar = new ProgressBarControl { ShowStats = true };
-            Controls.Add(_progressBar);
+            _loadingView = new LoadingScreenView
+            {
+                ShowStats = true,
+                FallbackTexture = _backgroundTexture,
+                Subtitle = "Preparing",
+                Title = "Game Data"
+            };
+            // Decode the loading kit now so later loading screens (character select, entering the world) have it.
+            _ = LoadingScreenView.PreloadAsync();
+            Controls.Add(_loadingView);
             await InitializeWorld();
         }
 
@@ -260,8 +269,8 @@ namespace Client.Main.Scenes
 
         private async Task DownloadAndExtractAssetsAsync(string localZip, string extractPath, CancellationToken ct)
         {
-            string[] urls = { 
-            //    _dataPathUrl, 
+            string[] urls = {
+            //    _dataPathUrl,
                 Constants.DefaultDataPathUrl
             };
             Exception lastError = null;
@@ -856,29 +865,14 @@ namespace Client.Main.Scenes
                 return;
 
             GraphicsDevice.Clear(new Color(12, 12, 20));
-            DrawBackground();
             var progress = GetProgress();
-            _progressBar.Progress = progress.Progress;
-            _progressBar.StatusText = progress.StatusText;
-            _progressBar.SizeText = $"{FormatBytes(progress.DownloadedBytes)} / {FormatBytes(progress.TotalBytes)}";
-            _progressBar.SpeedText = FormatSpeed(progress.SpeedBytesPerSecond);
-            _progressBar.EtaText = FormatEta(progress.EstimatedTimeRemaining);
-            _progressBar.Visible = true;
-            _progressBar.Draw(gameTime);
-        }
-
-        private new void DrawBackground()
-        {
-            if (_backgroundTexture == null) return;
-
-            using var scope = new SpriteBatchScope(
-                GraphicsManager.Instance.Sprite, SpriteSortMode.Deferred,
-                BlendState.AlphaBlend, SamplerState.LinearClamp,
-                DepthStencilState.None, RasterizerState.CullNone,
-                null, UiScaler.SpriteTransform);
-
-            GraphicsManager.Instance.Sprite.Draw(_backgroundTexture,
-                new Rectangle(0, 0, UiScaler.VirtualSize.X, UiScaler.VirtualSize.Y), Color.White);
+            _loadingView.Progress = progress.Progress;
+            _loadingView.StatusText = progress.StatusText;
+            _loadingView.SizeText = $"{FormatBytes(progress.DownloadedBytes)} / {FormatBytes(progress.TotalBytes)}";
+            _loadingView.SpeedText = FormatSpeed(progress.SpeedBytesPerSecond);
+            _loadingView.EtaText = FormatEta(progress.EstimatedTimeRemaining);
+            _loadingView.Visible = true;
+            _loadingView.Draw(gameTime);
         }
 
 

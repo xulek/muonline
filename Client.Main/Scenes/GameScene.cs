@@ -1,4 +1,4 @@
-// GameScene.cs
+﻿// GameScene.cs
 using Client.Main.Controls;
 using Client.Main.Controls.UI;
 using Client.Main.Controls.UI.Game;
@@ -21,6 +21,7 @@ using Client.Main.Controls.UI.Game.Friends;
 using Client.Main.Controls.UI.Game.Map;
 using Client.Main.Controls.UI.Game.Party;
 using Client.Main.Controls.UI.Game.PauseMenu;
+using Client.Main.Controls.UI.Loading;
 using Client.Main.Controls.UI.Game.Character;
 using Client.Main.Controls.UI.Game.Trade;
 using Client.Main.Controls.UI.Game.Quest;
@@ -92,7 +93,7 @@ namespace Client.Main.Scenes
         private CurrentLocationControl _currentLocationControl; // Current map + coordinates (top-left)
         private ActiveBuffsPanel _activeBuffsPanel; // Active buffs display (top-left corner)
         private Texture2D _backgroundTexture;
-        private ProgressBarControl _progressBar;
+        private LoadingScreenView _loadingView;
         private GameSceneSkillController _skillController;
         private GameSceneNotificationController _notificationController;
         private GameScenePlayerMenuController _playerMenuController;
@@ -194,15 +195,16 @@ namespace Client.Main.Scenes
                 }
             }
 
-            if (_progressBar == null)
+            if (_loadingView == null)
             {
-                _progressBar = new ProgressBarControl
-                {
-                    Progress = 0.01f,
-                    StatusText = "Preparing game interface...",
-                    Visible = true
-                };
-                Controls.Add(_progressBar);
+                _loadingView = new LoadingScreenView { FallbackTexture = _backgroundTexture };
+                var mapId = MuGame.Network?.GetCharacterState()?.MapId;
+                if (mapId.HasValue && MapWorldRegistry.TryGetValue((byte)mapId.Value, out Type destination))
+                    _loadingView.SetDestination(destination);
+                _loadingView.Progress = 0.01f;
+                _loadingView.StatusText = "Preparing game interface...";
+                Controls.Add(_loadingView);
+                await LoadingScreenView.PreloadAsync(_loadingView.Art);
             }
 
             if (_initialLoadingScreen == null)
@@ -216,8 +218,8 @@ namespace Client.Main.Scenes
                 Controls.Add(_initialLoadingScreen);
             }
 
-            if (_progressBar.Status == GameControlStatus.NonInitialized)
-                await _progressBar.Initialize();
+            if (_loadingView.Status == GameControlStatus.NonInitialized)
+                await _loadingView.Initialize();
 
             if (_initialLoadingScreen.Status == GameControlStatus.NonInitialized)
                 await _initialLoadingScreen.Initialize();
@@ -250,10 +252,10 @@ namespace Client.Main.Scenes
                     loading.Progress = progress;
                 }
 
-                if (_progressBar != null)
+                if (_loadingView != null)
                 {
-                    _progressBar.StatusText = message;
-                    _progressBar.Progress = progress;
+                    _loadingView.StatusText = message;
+                    _loadingView.Progress = progress;
                 }
             }
 
@@ -471,7 +473,7 @@ namespace Client.Main.Scenes
             _mapController = new GameSceneMapController(
                 this,
                 _modernHud,
-                _progressBar,
+                _loadingView,
                 _chatLog,
                 _chatInput,
                 _mapListControl,
@@ -747,8 +749,8 @@ namespace Client.Main.Scenes
                 {
                     _initialWorldLoadInProgress = false;
                     _mapController?.DisposeLoadingScreen();
-                    if (_progressBar != null)
-                        _progressBar.Visible = false;
+                    if (_loadingView != null)
+                        _loadingView.Visible = false;
                 }
             }
         }
@@ -1053,15 +1055,14 @@ namespace Client.Main.Scenes
             if (!_sceneShellInitialized)
             {
                 GraphicsDevice.Clear(new Color(12, 12, 20));
-                DrawBackground();
 
                 var initialLoading = _initialLoadingScreen ?? _mapController?.LoadingScreen;
-                if (_progressBar != null)
+                if (_loadingView != null)
                 {
-                    _progressBar.Progress = initialLoading?.Progress ?? _progressBar.Progress;
-                    _progressBar.StatusText = initialLoading?.Message ?? "Preparing game interface...";
-                    _progressBar.Visible = true;
-                    _progressBar.Draw(gameTime);
+                    _loadingView.Progress = initialLoading?.Progress ?? _loadingView.Progress;
+                    _loadingView.StatusText = initialLoading?.Message ?? "Preparing game interface...";
+                    _loadingView.Visible = true;
+                    _loadingView.Draw(gameTime);
                 }
                 return;
             }
@@ -1069,19 +1070,18 @@ namespace Client.Main.Scenes
             if (!IsWorldReadyToDraw)
             {
                 GraphicsDevice.Clear(new Color(12, 12, 20));
-                DrawBackground();
                 var loading = _mapController?.LoadingScreen;
-                _progressBar.Progress = loading?.Progress ?? 0f;
-                _progressBar.StatusText = loading?.Message ?? "Loading...";
-                _progressBar.Visible = true;
-                _progressBar.Draw(gameTime);
+                _loadingView.Progress = loading?.Progress ?? 0f;
+                _loadingView.StatusText = loading?.Message ?? "Loading...";
+                _loadingView.Visible = true;
+                _loadingView.Draw(gameTime);
                 SchedulePendingWorldActivation();
                 if (_initialWorldActivationCooldown && _pendingWorldActivation == null)
                 {
                     _initialWorldActivationCooldown = false;
                     _initialWorldLoadInProgress = false;
                     _mapController?.DisposeLoadingScreen();
-                    _progressBar.Visible = false;
+                    _loadingView.Visible = false;
                 }
                 return;
             }
@@ -1112,20 +1112,6 @@ namespace Client.Main.Scenes
         {
             _fpsLabel?.Draw(gameTime);
             _pingLabel?.Draw(gameTime);
-        }
-
-        private new void DrawBackground()
-        {
-            if (_backgroundTexture == null) return;
-
-            using var scope = new SpriteBatchScope(
-                GraphicsManager.Instance.Sprite, SpriteSortMode.Deferred,
-                BlendState.AlphaBlend, SamplerState.LinearClamp,
-                DepthStencilState.None, RasterizerState.CullNone,
-                null, UiScaler.SpriteTransform);
-
-            GraphicsManager.Instance.Sprite.Draw(_backgroundTexture,
-                new Rectangle(0, 0, UiScaler.VirtualSize.X, UiScaler.VirtualSize.Y), Color.White);
         }
 
 

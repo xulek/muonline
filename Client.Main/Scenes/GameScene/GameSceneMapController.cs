@@ -1,3 +1,4 @@
+﻿using Client.Main.Controls.UI.Loading;
 using System;
 using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
@@ -22,7 +23,7 @@ namespace Client.Main.Scenes
     {
         private readonly GameScene _scene;
         private readonly GameControl _hud;
-        private readonly ProgressBarControl _progressBar;
+        private readonly LoadingScreenView _loadingView;
         private readonly ChatLogWindow _chatLog;
         private readonly ChatInputBoxControl _chatInput;
         private readonly MapListControl _mapListControl;
@@ -38,7 +39,7 @@ namespace Client.Main.Scenes
         public GameSceneMapController(
             GameScene scene,
             GameControl hud,
-            ProgressBarControl progressBar,
+            LoadingScreenView loadingView,
             ChatLogWindow chatLog,
             ChatInputBoxControl chatInput,
             MapListControl mapListControl,
@@ -50,7 +51,7 @@ namespace Client.Main.Scenes
         {
             _scene = scene;
             _hud = hud;
-            _progressBar = progressBar;
+            _loadingView = loadingView;
             _chatLog = chatLog;
             _chatInput = chatInput;
             _mapListControl = mapListControl;
@@ -144,8 +145,10 @@ namespace Client.Main.Scenes
                     previousWorld.AudioSuppressed = true;
 
                 _scopeImportController?.ClearObjectTracking();
-                EnsureLoadingScreen($"Loading {worldType.Name}...");
+                EnsureLoadingScreen("Loading world...");
                 _loadingScreen.Progress = 0f;
+                _loadingView?.SetDestination(worldType);
+                await LoadingScreenView.PreloadAsync(_loadingView?.Art);
                 _hud.Visible = false;
 
                 await MuGame.YieldToNextFrameAsync(
@@ -329,8 +332,8 @@ namespace Client.Main.Scenes
                     MainThreadDispatcher.WorkPriority.Critical);
 
                 DisposeLoadingScreen();
-                if (_progressBar != null)
-                    _progressBar.Visible = false;
+                if (_loadingView != null)
+                    _loadingView.Visible = false;
                 _hud.Visible = true;
                 _isChangingWorld = false;
             }

@@ -1,0 +1,44 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: dark high-fantasy MMORPG art in the spirit of classic Korean MMOs from the 2000s - rich painterly rendering, dramatic lighting, deep shadows, gold and crimson accents, no text, no letters, no logos, no watermark, no UI.",
+  "sources": {
+    "art_town": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: a medieval walled fantasy town at golden dusk - stone houses with red roofs, a tall castle keep and banners, a cobbled square with a fountain, warm lantern lights, distant green hills, birds in a glowing sky. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/town", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "art_snow": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: a frozen northern fantasy village among snowy pine forests and icy mountains under a pale blue twilight sky with soft aurora, wooden longhouses with glowing windows, falling snow, a frozen river. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/snow", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "art_forest": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: an enchanted elven forest sanctuary - giant ancient trees with glowing roots, floating golden spores, a crystal-clear pond, delicate white stone arches overgrown with vines, soft green and gold god rays. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/forest", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "art_dungeon": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: a vast ancient underground dungeon hall - colossal carved stone pillars, chained iron gates, braziers with red fire, a stairway descending into darkness, skulls and broken statues, eerie purple mist. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/dungeon", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "art_underwater": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: sunken ruins of an ancient sea city deep underwater - collapsed marble temples and columns covered in coral and kelp, shafts of blue-green light from the surface, schools of fish, glowing jellyfish, bubbles. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/underwater", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "art_desert": {
+      "prompt": "Wide cinematic LOADING SCREEN ILLUSTRATION: a scorched desert with towering sandstone ruins of an ancient empire - half-buried giant statues, broken obelisks, dunes under a blood-orange sunset, heat haze, distant volcano smoke. No people in the foreground. Composition leaves the lower fifth darker and calm. 16:9 widescreen.",
+      "opaque": true,
+      "cut": [{ "out": "Loading/desert", "width": 1600, "height": 900, "quality": 82 }]
+    },
+    "progress_frame": {
+      "prompt": "A single very long thin horizontal PROGRESS BAR FRAME for a fantasy MMORPG loading screen, classic MU Online style: dark burnished bronze and antique gold filigree metal frame with a small red gem ornament at each pointed end cap and a tiny ornament at top center; inside the frame a long, perfectly plain, flat, very dark empty recessed channel (no fill, no light) where the progress fill will be drawn. Perfectly left-right symmetric, orthographic flat front view. Extremely wide aspect ratio about 12:1, filling the canvas width. Isolated, no text.",
+      "cut": [{ "out": "Controls/progress_frame", "width": 1024, "desaturate_green": true }]
+    },
+    "loading_sigil": {
+      "prompt": "A single circular MAGIC SIGIL / rune circle for a fantasy MMORPG loading indicator, classic MU Online style: concentric rings of glowing golden runes and thin gold geometric lines with small red gem points, softly glowing amber light, perfectly radially symmetric so it can rotate, orthographic top-down flat view, transparent center. Isolated, no text or letters (runes are abstract glyph shapes). Square 1:1.",
+      "cut": [{ "out": "Controls/loading_sigil", "square": 256 }]
+    }
+  }
+}

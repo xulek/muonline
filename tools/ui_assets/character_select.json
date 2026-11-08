@@ -1,0 +1,50 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: classic MU Online (Webzen) fantasy MMORPG interface - dark burnished bronze and antique gold filigree metal, deep red gemstones, gothic angular shapes, rich painterly game-UI rendering, crisp clean edges, orthographic flat front view, no text, no letters, no watermark.",
+  "sources": {
+    "card": {
+      "prompt": "A single wide horizontal CHARACTER SLOT CARD panel for a character selection list: a dark smoky stone/leather plate with a thin bronze-gold beveled rim and small angular corner caps; on the LEFT end an empty round recessed socket ring (bronze, dark inside) where a class emblem will be placed; the rest of the plate is plain, flat and dark so text can be drawn on it. Unlit, calm, not glowing. Aspect ratio about 4:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/card", "width": 512, "desaturate_green": true }]
+    },
+    "card_selected": {
+      "prompt": "A single wide horizontal CHARACTER SLOT CARD panel for a character selection list in its SELECTED state: a dark warm-bronze plate with a bright glowing gold beveled rim, a soft golden inner glow along the edges and small angular corner caps with tiny glowing red gems; on the LEFT end an empty round recessed socket ring (gold, dark inside) where a class emblem will be placed; the rest of the plate is plain and dark enough for text. Aspect ratio about 4:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/card_selected", "width": 512, "desaturate_green": true }]
+    },
+    "button_primary": {
+      "prompt": "A single wide horizontal MAIN ACTION BUTTON plate (for the most important action on screen): a long deep crimson-red enamel panel framed by an ornate bronze-gold beveled rim, pointed angular end caps on left and right each with a red gem and small spread metal wing ornaments, a small gold ornament at top and bottom center. Flat, even center so a label can be drawn on it. Perfectly symmetric. Very wide aspect ratio about 5:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/button_primary", "width": 512, "desaturate_green": true }]
+    },
+    "button_primary_hover": {
+      "prompt": "A single wide horizontal MAIN ACTION BUTTON plate in its HIGHLIGHTED/hover state: a long bright glowing crimson-red enamel panel with warm inner light, framed by a brightly glowing gold beveled rim, pointed angular end caps on left and right each with a glowing red gem and small spread metal wing ornaments, a small gold ornament at top and bottom center. Flat, even center so a label can be drawn on it. Perfectly symmetric. Very wide aspect ratio about 5:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/button_primary_hover", "width": 512, "desaturate_green": true }]
+    },
+    "icons_classes_1": {
+      "prompt": "A row of exactly 4 separate square character CLASS EMBLEM icons, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a glowing blue arcane orb with lightning (dark wizard), 2) a broad steel sword crossed over a shield (dark knight), 3) a golden longbow with a nocked glowing arrow and leaves (fairy elf), 4) a sword and a magic flame crossed (magic gladiator).",
+      "split": 4,
+      "cut": [
+        [{ "out": "Icons/class_wizard", "square": 96 }, { "out": "Emblems/class_wizard", "disk": true, "square": 96 }],
+        [{ "out": "Icons/class_knight", "square": 96 }, { "out": "Emblems/class_knight", "disk": true, "square": 96 }],
+        [{ "out": "Icons/class_elf", "square": 96 }, { "out": "Emblems/class_elf", "disk": true, "square": 96 }],
+        [{ "out": "Icons/class_gladiator", "square": 96 }, { "out": "Emblems/class_gladiator", "disk": true, "square": 96 }]
+      ]
+    },
+    "icons_classes_2": {
+      "prompt": "A row of exactly 4 separate square character CLASS EMBLEM icons, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a golden royal scepter with a crown (dark lord), 2) an open glowing purple grimoire book with a summoning circle (summoner), 3) a clenched armored gauntlet fist with fiery energy (rage fighter), 4) a bright golden plus sign / cross made of metal with a soft glow (create new character).",
+      "split": 4,
+      "cut": [
+        [{ "out": "Icons/class_lord", "square": 96 }, { "out": "Emblems/class_lord", "disk": true, "square": 96 }],
+        [{ "out": "Icons/class_summoner", "square": 96 }, { "out": "Emblems/class_summoner", "disk": true, "square": 96 }],
+        [{ "out": "Icons/class_fighter", "square": 96 }, { "out": "Emblems/class_fighter", "disk": true, "square": 96 }],
+        [{ "out": "Icons/create", "square": 96 }, { "out": "Emblems/create", "disk": true, "square": 96 }]
+      ]
+    },
+    "icons_roster": {
+      "prompt": "A row of exactly 2 separate square game menu ICONS, evenly spaced in a single horizontal row with a wide empty gap between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a cracked skull with a small red flame (delete character), 2) a curved golden arrow pointing back to the left (return / back).",
+      "split": 2,
+      "cut": [
+        { "out": "Icons/delete", "square": 96 },
+        { "out": "Icons/back", "square": 96 }
+      ]
+    }
+  }
+}

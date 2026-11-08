@@ -1,0 +1,48 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: classic MU Online (Webzen) fantasy MMORPG interface - dark burnished bronze and antique gold filigree metal, deep red gemstones, gothic angular shapes, rich painterly game-UI rendering, crisp clean edges, orthographic flat front view, no text, no letters, no watermark.",
+  "sources": {
+    "corner": {
+      "prompt": "A single ornate top-left CORNER ornament for a fantasy MMORPG UI window frame: small glowing deep-red gemstone at the corner, sharp gothic angular shapes, two short straight beveled metal bars extending right and down from the corner (L shape). Square 1024x1024.",
+      "cut": [{ "out": "Frame/corner", "width": 160 }]
+    },
+    "title": {
+      "prompt": "A wide horizontal TITLE PLAQUE banner for the top of a game window: a long dark smoky-metal plate with bronze-gold beveled border, flanked symmetrically on left and right by spread gothic metal angel/dragon wings, a small red gem on top center. The center of the plate is plain dark and empty (space for a title). Perfectly left-right symmetric. Wide aspect ratio about 3:1.",
+      "cut": [{ "out": "Frame/title", "width": 768 }]
+    },
+    "divider": {
+      "prompt": "A single long thin horizontal ornamental DIVIDER line: thin bronze-gold metal bar that fades out toward both ends, with a small gothic filigree ornament and a tiny red gem in the exact center. Perfectly symmetric. Extremely wide aspect ratio about 8:1.",
+      "cut": [{ "out": "Frame/divider", "width": 768 }]
+    },
+    "background": {
+      "prompt": "A seamless tileable square TEXTURE for a game window background: very dark (almost black) blue-grey weathered stone/leather surface with subtle faint engraved gothic filigree pattern, low contrast, dark enough for light text on top.",
+      "opaque": true,
+      "cut": [{ "out": "Frame/background", "width": 256, "height": 256 }]
+    },
+    "button": {
+      "prompt": "A single wide horizontal BUTTON plate for a game menu: a long rectangular dark gunmetal/stone panel with a thin bronze-gold beveled rim, slightly pointed angular end caps on left and right with a tiny red gem in each cap. Flat, even, unlit center so text can be drawn on it. Perfectly symmetric. Very wide aspect ratio about 6:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/button", "width": 512, "desaturate_green": true }]
+    },
+    "button_hover": {
+      "prompt": "A single wide horizontal BUTTON plate for a game menu in its HIGHLIGHTED/hover state: a long rectangular dark warm-bronze panel with a bright glowing gold beveled rim and a soft golden inner glow along the edges, slightly pointed angular end caps on left and right with a tiny glowing red gem in each cap. Center even and readable for text. Perfectly symmetric. Very wide aspect ratio about 6:1, filling the canvas width.",
+      "cut": [{ "out": "Controls/button_hover", "width": 512, "desaturate_green": true }]
+    },
+    "toggles": {
+      "prompt": "Exactly 2 separate horizontal TOGGLE SWITCH controls side by side with a clear empty gap between them, same size and shape: LEFT one is OFF - a rounded-rectangle dark recessed bronze-rimmed track with a dull dark metal round knob on the LEFT end; RIGHT one is ON - the same track filled with warm glowing gold/amber light and a bright gold knob with a small red gem on the RIGHT end. Each switch about 2:1 aspect.",
+      "split": 2,
+      "cut": [
+        { "out": "Controls/toggle_off", "band": [0.33, 0.76], "height": 48 },
+        { "out": "Controls/toggle_on", "band": [0.33, 0.76], "height": 48 }
+      ]
+    },
+    "controls": {
+      "prompt": "Exactly 3 separate small game UI parts in one horizontal row with wide empty gaps between them: 1) a small diamond-shaped slider KNOB made of gold metal with a glowing red gem center, 2) an ornate gold left-pointing ARROW button (triangular arrowhead, bronze bevel), 3) a small round gold CLOSE button with an X engraved in it (the X is a shape, not a letter).",
+      "split": 3,
+      "cut": [
+        { "out": "Controls/slider_knob", "square": 48 },
+        { "out": "Controls/arrow_left", "crop": [0, 0, 0.32, 1], "height": 48 },
+        { "out": "Controls/close", "square": 64 }
+      ]
+    }
+  }
+}

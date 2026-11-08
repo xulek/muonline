@@ -1,4 +1,4 @@
-using Client.Main.Controllers;
+﻿using Client.Main.Controllers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -9,7 +9,7 @@ namespace Client.Main.Controls.UI.Common
         public static void DrawVerticalGradient(SpriteBatch spriteBatch, Rectangle rect, Color top, Color bottom, int maxSteps = 64)
         {
             var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            if (pixel == null || rect.Width <= 0 || rect.Height <= 0) return;
 
             int steps = Math.Min(rect.Height, Math.Max(1, maxSteps));
             int stepHeight = Math.Max(1, rect.Height / steps);
@@ -33,7 +33,7 @@ namespace Client.Main.Controls.UI.Common
         public static void DrawHorizontalGradient(SpriteBatch spriteBatch, Rectangle rect, Color left, Color right, int maxSteps = 64)
         {
             var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            if (pixel == null || rect.Width <= 0 || rect.Height <= 0) return;
 
             int steps = Math.Min(rect.Width, Math.Max(1, maxSteps));
             int stepWidth = Math.Max(1, rect.Width / steps);
@@ -57,7 +57,7 @@ namespace Client.Main.Controls.UI.Common
         public static void DrawCornerAccents(SpriteBatch spriteBatch, Rectangle rect, Color color, int size = 12, int thickness = 2)
         {
             var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            if (pixel == null || rect.Width <= 0 || rect.Height <= 0) return;
 
             spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, size, thickness), color);
             spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, thickness, size), color);
@@ -75,7 +75,7 @@ namespace Client.Main.Controls.UI.Common
         public static void DrawPanel(SpriteBatch spriteBatch, Rectangle rect, Color bgColor, Color? borderInner = null, Color? borderOuter = null, Color? borderHighlight = null, bool withGlow = false, Color? glowColor = null)
         {
             var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            if (pixel == null || rect.Width <= 0 || rect.Height <= 0) return;
 
             if (withGlow && glowColor.HasValue)
             {
@@ -116,7 +116,7 @@ namespace Client.Main.Controls.UI.Common
         public static void DrawBorder(SpriteBatch spriteBatch, Rectangle rect, Color color, int thickness = 1)
         {
             var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            if (pixel == null || rect.Width <= 0 || rect.Height <= 0) return;
 
             // Top
             spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, thickness), color);

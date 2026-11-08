@@ -322,7 +322,7 @@ public static class UiThemeManager
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         for (int i = 0; i < 8 && directory != null; i++)
         {
-            string candidate = Path.Combine(directory.FullName, "data", "patch", "files-e.g", path.Replace('/', Path.DirectorySeparatorChar));
+            string candidate = Path.Combine(directory.FullName, "Client.Main", "Assets", path.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(candidate))
                 return candidate;
             directory = directory.Parent;
