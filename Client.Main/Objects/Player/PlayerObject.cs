@@ -353,7 +353,7 @@ namespace Client.Main.Objects.Player
             };
             AddItemEffect(nextGradeEffect);
             AddItemEffect(FullSetAura);
-            // The +15 armor ornaments are attached on demand (AttachNextGradeOrnamentsWhenNeeded).
+            // The +15 armor ornaments are meshes of the decorated parts (UpdateNextGradeOrnaments).
 
             Children.Add(HelmMask);
             Children.Add(Helm);
@@ -1582,42 +1582,33 @@ namespace Client.Main.Objects.Player
         }
 
         // ───────────────────────────────── UPDATE LOOP ─────────────────────────────────
-        // The +15 ornaments (NextGradeOrnamentObject) belong to the armor part they decorate and are drawn with
-        // it. They are attached to a part the first time it reaches +15; as permanent hidden children of every
-        // player they cost an update and a draw per ornament. One bit per decorated part.
-        private int _nextGradeOrnamentParts;
-
-        private void AttachNextGradeOrnamentsWhenNeeded()
+        // The +15 ornaments (NextGradeOrnaments) are meshes of the armor part they decorate: a +15 part draws
+        // its model with them appended, any other level the plain model.
+        private void UpdateNextGradeOrnaments()
         {
             if (Status != GameControlStatus.Ready)
                 return;
 
-            AttachNextGradeOrnaments(Helm, 1);
-            AttachNextGradeOrnaments(Armor, 2);
-            AttachNextGradeOrnaments(Pants, 4);
-            AttachNextGradeOrnaments(Gloves, 8);
-            AttachNextGradeOrnaments(Boots, 16);
+            UpdateNextGradeOrnaments(Helm, NextGradeOrnaments.Helm);
+            UpdateNextGradeOrnaments(Armor, NextGradeOrnaments.Armor);
+            UpdateNextGradeOrnaments(Pants, NextGradeOrnaments.Pants);
+            UpdateNextGradeOrnaments(Gloves, NextGradeOrnaments.Gloves);
+            UpdateNextGradeOrnaments(Boots, NextGradeOrnaments.Boots);
         }
 
-        private void AttachNextGradeOrnaments(ModelObject part, int bit)
+        private static void UpdateNextGradeOrnaments(ModelObject part, int slot)
         {
-            if ((_nextGradeOrnamentParts & bit) != 0 || part == null || part.ItemLevel < 15)
+            if (part?.Model == null)
                 return;
 
-            _nextGradeOrnamentParts |= bit;
-            MuGame.ScheduleOnMainThread(() =>
-            {
-                if (Status == GameControlStatus.Disposed || part.Status == GameControlStatus.Disposed)
-                    return;
-                foreach (var ornament in NextGradeOrnamentObject.CreateAll(this))
-                {
-                    if (!ReferenceEquals(ornament.DecoratedPart, part))
-                        continue;
-                    // Bone-linked to the character skeleton, which the part shares (LinkParentAnimation).
-                    part.Children.Add(ornament);
-                    _ = ornament.Load();
-                }
-            });
+            bool wanted = part.ItemLevel >= 15;
+            if (wanted == part.HasAttachedMeshes)
+                return;
+
+            BMD baseModel = BMDLoader.Instance.GetAttachedMeshBaseModel(part.Model);
+            BMD model = wanted ? NextGradeOrnaments.GetDecoratedModel(baseModel, slot) : baseModel;
+            if (model != null)
+                part.Model = model;
         }
 
         public override void Update(GameTime gameTime)
@@ -1635,7 +1626,7 @@ namespace Client.Main.Objects.Player
 
             base.Update(gameTime); // movement, camera for main walker, etc.
 
-            AttachNextGradeOrnamentsWhenNeeded();
+            UpdateNextGradeOrnaments();
             UpdateEquipmentAnimationStride();
 
             if (World is not WalkableWorldControl world)

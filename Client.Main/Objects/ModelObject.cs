@@ -288,6 +288,16 @@ namespace Client.Main.Objects
         public int ParentBoneLink { get; set; } = -1;
 
         private BMD _model;
+        // Meshes from this index on were appended from linked models (BMDLoader.GetModelWithAttachedMeshes): they
+        // are drawn like the model's own meshes but without its item material and item overlays.
+        private int _firstAttachedMesh = int.MaxValue;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool IsAttachedMesh(int mesh) => mesh >= _firstAttachedMesh;
+
+        /// <summary>The model has meshes appended from linked models.</summary>
+        internal bool HasAttachedMeshes => _firstAttachedMesh != int.MaxValue;
+
         public BMD Model
         {
             get => _model;
@@ -296,6 +306,7 @@ namespace Client.Main.Objects
                 if (_model != value)
                 {
                     _model = value;
+                    _firstAttachedMesh = BMDLoader.Instance.GetFirstAttachedMesh(value);
                     InvalidateMeshRenderPlan();
                     // If the model changes after the object has already been loaded,
                     // we need to re-run the content loading logic to update buffers, textures, etc.

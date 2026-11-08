@@ -17,7 +17,7 @@ using System.Runtime.CompilerServices;
 
 namespace Client.Main.Content
 {
-    public class BMDLoader
+    public partial class BMDLoader
     {
         public static BMDLoader Instance { get; } = new BMDLoader();
 

@@ -417,6 +417,7 @@ namespace Client.Main.Objects
             bool useItemMaterial = Constants.ENABLE_ITEM_MATERIAL_SHADER &&
                                    HasItemMaterialEffect &&
                                    GraphicsManager.Instance.ItemMaterialEffect != null &&
+                                   !IsAttachedMesh(mesh) &&
                                    ShouldApplyItemMaterial(mesh);
 
             // Monster material shader
@@ -1653,7 +1654,8 @@ namespace Client.Main.Objects
             Texture2D texture = null, Vector2 uvOffset = default, ItemOverlayBlend blend = ItemOverlayBlend.Additive,
             float alpha = 1f)
         {
-            if (mode == ItemOverlayMode.None || GraphicsManager.Instance.ItemMaterialEffect == null)
+            if (mode == ItemOverlayMode.None || GraphicsManager.Instance.ItemMaterialEffect == null ||
+                IsAttachedMesh(mesh))
                 return;
 
             // Overlays are drawn on top of this object's base meshes; submit its queued ones first.
