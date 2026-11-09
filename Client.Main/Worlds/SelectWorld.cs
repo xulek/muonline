@@ -36,12 +36,15 @@ namespace Client.Main.Worlds
             _logger = MuGame.AppLoggerFactory?.CreateLogger<SelectWorld>() ?? throw new System.InvalidOperationException("LoggerFactory not initialized in MuGame");
         }
 
+        // The sky panels (stars, nebula) are painted on black; a coloured background would frame them as rectangles.
+        public override Color ClearColor => Color.Black;
+
         protected override bool DeferCameraActivation => true;
 
         protected override void ConfigureCameraState(ref CameraState cameraState)
         {
             cameraState = cameraState.With(
-                viewFar: 5500f,
+                viewFar: 8000f,   // the star field stands ~7100 units from the camera; 5500 (+1800) clipped its edges
                 fieldOfView: 29f * Constants.FOV_SCALE,
                 target: new Vector3(14229.295898f, 12340.358398f, 380f));
         }
@@ -152,13 +155,16 @@ namespace Client.Main.Worlds
         protected override void CreateMapTileObjects()
         {
             base.CreateMapTileObjects();
+            // Editor helpers that the original never shows: label boards (Korean text) and a stand-in for the character.
+            MapTileObjects[0] = null;
             MapTileObjects[14] = null;
             MapTileObjects[71] = typeof(BlendedObjects);
-            MapTileObjects[11] = typeof(BlendedObjects);
+            MapTileObjects[11] = typeof(SkyObject);
+            MapTileObjects[12] = typeof(SkyObject);
             MapTileObjects[36] = typeof(LightObject);
             MapTileObjects[25] = typeof(BlendedObjects);
             MapTileObjects[33] = typeof(BlendedObjects);
-            MapTileObjects[30] = typeof(BlendedObjects);
+            MapTileObjects[30] = typeof(LightObject);
             MapTileObjects[31] = typeof(FlowersObject2);
             MapTileObjects[34] = typeof(FlowersObject);
             MapTileObjects[26] = typeof(WaterFallObject);

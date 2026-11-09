@@ -20,8 +20,7 @@ namespace Client.Main.Objects.Worlds.SelectWrold
             IsTransparent = true;
             BlendMesh = 0;
             BlendMeshState = BlendState.Additive;
-            if (Type != 30)
-                await base.Load();
+            await base.Load();
         }
         public override void Draw(GameTime gameTime)
         {

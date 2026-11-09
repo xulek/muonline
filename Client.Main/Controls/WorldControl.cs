@@ -197,6 +197,9 @@ namespace Client.Main.Controls
         // Overlay/UI passes (nameplates, bbox, hover) should iterate this rather than the
         // full World.Objects snapshot to avoid touching everything on the map.
         public IReadOnlyList<WorldObject> VisibleObjects => _visibleObjects;
+
+        /// <summary>Background behind the world where no terrain or object covers the screen.</summary>
+        public virtual Color ClearColor => new(12, 12, 20);
         private readonly Dictionary<WorldObject, int> _visibleObjectIndices = [];
         private bool _isUpdatingVisibleObjects;
         private bool _visibleObjectsNeedCompaction;

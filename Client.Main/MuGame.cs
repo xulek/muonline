@@ -1706,7 +1706,7 @@ namespace Client.Main
             // Always start the current image from the canonical scene background. Keeping
             // color data from an older frame caused stale terrain/objects to remain visible
             // in map holes. A separate recovery target now owns the last complete frame.
-            GraphicsDevice.Clear(FallbackClearColor);
+            GraphicsDevice.Clear(ActiveScene?.World?.ClearColor ?? FallbackClearColor);
 
             // Ensure correct culling for 3D models
             GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
@@ -1731,7 +1731,7 @@ namespace Client.Main
         private void DrawSceneDirectToBackBuffer(GameTime gameTime)
         {
             GraphicsDevice.SetRenderTarget(null);
-            GraphicsDevice.Clear(FallbackClearColor);
+            GraphicsDevice.Clear(ActiveScene?.World?.ClearColor ?? FallbackClearColor);
 
             // Keep the same scene state setup as the intermediate render path.
             GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;

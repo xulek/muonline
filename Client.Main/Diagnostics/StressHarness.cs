@@ -734,10 +734,44 @@ namespace Client.Main.Diagnostics
 
             var shot = SelectShots[_selectShot];
             Client.Main.Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = shot.Pointer;
+
+            // MU_STRESS_SELECT_SCENE=1: one shot of the 3D scene alone (UI hidden) plus a list of the objects in view.
+            bool sceneOnly = Environment.GetEnvironmentVariable("MU_STRESS_SELECT_SCENE") == "1";
+            if (sceneOnly)
+            {
+                foreach (var control in scene.Controls.GetSnapshotArray())
+                    if (control != scene.World)
+                        control.Visible = false;
+
+                // MU_STRESS_HIDE_TYPES=7,8: hides map objects of these types (to see which one draws an artefact).
+                var hiddenTypes = (Environment.GetEnvironmentVariable("MU_STRESS_HIDE_TYPES") ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToHashSet();
+                if (hiddenTypes.Count > 0)
+                    foreach (var o in scene.World.Objects.GetSnapshotArray().OfType<ModelObject>())
+                        if (o is not Objects.Player.PlayerObject && hiddenTypes.Contains(o.Type))
+                            o.Hidden = true;
+            }
+
             if (PhaseClock.Elapsed.TotalSeconds < shot.Wait)
                 return;
 
             SaveScreenshot(game, $"{_label}_select_{_selectShot}");
+            if (sceneOnly)
+            {
+                var frustum = Camera.Instance.Frustum;
+                Console.WriteLine($"[stress] camera pos={Camera.Instance.Position} target={Camera.Instance.Target} far={Camera.Instance.ViewFar}");
+                foreach (var o in scene.World.Objects.GetSnapshotArray().OfType<ModelObject>())
+                {
+                    if (frustum.Contains(o.BoundingBoxWorld) == ContainmentType.Disjoint)
+                        continue;
+                    Console.WriteLine($"[stress] view {o.GetType().Name} type={o.Type} model={System.IO.Path.GetFileName(o.Model?.Name ?? "")} " +
+                        $"pos=({o.Position.X:F0},{o.Position.Y:F0},{o.Position.Z:F0}) hidden={o.Hidden} visible={scene.World.IsObjectVisibleInSnapshot(o)} box={o.BoundingBoxWorld.Min}-{o.BoundingBoxWorld.Max} scale={o.Scale:F2} transparent={o.IsTransparent} blend={o.BlendState?.Name} " +
+                        $"blendMesh={o.BlendMesh} alpha={o.Alpha:F2} :: {o.DescribeMeshesForDiagnostics()}");
+                }
+                Finish(game, null);
+                return;
+            }
+
             if (++_selectShot >= SelectShots.Length)
             {
                 Finish(game, null);
