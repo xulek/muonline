@@ -6,6 +6,7 @@ using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Ornate;
 using Client.Main.Core.Utilities;
 using Client.Main.Helpers;
 using Microsoft.Xna.Framework;
@@ -26,13 +27,6 @@ namespace Client.Main.Controls.UI.Game.Inventory
         public const int GridWidth = Columns * Cell;
         public const int GridHeight = Rows * Cell;
         public const uint MaxPrice = int.MaxValue;
-
-        private static readonly ItemGlowPalette GlowPalette = new(
-            new Color(150, 150, 150, 25),
-            new Color(100, 150, 255, 50),
-            new Color(120, 255, 120, 60),
-            new Color(80, 200, 255, 70),
-            new Color(255, 180, 80, 70));
 
         public static bool IsShopSlot(byte slot) => slot >= FirstShopSlot && slot < FirstShopSlot + SlotCount;
 
@@ -175,114 +169,55 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         // ─────────────────────────────── Chrome ───────────────────────────────
 
-        public static void DrawWindow(SpriteBatch sb, Rectangle rect, float alpha)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+        public static void DrawWindow(SpriteBatch sb, Rectangle rect, float alpha) => OrnateDraw.Window(sb, rect, alpha);
 
-            sb.Draw(pixel, new Rectangle(rect.X + 5, rect.Y + 5, rect.Width, rect.Height), Color.Black * 0.35f * alpha);
-            sb.Draw(pixel, rect, ModernHudTheme.BorderOuter * alpha);
-            var inner = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 4);
-            UiDrawHelper.DrawVerticalGradient(sb, inner, ModernHudTheme.BgDark * alpha, ModernHudTheme.BgDarkest * alpha);
-            sb.Draw(pixel, new Rectangle(inner.X, inner.Y, inner.Width, 1), ModernHudTheme.BorderInner * 0.5f * alpha);
-            sb.Draw(pixel, new Rectangle(inner.X, inner.Y, 1, inner.Height), ModernHudTheme.BorderInner * 0.3f * alpha);
-            UiDrawHelper.DrawCornerAccents(sb, rect, ModernHudTheme.Secondary * 0.5f * alpha);
-        }
-
+        /// <summary>Gold title (and muted subtitle) centred in the header, with an ornamental divider under it.</summary>
         public static void DrawHeader(SpriteBatch sb, Rectangle header, string title, string? subtitle, float alpha)
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            var panel = new Rectangle(header.X + 8, header.Y + 6, header.Width - 16, header.Height - 8);
-            UiDrawHelper.DrawPanel(sb, panel, ModernHudTheme.BgMid * alpha, ModernHudTheme.BorderInner * 0.8f * alpha,
-                ModernHudTheme.BorderOuter * alpha, ModernHudTheme.BorderInner * 0.6f * alpha);
-            sb.Draw(pixel, new Rectangle(header.X + 20, header.Y + 8, header.Width - 40, 2), ModernHudTheme.Accent * 0.8f * alpha);
-
-            const float titleSize = 15f, subtitleSize = 11f;
-            float maxWidth = header.Width - 90;
+            const float titleSize = 15f, subtitleSize = 12f;
+            float maxWidth = header.Width - 84;
             title = Ellipsize(title, titleSize, maxWidth);
-            var titleMeasure = Measure(title, titleSize);
-            float totalHeight = titleMeasure.Y + (subtitle != null ? Measure(subtitle, subtitleSize).Y : 0);
-            float y = header.Y + 6 + (header.Height - 6 - totalHeight) / 2f;
+            var titleMeasure = OrnateDraw.Measure(title, titleSize);
+            float totalHeight = titleMeasure.Y + (subtitle != null ? OrnateDraw.Measure(subtitle, subtitleSize).Y : 0);
+            float y = header.Y + 4 + (header.Height - 14 - totalHeight) / 2f;
 
-            DrawText(sb, title, new Vector2(header.X + (header.Width - titleMeasure.X) / 2f, y), ModernHudTheme.TextGold, titleSize, alpha);
+            OrnateDraw.Text(sb, title, new Vector2(header.Center.X - titleMeasure.X / 2f, y), titleSize, OrnateStyle.Gold, alpha, bold: true);
             if (subtitle != null)
             {
                 subtitle = Ellipsize(subtitle, subtitleSize, maxWidth);
-                var subMeasure = Measure(subtitle, subtitleSize);
-                DrawText(sb, subtitle, new Vector2(header.X + (header.Width - subMeasure.X) / 2f, y + titleMeasure.Y), ModernHudTheme.TextGray, subtitleSize, alpha);
+                var subMeasure = OrnateDraw.Measure(subtitle, subtitleSize);
+                OrnateDraw.Text(sb, subtitle, new Vector2(header.Center.X - subMeasure.X / 2f, y + titleMeasure.Y), subtitleSize, OrnateStyle.TextMuted, alpha);
             }
 
-            int sepY = header.Bottom - 1;
-            UiDrawHelper.DrawHorizontalGradient(sb, new Rectangle(header.X + 20, sepY, (header.Width - 40) / 2, 1), Color.Transparent, ModernHudTheme.BorderInner * alpha);
-            UiDrawHelper.DrawHorizontalGradient(sb, new Rectangle(header.X + header.Width / 2, sepY, (header.Width - 40) / 2, 1), ModernHudTheme.BorderInner * alpha, Color.Transparent);
+            OrnateDraw.Divider(sb, new Rectangle(header.X + 24, header.Bottom - 12, header.Width - 48, 12), alpha);
         }
 
         public static void DrawCloseButton(SpriteBatch sb, Rectangle rect, bool hovered, float alpha)
+            => OrnateWidgets.CloseButton(sb, rect, hovered, alpha);
+
+        /// <summary>Recessed panel (summaries, editor area); the colour argument is kept for callers and ignored.</summary>
+        public static void DrawPanel(SpriteBatch sb, Rectangle rect, Color background, float alpha)
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-            if (hovered) sb.Draw(pixel, rect, ModernHudTheme.Danger * 0.25f * alpha);
-            Color color = (hovered ? ModernHudTheme.Danger : ModernHudTheme.TextGray) * alpha;
-            int cx = rect.Center.X, cy = rect.Center.Y;
-            for (int i = -5; i <= 5; i++)
-            {
-                sb.Draw(pixel, new Rectangle(cx + i - 1, cy + i - 1, 2, 2), color);
-                sb.Draw(pixel, new Rectangle(cx + i - 1, cy - i - 1, 2, 2), color);
-            }
+            OrnateDraw.Inset(sb, rect, alpha, 0.4f);
+            UiDrawHelper.DrawBorder(sb, new Rectangle(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2), OrnateItemUi.Rim * (0.8f * alpha));
         }
 
-        public static void DrawPanel(SpriteBatch sb, Rectangle rect, Color background, float alpha)
-            => UiDrawHelper.DrawPanel(sb, rect, background * alpha, ModernHudTheme.BorderInner * 0.8f * alpha,
-                ModernHudTheme.BorderOuter * alpha, ModernHudTheme.BorderInner * 0.6f * alpha);
-
+        /// <summary>Ornate button: the crimson plate for positive actions (open, confirm), the bronze one for the rest.</summary>
         public static void DrawButton(SpriteBatch sb, Rectangle rect, string text, bool hovered, bool enabled, Color accent, float alpha, float textSize = 13f)
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            Color top = enabled ? Color.Lerp(ModernHudTheme.BgLight, accent, hovered ? 0.55f : 0.35f) : ModernHudTheme.BgMid;
-            Color bottom = enabled ? Color.Lerp(ModernHudTheme.BgDark, accent, hovered ? 0.35f : 0.18f) : ModernHudTheme.BgDark;
-            if (enabled && hovered)
-                sb.Draw(pixel, new Rectangle(rect.X - 2, rect.Y - 2, rect.Width + 4, rect.Height + 4), accent * 0.25f * alpha);
-            UiDrawHelper.DrawVerticalGradient(sb, rect, top * alpha, bottom * alpha);
-            Color border = enabled ? (hovered ? accent : Color.Lerp(ModernHudTheme.BorderInner, accent, 0.5f)) : ModernHudTheme.BorderOuter;
-            UiDrawHelper.DrawBorder(sb, rect, border * alpha);
-            if (enabled)
-                sb.Draw(pixel, new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, 1), Color.White * (hovered ? 0.25f : 0.12f) * alpha);
-            DrawTextCentered(sb, text, rect, enabled ? ModernHudTheme.TextWhite : ModernHudTheme.TextGray * 0.7f, textSize, alpha);
+            var state = new WidgetState(Hover: hovered, Disabled: !enabled);
+            if (accent == ModernHudTheme.Success)
+                OrnateWidgets.PrimaryButton(sb, rect, text, state, alpha);
+            else
+                OrnateWidgets.Button(sb, rect, text, state, alpha, overhang: 0.6f);
         }
 
+        /// <summary>Open/closed state with a green or dull red gem.</summary>
         public static void DrawPill(SpriteBatch sb, Rectangle rect, string text, Color color, float alpha)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-            sb.Draw(pixel, rect, color * 0.25f * alpha);
-            UiDrawHelper.DrawBorder(sb, rect, color * 0.9f * alpha);
-            DrawTextCentered(sb, text, rect, color, 10f, alpha);
-        }
+            => OrnateItemUi.StatusGem(sb, rect, color == ModernHudTheme.Success, text, alpha);
 
         public static void DrawGrid(SpriteBatch sb, Rectangle grid, float alpha)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            DrawPanel(sb, new Rectangle(grid.X - 4, grid.Y - 4, grid.Width + 8, grid.Height + 8), ModernHudTheme.BgMid, alpha);
-            sb.Draw(pixel, grid, ModernHudTheme.SlotBg * alpha);
-            sb.Draw(pixel, new Rectangle(grid.X, grid.Y, grid.Width, 2), Color.Black * 0.4f * alpha);
-            sb.Draw(pixel, new Rectangle(grid.X, grid.Y, 2, grid.Height), Color.Black * 0.3f * alpha);
-
-            Color line = new Color(40, 48, 60, 100) * alpha;
-            Color major = new Color(55, 65, 80, 120) * alpha;
-            for (int x = 1; x < Columns; x++)
-                sb.Draw(pixel, new Rectangle(grid.X + x * Cell, grid.Y, 1, grid.Height), x == Columns / 2 ? major : line);
-            for (int y = 1; y < Rows; y++)
-                sb.Draw(pixel, new Rectangle(grid.X, grid.Y + y * Cell, grid.Width, 1), line);
-
-            sb.Draw(pixel, new Rectangle(grid.X, grid.Bottom - 1, grid.Width, 1), ModernHudTheme.BorderHighlight * 0.2f * alpha);
-            sb.Draw(pixel, new Rectangle(grid.Right - 1, grid.Y, 1, grid.Height), ModernHudTheme.BorderHighlight * 0.15f * alpha);
-        }
+            => OrnateItemUi.Grid(sb, grid, Columns, Rows, Cell, alpha);
 
         public static void DrawFootprint(SpriteBatch sb, Rectangle grid, Point cell, int width, int height, bool valid, float alpha)
         {
@@ -302,22 +237,20 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         // ─────────────────────────────── Items ───────────────────────────────
 
+        /// <summary>Rim colour of an item's backing plate by rarity; null for plain items.</summary>
+        public static Color? RarityColor(InventoryItem item) =>
+            item.Details.IsExcellent ? new Color(110, 230, 110) :
+            item.Details.IsAncient ? new Color(90, 190, 255) :
+            item.Details.Level >= 7 ? OrnateStyle.Gold :
+            null;
+
         public static void DrawItem(SpriteBatch sb, ItemTextureCache textures, InventoryItem item, Rectangle rect,
             bool hovered, bool dimmed, GameTime? gameTime, float alpha)
         {
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null) return;
 
-            Color glow = ItemUiHelper.GetItemGlowColor(item, GlowPalette);
-            if (glow.A > 0 || hovered)
-            {
-                Color finalGlow = hovered ? Color.Lerp(glow, ModernHudTheme.Accent, 0.4f) : glow;
-                finalGlow.A = (byte)Math.Min(255, finalGlow.A + (hovered ? 40 : 0));
-                ItemUiHelper.DrawItemGlow(sb, pixel, rect, finalGlow * alpha);
-            }
-
-            sb.Draw(pixel, new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
-                (hovered ? ModernHudTheme.SlotHover : ModernHudTheme.SlotBg) * alpha);
+            OrnateItemUi.ItemBacking(sb, rect, hovered ? OrnateStyle.Gold : RarityColor(item), alpha);
 
             var texture = textures.Resolve(item, rect.Width, rect.Height, hovered, gameTime);
             Color tint = Color.White * (dimmed ? 0.45f : 1f) * alpha;
@@ -347,6 +280,11 @@ namespace Client.Main.Controls.UI.Game.Inventory
             Color color = overrideColor ?? (price.HasValue ? GetPriceColor(price.Value) : ModernHudTheme.Danger);
             const float size = 9f;
             var measured = Measure(text, size);
+            if (!price.HasValue && measured.X > itemRect.Width - 4)
+            {
+                text = "?"; // one cell is too narrow for the words; the red rim and tooltip still explain it
+                measured = Measure(text, size);
+            }
             int height = (int)MathF.Ceiling(measured.Y) + 1;
             var strip = new Rectangle(itemRect.X + 1, itemRect.Y + 1, itemRect.Width - 2, height);
             sb.Draw(pixel, strip, Color.Black * 0.72f * alpha);
@@ -358,57 +296,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         }
 
         public static void DrawTooltip(SpriteBatch sb, IReadOnlyList<(string Text, Color Color)> lines, InventoryItem item, Rectangle avoid)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null || lines.Count == 0) return;
-
-            const float size = 12f;
-            const int lineSpacing = 3, paddingX = 12, paddingY = 10;
-            int width = 0, height = 0;
-            foreach (var (text, _) in lines)
-            {
-                var measured = Measure(text.Length == 0 ? " " : text, size);
-                width = Math.Max(width, (int)MathF.Ceiling(measured.X));
-                height += (int)MathF.Ceiling(measured.Y) + lineSpacing;
-            }
-            height += 6;
-
-            var rect = new Rectangle(avoid.Right + 10, avoid.Y, width + paddingX * 2, height + paddingY * 2);
-            var screen = new Rectangle(0, 0, UiScaler.VirtualSize.X, UiScaler.VirtualSize.Y);
-            if (rect.Right > screen.Right - 10) rect.X = avoid.X - rect.Width - 10;
-            rect.X = Math.Clamp(rect.X, 10, Math.Max(10, screen.Right - rect.Width - 10));
-            rect.Y = Math.Clamp(rect.Y, 10, Math.Max(10, screen.Bottom - rect.Height - 10));
-
-            sb.Draw(pixel, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), Color.Black * 0.5f);
-            UiDrawHelper.DrawVerticalGradient(sb, rect, new Color(20, 24, 32, 252), new Color(12, 14, 18, 254));
-            Color border = item.Details.IsExcellent ? GlowPalette.Excellent :
-                           item.Details.IsAncient ? GlowPalette.Ancient :
-                           item.Details.Level >= 7 ? ModernHudTheme.Accent : ModernHudTheme.TextWhite;
-            border.A = 255;
-            UiDrawHelper.DrawBorder(sb, rect, border, 2);
-
-            int y = rect.Y + paddingY;
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var (text, color) = lines[i];
-                var measured = Measure(text.Length == 0 ? " " : text, size);
-                if (text.Length == 0)
-                {
-                    sb.Draw(pixel, new Rectangle(rect.X + 8, y + (int)measured.Y / 2, rect.Width - 16, 1), border * 0.3f);
-                }
-                else
-                {
-                    DrawText(sb, text, new Vector2(rect.X + (rect.Width - measured.X) / 2f, y), i == 0 ? border : color, size);
-                }
-                y += (int)MathF.Ceiling(measured.Y) + lineSpacing;
-                if (i == 0)
-                {
-                    y += 2;
-                    sb.Draw(pixel, new Rectangle(rect.X + 8, y, rect.Width - 16, 1), border * 0.3f);
-                    y += 4;
-                }
-            }
-        }
+            => OrnateItemUi.Tooltip(sb, lines, RarityColor(item) ?? OrnateStyle.TextLight, avoid);
 
         public static SpriteBatchScope? BeginUiBatch()
         {

@@ -51,7 +51,9 @@ namespace Client.Main.Controls.UI.Ornate
             float a = (state.Disabled ? 0.55f : 1f) * alpha;
             bool hover = state.Hover && !state.Disabled;
             OrnateDraw.Plate(sb, rect, hover, Color.White * a, overhang);
-            OrnateDraw.TextCentered(sb, label, rect, 15f, hover ? Color.White : OrnateStyle.Gold, a, bold: true);
+            Rectangle inner = OrnateDraw.PlateInner(hover ? OrnateAssets.ButtonHover : OrnateAssets.Button,
+                hover ? OrnateStyle.ButtonHover : OrnateStyle.Button, rect);
+            OrnateDraw.TextCentered(sb, label, rect, OrnateDraw.FitSize(label, 15f, inner.Width), hover ? Color.White : OrnateStyle.Gold, a, bold: true);
         }
 
         /// <summary>Main call to action (Enter Game, Accept): crimson plate with winged caps.</summary>
@@ -62,9 +64,11 @@ namespace Client.Main.Controls.UI.Ornate
 
             float a = (state.Disabled ? 0.45f : 1f) * alpha;
             bool hover = state.Hover && !state.Disabled;
-            OrnateDraw.Plate(sb, hover ? OrnateAssets.ButtonPrimaryHover : OrnateAssets.ButtonPrimary,
-                hover ? OrnateStyle.ButtonPrimaryHover : OrnateStyle.ButtonPrimary, rect, hover, Color.White * a, overhang: 1f);
-            OrnateDraw.TextCentered(sb, label, rect, 19f, hover ? Color.White : OrnateStyle.Gold, a, bold: true);
+            Texture2D texture = hover ? OrnateAssets.ButtonPrimaryHover : OrnateAssets.ButtonPrimary;
+            PlateLayout layout = hover ? OrnateStyle.ButtonPrimaryHover : OrnateStyle.ButtonPrimary;
+            OrnateDraw.Plate(sb, texture, layout, rect, hover, Color.White * a, overhang: 1f);
+            Rectangle inner = OrnateDraw.PlateInner(texture, layout, rect);
+            OrnateDraw.TextCentered(sb, label, rect, OrnateDraw.FitSize(label, 19f, inner.Width), hover ? Color.White : OrnateStyle.Gold, a, bold: true);
         }
 
         /// <summary>

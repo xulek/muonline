@@ -1601,7 +1601,8 @@ namespace Client.Main
                 else
                 {
                     // WINDOWS: Use standard mouse
-                    UiMousePosition = UiScaler.ToVirtual(Mouse.Position);
+                    // StressHarness screenshots place the pointer on a widget to capture hover states.
+                    UiMousePosition = Controls.UI.Ornate.OrnatePointer.DiagnosticPosition ?? UiScaler.ToVirtual(Mouse.Position);
                     UiTouchPosition = UiMousePosition;
 
                     UiMouseState = new Microsoft.Xna.Framework.Input.MouseState(

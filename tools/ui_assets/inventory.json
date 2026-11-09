@@ -1,0 +1,157 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: classic MU Online (Webzen) fantasy MMORPG interface - dark burnished bronze and antique gold filigree metal, deep red gemstones, gothic angular shapes, rich painterly game-UI rendering, crisp clean edges, orthographic flat front view, no text, no letters, no watermark.",
+  "sources": {
+    "slot_cell": {
+      "prompt": "A single small square INVENTORY SLOT cell for a fantasy MMORPG bag grid, designed to tile in a grid: a softly recessed square of dark warm brown-grey worn leather/stone (medium-dark, clearly lighter than black), a very thin subtle bronze edge with a gentle inner bevel (slightly lit on the top-left, slightly shadowed bottom-right), no corners ornaments, no gems, no pattern. Calm, low contrast, clean, so item icons stay readable on it. Exactly one square, perfectly square, filling the whole canvas.",
+      "cut": [
+        {
+          "out": "Controls/slot",
+          "square": 64
+        }
+      ]
+    },
+    "equip_frame": {
+      "prompt": "A single square EQUIPMENT SLOT FRAME for a fantasy MMORPG character equipment window: a thin dark-bronze beveled border around a recessed very dark smoky interior, with a small gothic gold filigree ornament on each of the four corners and nothing in the middle of the edges. The four corners are identical (mirrored), the straight edges between them are plain and uniform so the frame can be stretched. Interior flat, even, almost black. Perfectly symmetric, perfectly square.",
+      "cut": [
+        {
+          "out": "Controls/equip_frame",
+          "hollow": 0.06,
+          "square": 192
+        }
+      ]
+    },
+    "glyphs_armor": {
+      "prompt": "A row of exactly 4 separate equipment item drawings for empty equipment slots, evenly spaced in a single horizontal row with clear empty gaps between them, each a dark bronze armor piece with gold trim and a small red gem, no medallion, no frame, no background, no particles, no dust, no splatter, same visual size: 1) a knight helmet seen from the front, 2) a chest plate armor cuirass, 3) armored leg greaves (pants), 4) an armored gauntlet glove. The space around and between them is completely empty.",
+      "split": 4,
+      "cut": [
+        {
+          "out": "Glyphs/helm",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/armor",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/pants",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/gloves",
+          "square": 96
+        }
+      ]
+    },
+    "glyphs_gear": {
+      "prompt": "A row of exactly 4 separate flat SILHOUETTE glyphs for empty equipment slots, evenly spaced in a single horizontal row with clear empty gaps between them, each a simple solid pale-bronze silhouette with a faint engraved bevel, no medallion, no frame, no background, same visual size: 1) a pair of armored boots, 2) a straight sword pointing up, 3) a kite shield, 4) a pair of spread feathered wings.",
+      "split": 4,
+      "cut": [
+        {
+          "out": "Glyphs/boots",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/weapon",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/shield",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/wings",
+          "square": 96
+        }
+      ]
+    },
+    "glyphs_jewelry": {
+      "prompt": "A row of exactly 3 separate flat SILHOUETTE glyphs for empty equipment slots, evenly spaced in a single horizontal row with clear empty gaps between them, each a simple solid pale-bronze silhouette with a faint engraved bevel, no medallion, no frame, no background, same visual size: 1) a pendant necklace with a teardrop gem, 2) a finger ring with a gem, 3) a small winged horse (pegasus) seen from the side.",
+      "split": 3,
+      "cut": [
+        {
+          "out": "Glyphs/pendant",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/ring",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/pet",
+          "square": 96
+        }
+      ]
+    },
+    "icons_inventory": {
+      "prompt": "A row of exactly 4 separate square game ICONS, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a small merchant market stall with a red striped awning (personal shop), 2) a blacksmith hammer over an anvil with orange sparks (repair), 3) a leather adventurer backpack bag (inventory), 4) a small stack of shiny gold coins (zen money).",
+      "split": 4,
+      "cut": [
+        {
+          "out": "Icons/shop",
+          "square": 96
+        },
+        {
+          "out": "Icons/repair",
+          "square": 96
+        },
+        {
+          "out": "Icons/inventory",
+          "square": 96
+        },
+        {
+          "out": "Icons/zen",
+          "square": 96
+        }
+      ]
+    },
+    "glyphs_misc": {
+      "prompt": "A row of exactly 4 separate small game UI glyphs, evenly spaced in a single horizontal row with clear empty gaps between them, same visual size, no medallion, no frame, no background: 1) a single shiny round gold coin with an engraved winged emblem, seen straight from the front, 2) a small bronze price tag with a hole and a string, 3) a round glowing emerald-green gemstone in a tiny gold bezel, 4) a round dull dark-red ruby gemstone in a tiny gold bezel.",
+      "split": 4,
+      "cut": [
+        {
+          "out": "Glyphs/zen",
+          "square": 64
+        },
+        {
+          "out": "Glyphs/price_tag",
+          "square": 64
+        },
+        {
+          "out": "Glyphs/gem_green",
+          "square": 48
+        },
+        {
+          "out": "Glyphs/gem_red",
+          "square": 48
+        }
+      ]
+    },
+    "paperdoll": {
+      "prompt": "A wide background PANEL texture for the character equipment area of a fantasy MMORPG inventory window: very dark (almost black) blue-grey engraved stone with a large, faint, low-contrast heraldic sigil in the center (a stylised winged shield with a sword), subtle radial vignette darker toward the edges, no frame, no border, dark enough for icons on top. Aspect ratio about 4:3.",
+      "opaque": true,
+      "cut": [
+        {
+          "out": "Frame/paperdoll",
+          "width": 512,
+          "height": 372
+        }
+      ],
+      "quality": 85
+    },
+    "glyphs_actions": {
+      "prompt": "Exactly 2 separate bold game UI ICONS without any frame or medallion, in a single horizontal row with a clear empty gap between them, same visual size, simple strong silhouettes with high contrast that stay readable at 24 pixels, bright polished gold and steel with crisp dark outline: 1) a merchant shop stall with a red-and-gold striped awning and a small gold coin on the counter (personal shop), 2) a blacksmith hammer crossing over a small anvil with a few bright orange sparks (repair). No background, no glow halo outside the shapes.",
+      "split": 2,
+      "cut": [
+        {
+          "out": "Glyphs/shop",
+          "square": 96
+        },
+        {
+          "out": "Glyphs/repair",
+          "square": 96
+        }
+      ]
+    }
+  }
+}

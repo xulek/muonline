@@ -37,7 +37,8 @@ Manifest format:
 }
 "quality" (WebP, default 90) can be lowered for big opaque illustrations (82 is plenty for full-screen art).
 Cut steps, in order: crop (fractions x0,y0,x1,y1) -> band (vertical fractions) -> bbox -> desaturate_green ->
-disk -> resize (square | width+height | width | height). A list of rules for one item writes several outputs.
+disk -> hollow -> resize (square | width+height | width | height).
+"hollow": inset fraction; the dark inside of a frame beyond it becomes transparent (the game draws its own fill). A list of rules for one item writes several outputs.
 "disk": cut out the inside of a medallion: the gold ring is detected (its centre is rarely the image centre because
 the spikes around it are asymmetric) and the area inside it is kept as a round emblem with a soft edge, ready to be
 placed into a socket of another plate (see OrnateWidgets.Card). "measure --ring" reports such sockets.
@@ -173,6 +174,22 @@ def desaturate_green(image):
     return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8))
 
 
+def hollow(image, inset, threshold=40):
+    """Make the dark inside of a frame transparent: pixels further than `inset` (fraction of the size) from every edge
+    and darker than `threshold` get alpha 0 (with a 1px soft edge), so the game can draw its own fill behind the frame."""
+    pixels = np.array(image.convert("RGBA")).astype(np.int16)
+    h, w = pixels.shape[:2]
+    x0, y0, x1, y1 = int(w * inset), int(h * inset), int(w * (1 - inset)), int(h * (1 - inset))
+    lum = pixels[..., :3].max(axis=2)
+    inside = np.zeros((h, w), bool)
+    inside[y0:y1, x0:x1] = True
+    dark = inside & (lum < threshold)
+    near = inside & (lum < threshold * 2) & ~dark
+    pixels[dark, 3] = 0
+    pixels[near, 3] = pixels[near, 3] // 2
+    return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8))
+
+
 def gold_mask(pixels):
     r, g, b, a = (pixels[..., i].astype(np.int16) for i in range(4))
     return (a > 200) & (r > 110) & (r > b + 45) & (g > b + 20)
@@ -264,6 +281,8 @@ def apply_rule(image, rule, opaque):
         image = desaturate_green(image)
     if rule.get("disk"):
         image = disk(image)
+    if "hollow" in rule:
+        image = hollow(image, rule["hollow"])
     return resize(image, rule)
 
 

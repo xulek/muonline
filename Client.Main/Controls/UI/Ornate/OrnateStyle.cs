@@ -70,6 +70,9 @@ namespace Client.Main.Controls.UI.Ornate
         public const float DividerCenterFrom = 0.36f;
         public const float DividerCenterTo = 0.64f;
 
+        // Controls/equip_frame: corner ornaments (fraction of the texture) kept unstretched in the nine-slice.
+        public const float EquipFrameMargin = 0.2f;
+
         public const int CornerSize = 76;
         public const int BackgroundTile = 192;
     }

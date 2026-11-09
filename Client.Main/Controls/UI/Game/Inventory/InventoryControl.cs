@@ -22,6 +22,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MUnique.OpenMU.Network.Packets;
 using Client.Main.Controls.UI;
+using Client.Main.Controls.UI.Ornate;
 
 namespace Client.Main.Controls.UI.Game.Inventory
 {
@@ -337,6 +338,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
+            _ = OrnateAssets.PreloadAsync(OrnateItemUi.PreloadPaths);
             await EnsureClassicAssetsAsync();
         }
 
@@ -441,7 +443,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             BringToFront();
             Scene.FocusControl = this;
 
-            _zenText.Visible = true;
+            _zenText.Visible = IsSeason6; // the Modern theme draws the amount inside its ornate Zen field
             UpdateZenText();
 
             _pickedItemRenderer.Visible = false;
@@ -659,7 +661,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            EnsureStaticSurface();
+            if (IsSeason6)
+                EnsureStaticSurface();
 
             var spriteBatch = graphicsManager.Sprite;
             SpriteBatchScope? scope = null;
@@ -675,14 +678,20 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
             try
             {
-                if (_staticSurface != null && !_staticSurface.IsDisposed)
+                if (!IsSeason6)
+                {
+                    // Ornate frame drawn directly: its corner ornaments and title wings reach past the window edge.
+                    DrawOrnateFrame(spriteBatch);
+                }
+                else if (_staticSurface != null && !_staticSurface.IsDisposed)
                 {
                     spriteBatch.Draw(_staticSurface, DisplayRectangle, Color.White * Alpha);
                 }
 
                 // Draw overlays beneath items (consistent with vault/NPC shop)
                 DrawGridOverlays(spriteBatch);
-                DrawEquipHighlights(spriteBatch);
+                if (IsSeason6)
+                    DrawEquipHighlights(spriteBatch);
                 DrawInventoryItems(spriteBatch);
                 DrawEquippedItems(spriteBatch);
                 DrawChrome(spriteBatch);
@@ -875,7 +884,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             int gridTotalWidth = Columns * INVENTORY_SQUARE_WIDTH;
             int gridTotalHeight = Rows * INVENTORY_SQUARE_HEIGHT;
             int gridX = (WINDOW_WIDTH - gridTotalWidth) / 2;
-            int minGridY = _paperdollPanelRect.Bottom + Math.Max(SECTION_SPACING / 2, 4);
+            int minGridY = _paperdollPanelRect.Bottom + 20; // room for the divider between the sections
             int gridY = minGridY;
 
             int footerHeight = 50;
@@ -897,15 +906,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
             _footerRect = new Rectangle(PANEL_PADDING, footerTop,
                                          WINDOW_WIDTH - PANEL_PADDING * 2, footerHeight);
 
-            // Zen display
-            _zenIconRect = new Rectangle(_footerRect.X + 12, _footerRect.Y + 14, 22, 22);
-            _zenFieldRect = new Rectangle(_zenIconRect.Right + 10, _footerRect.Y + 10, 160, 30);
+            // Zen display (coin drawn inside the field)
+            _zenFieldRect = new Rectangle(_footerRect.X, _footerRect.Y + 10, 112, 30);
+            _zenIconRect = Rectangle.Empty;
 
-            // Buttons
-            int btnSize = 38;
-            _closeButtonRect = new Rectangle(WINDOW_WIDTH - btnSize - 12, 10, btnSize, btnSize);
-            _footerLeftButtonRect = new Rectangle(_footerRect.Right - btnSize * 2 - 20, _footerRect.Y + 6, btnSize, btnSize);
-            _footerRightButtonRect = new Rectangle(_footerRect.Right - btnSize - 8, _footerRect.Y + 6, btnSize, btnSize);
+            // Buttons: close in the header, personal shop and repair as labelled buttons in the footer
+            _closeButtonRect = new Rectangle(WINDOW_WIDTH - 50, 14, 32, 32);
+            const int buttonWidth = 124, buttonHeight = 32;
+            _footerRightButtonRect = new Rectangle(_footerRect.Right - buttonWidth, _footerRect.Y + 9, buttonWidth, buttonHeight);
+            _footerLeftButtonRect = new Rectangle(_footerRightButtonRect.X - buttonWidth - 6, _footerRect.Y + 9, buttonWidth, buttonHeight);
 
             // Beam rect not used in new design
             _beamRect = Rectangle.Empty;
@@ -1098,41 +1107,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private void DrawStaticElements(SpriteBatch spriteBatch)
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            if (IsSeason6)
-            {
+            if (GraphicsManager.Instance.Pixel != null && IsSeason6)
                 DrawSeason6StaticElements(spriteBatch);
-                return;
-            }
-
-            var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
-
-            // ═══════════════════════════════════════════════════════════
-            // 1. MAIN WINDOW BACKGROUND
-            // ═══════════════════════════════════════════════════════════
-            DrawWindowBackground(spriteBatch, fullRect);
-
-            // ═══════════════════════════════════════════════════════════
-            // 2. HEADER
-            // ═══════════════════════════════════════════════════════════
-            DrawModernHeader(spriteBatch);
-
-            // ═══════════════════════════════════════════════════════════
-            // 3. EQUIPMENT SECTION
-            // ═══════════════════════════════════════════════════════════
-            DrawModernEquipSection(spriteBatch);
-
-            // ═══════════════════════════════════════════════════════════
-            // 4. INVENTORY GRID SECTION
-            // ═══════════════════════════════════════════════════════════
-            DrawModernGridSection(spriteBatch);
-
-            // ═══════════════════════════════════════════════════════════
-            // 5. FOOTER
-            // ═══════════════════════════════════════════════════════════
-            DrawModernFooter(spriteBatch);
         }
 
         private void DrawSeason6StaticElements(SpriteBatch spriteBatch)
@@ -1167,7 +1143,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 if (IsUsableTexture(GetSeason6EquipmentTexture(layout.Slot)))
                     spriteBatch.Draw(GetSeason6EquipmentTexture(layout.Slot), layout.Rect, Color.White);
                 else
-                    DrawModernEquipSlot(spriteBatch, layout);
+                    DrawPanel(spriteBatch, layout.Rect, Theme.SlotBg);
             }
 
             if (IsUsableTexture(_s6Rect))
@@ -1272,239 +1248,99 @@ namespace Client.Main.Controls.UI.Game.Inventory
             spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y + margin, destCenterWidth, destCenterHeight), new Rectangle(margin, margin, sourceCenterWidth, sourceCenterHeight), Color.White);
         }
 
-        private void DrawModernHeader(SpriteBatch spriteBatch)
+        // ═══════════════════════════════════════════════════════════════
+        // ORNATE (MODERN THEME) FRAME
+        // ═══════════════════════════════════════════════════════════════
+
+        private const int TitlePlateHeight = 28;
+        private const int TitleCenterY = 30;
+
+        /// <summary>Engraved glyph shown in an empty equipment slot.</summary>
+        private static string EquipGlyph(byte slot) => slot switch
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            0 => "weapon",
+            1 => "shield",
+            2 => "helm",
+            3 => "armor",
+            4 => "pants",
+            5 => "gloves",
+            6 => "boots",
+            7 => "wings",
+            8 => "pet",
+            9 => "pendant",
+            _ => "ring",
+        };
 
-            // Header background
-            var headerBg = new Rectangle(8, 6, WINDOW_WIDTH - 16, HEADER_HEIGHT - 8);
-            DrawPanel(spriteBatch, headerBg, Theme.BgMid);
-
-            // Gold accent line at very top
-            spriteBatch.Draw(pixel, new Rectangle(20, 8, WINDOW_WIDTH - 40, 2), Theme.Accent * 0.8f);
-            spriteBatch.Draw(pixel, new Rectangle(30, 10, WINDOW_WIDTH - 60, 1), Theme.AccentDim * 0.4f);
-
-            // Title
-            if (_font != null)
-            {
-                string title = "INVENTORY";
-                float scale = 0.55f;
-                Vector2 size = _font.MeasureString(title) * scale;
-                Vector2 pos = new((WINDOW_WIDTH - size.X) / 2, (HEADER_HEIGHT - size.Y) / 2 + 2);
-
-                // Glow behind text
-                spriteBatch.Draw(pixel, new Rectangle((int)pos.X - 20, (int)pos.Y - 4, (int)size.X + 40, (int)size.Y + 8),
-                                Theme.AccentGlow * 0.3f);
-
-                // Shadow
-                spriteBatch.DrawString(_font, title, pos + new Vector2(2, 2), Color.Black * 0.5f,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                // Main text
-                spriteBatch.DrawString(_font, title, pos, Theme.TextWhite,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            }
-
-            // Bottom separator
-            int separatorY = HEADER_HEIGHT - 2;
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(20, separatorY, (WINDOW_WIDTH - 40) / 2, 1),
-                                  Color.Transparent, Theme.BorderInner);
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(WINDOW_WIDTH / 2, separatorY, (WINDOW_WIDTH - 40) / 2, 1),
-                                  Theme.BorderInner, Color.Transparent);
-        }
-
-        private void DrawModernEquipSection(SpriteBatch spriteBatch)
+        /// <summary>Window, title, equipment panel, backpack grid and Zen field of the Modern theme (screen coordinates).</summary>
+        private void DrawOrnateFrame(SpriteBatch spriteBatch)
         {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
+            float alpha = Alpha;
+            Rectangle frame = DisplayRectangle;
+            OrnateDraw.Window(spriteBatch, frame, alpha);
 
-            // Section title
-            DrawSectionHeader(spriteBatch, "EQUIPMENT", _paperdollPanelRect.X, _paperdollPanelRect.Y - 18, _paperdollPanelRect.Width);
+            // Equipment: engraved panel behind the slots.
+            Rectangle paperdoll = Translate(_paperdollPanelRect);
+            Texture2D panel = OrnateAssets.Get("Frame/paperdoll");
+            if (panel != null)
+                spriteBatch.Draw(panel, paperdoll, new Color(200, 196, 190) * alpha);
+            OrnateDraw.Inset(spriteBatch, paperdoll, alpha, panel != null ? 0.2f : 0.5f);
+            UiDrawHelper.DrawBorder(spriteBatch, new Rectangle(paperdoll.X - 1, paperdoll.Y - 1, paperdoll.Width + 2, paperdoll.Height + 2),
+                OrnateItemUi.Rim * (0.9f * alpha));
 
-            // Main panel background
-            DrawPanel(spriteBatch, _paperdollPanelRect, Theme.BgMid);
-
-            // Character silhouette area (center darker region)
-            int silhouetteWidth = INVENTORY_SQUARE_WIDTH * 2 + 20;
-            int silhouetteX = (WINDOW_WIDTH - silhouetteWidth) / 2;
-            var silhouetteRect = new Rectangle(silhouetteX, _paperdollPanelRect.Y + 10,
-                                                silhouetteWidth, _paperdollPanelRect.Height - 20);
-            spriteBatch.Draw(pixel, silhouetteRect, Theme.BgDarkest * 0.5f);
-
-            // Draw vertical divider lines
-            int dividerX1 = silhouetteX - 30;
-            int dividerX2 = silhouetteX + silhouetteWidth + 30;
-            UiDrawHelper.DrawVerticalGradient(spriteBatch,
-                new Rectangle(dividerX1, _paperdollPanelRect.Y + 20, 1, _paperdollPanelRect.Height - 40),
-                Theme.BorderInner * 0.3f, Theme.BorderInner * 0.1f);
-            UiDrawHelper.DrawVerticalGradient(spriteBatch,
-                new Rectangle(dividerX2, _paperdollPanelRect.Y + 20, 1, _paperdollPanelRect.Height - 40),
-                Theme.BorderInner * 0.3f, Theme.BorderInner * 0.1f);
-
-            // Draw each equipment slot
             foreach (var layout in _equipSlots.Values)
             {
-                DrawModernEquipSlot(spriteBatch, layout);
+                bool empty = !_equippedItems.ContainsKey(layout.Slot);
+                OrnateItemUi.EquipSlot(spriteBatch, Translate(layout.Rect), EquipGlyph(layout.Slot), empty,
+                    _hoveredEquipSlot == layout.Slot, false, alpha);
             }
-        }
 
-        private void DrawModernEquipSlot(SpriteBatch spriteBatch, EquipSlotLayout layout)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            Rectangle rect = layout.Rect;
-            bool hasItem = _equippedItems.ContainsKey(layout.Slot);
-
-            // Slot background
-            Color bgColor = hasItem ? Theme.BgLight : Theme.SlotBg;
-            UiDrawHelper.DrawVerticalGradient(spriteBatch, rect, bgColor, Theme.BgDarkest);
-
-            // Border
-            Color borderColor = layout.AccentRed ? Theme.Danger : Theme.SlotBorder;
-            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), borderColor * 0.8f);
-            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), Theme.BorderOuter);
-            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), borderColor * 0.6f);
-            spriteBatch.Draw(pixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), Theme.BorderOuter);
-
-            // Inner cell divisions
-            for (int y = 1; y < layout.Size.Y; y++)
+            // Backpack: divider, then the slot grid (red rim while repair mode is on).
+            Rectangle grid = Translate(_gridRect);
+            OrnateDraw.Divider(spriteBatch, new Rectangle(frame.X + 40, paperdoll.Bottom + 3, frame.Width - 80, 14), alpha);
+            OrnateItemUi.Grid(spriteBatch, grid, Columns, Rows, INVENTORY_SQUARE_WIDTH, alpha);
+            if (_isRepairMode)
             {
-                int lineY = rect.Y + y * INVENTORY_SQUARE_HEIGHT;
-                spriteBatch.Draw(pixel, new Rectangle(rect.X + 2, lineY, rect.Width - 4, 1), Theme.BorderOuter * 0.5f);
-            }
-            for (int x = 1; x < layout.Size.X; x++)
-            {
-                int lineX = rect.X + x * INVENTORY_SQUARE_WIDTH;
-                spriteBatch.Draw(pixel, new Rectangle(lineX, rect.Y + 2, 1, rect.Height - 4), Theme.BorderOuter * 0.5f);
+                Rectangle well = grid;
+                well.Inflate(6, 6);
+                UiDrawHelper.DrawBorder(spriteBatch, well, OrnateStyle.Danger * (0.8f * alpha), 2);
             }
 
-            // Ghost label (only if no item)
-            if (!hasItem)
-            {
-                DrawSlotGhostLabel(spriteBatch, layout);
-            }
+            OrnateItemUi.ZenField(spriteBatch, Translate(_zenFieldRect), ZenAmount, alpha);
+
+            OrnateDraw.TitlePlaque(spriteBatch, "Inventory", frame.Center.X, frame.Y + TitleCenterY, TitlePlateHeight, alpha);
         }
 
-        private void DrawSlotGhostLabel(SpriteBatch spriteBatch, EquipSlotLayout layout)
+        /// <summary>Rim colour of an item's backing plate by rarity; null for plain items.</summary>
+        private static Color? OrnateRarity(InventoryItem item) =>
+            item.Details.IsExcellent ? new Color(110, 230, 110) :
+            item.Details.IsAncient ? new Color(90, 190, 255) :
+            item.Details.Level >= 7 ? OrnateStyle.Gold :
+            null;
+
+        /// <summary>Close, personal shop and repair buttons of the Modern theme, with hints while hovered.</summary>
+        private void DrawOrnateChrome(SpriteBatch spriteBatch)
         {
-            if (_font == null || string.IsNullOrEmpty(layout.Label)) return;
+            float alpha = Alpha;
+            var state = _networkManager?.GetCharacterState();
+            bool shopOpen = state?.IsPlayerShopOpen == true;
+            bool canRepair = state?.Level >= _repairEnableLevel;
 
-            const float scale = 0.26f;
-            Vector2 size = _font.MeasureString(layout.Label) * scale;
-            Vector2 center = new(layout.Rect.X + layout.Rect.Width / 2f, layout.Rect.Y + layout.Rect.Height / 2f);
-            Vector2 pos = center - size / 2f;
+            OrnateWidgets.CloseButton(spriteBatch, Translate(_closeButtonRect), _closeHovered, alpha);
 
-            Color textColor = layout.AccentRed ? new Color(100, 60, 60, 120) : Theme.TextDark * 0.6f;
+            Rectangle shopRect = Translate(_footerLeftButtonRect);
+            Rectangle repairRect = Translate(_footerRightButtonRect);
+            OrnateItemUi.ActionButton(spriteBatch, shopRect, "shop", "Shop", new WidgetState(Hover: _leftFooterHovered, Selected: shopOpen), alpha);
+            OrnateItemUi.ActionButton(spriteBatch, repairRect, "repair", "Repair",
+                new WidgetState(Hover: _rightFooterHovered, Selected: _isRepairMode, Disabled: !canRepair), alpha);
 
-            spriteBatch.DrawString(_font, layout.Label, pos + Vector2.One, Color.Black * 0.3f,
-                                   0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            spriteBatch.DrawString(_font, layout.Label, pos, textColor,
-                                   0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            if (_leftFooterHovered)
+                OrnateItemUi.Hint(spriteBatch, shopRect, shopOpen ? "Personal Shop (open)" : "Personal Shop", alpha);
+            else if (_rightFooterHovered)
+                OrnateItemUi.Hint(spriteBatch, repairRect,
+                    !canRepair ? $"Repair (from level {_repairEnableLevel})" : _isRepairMode ? "Repair mode: ON (L)" : "Repair mode (L)",
+                    alpha, !canRepair ? OrnateStyle.TextMuted : _isRepairMode ? OrnateStyle.Danger : null);
         }
 
-        private void DrawModernGridSection(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            // Section title
-            DrawSectionHeader(spriteBatch, "BACKPACK", _gridFrameRect.X, _gridFrameRect.Y + 4, _gridFrameRect.Width);
-
-            // Outer frame
-            DrawPanel(spriteBatch, _gridFrameRect, Theme.BgMid, withGlow: false);
-
-            // Grid background
-            spriteBatch.Draw(pixel, _gridRect, Theme.SlotBg);
-
-            // Inner shadow
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y, _gridRect.Width, 2), Color.Black * 0.4f);
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y, 2, _gridRect.Height), Color.Black * 0.3f);
-
-            // Grid lines
-            Color gridLine = new(40, 48, 60, 100);
-            Color gridLineMajor = new(55, 65, 80, 120);
-
-            for (int x = 1; x < Columns; x++)
-            {
-                int lineX = _gridRect.X + x * INVENTORY_SQUARE_WIDTH;
-                bool isMajor = x == Columns / 2;
-                spriteBatch.Draw(pixel, new Rectangle(lineX, _gridRect.Y, 1, _gridRect.Height), isMajor ? gridLineMajor : gridLine);
-            }
-
-            for (int y = 1; y < Rows; y++)
-            {
-                int lineY = _gridRect.Y + y * INVENTORY_SQUARE_HEIGHT;
-                bool isMajor = y == Rows / 2;
-                spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, lineY, _gridRect.Width, 1), isMajor ? gridLineMajor : gridLine);
-            }
-
-            // Border highlight
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Bottom - 1, _gridRect.Width, 1), Theme.BorderHighlight * 0.2f);
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.Right - 1, _gridRect.Y, 1, _gridRect.Height), Theme.BorderHighlight * 0.15f);
-        }
-
-        private void DrawModernFooter(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            // Top separator line
-            int sepY = _footerRect.Y - 6;
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(30, sepY, (WINDOW_WIDTH - 60) / 2, 1),
-                                  Color.Transparent, Theme.Accent * 0.4f);
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(WINDOW_WIDTH / 2, sepY, (WINDOW_WIDTH - 60) / 2, 1),
-                                  Theme.Accent * 0.4f, Color.Transparent);
-
-            // Footer panel
-            DrawPanel(spriteBatch, _footerRect, Theme.BgMid);
-
-            // Zen display area
-            DrawZenDisplay(spriteBatch);
-        }
-
-        private void DrawZenDisplay(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            // Coin icon
-            Rectangle iconRect = _zenIconRect;
-
-            // Coin outer
-            DrawFilledCircle(spriteBatch, iconRect.X + iconRect.Width / 2, iconRect.Y + iconRect.Height / 2,
-                             iconRect.Width / 2, Theme.AccentDim);
-            // Coin inner
-            DrawFilledCircle(spriteBatch, iconRect.X + iconRect.Width / 2, iconRect.Y + iconRect.Height / 2,
-                             iconRect.Width / 2 - 3, Theme.Accent);
-            // Coin highlight
-            DrawFilledCircle(spriteBatch, iconRect.X + iconRect.Width / 2 - 2, iconRect.Y + iconRect.Height / 2 - 2,
-                             iconRect.Width / 4, Theme.AccentBright * 0.6f);
-
-            // Zen field background
-            DrawPanel(spriteBatch, _zenFieldRect, Theme.SlotBg);
-
-            // Inner darker area
-            var innerField = new Rectangle(_zenFieldRect.X + 2, _zenFieldRect.Y + 2,
-                                           _zenFieldRect.Width - 4, _zenFieldRect.Height - 4);
-            spriteBatch.Draw(pixel, innerField, Theme.BgDarkest * 0.7f);
-        }
-
-        private void DrawFilledCircle(SpriteBatch spriteBatch, int centerX, int centerY, int radius, Color color)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null || radius <= 0) return;
-
-            // Simple filled circle using rectangles
-            for (int y = -radius; y <= radius; y++)
-            {
-                int halfWidth = (int)MathF.Sqrt(radius * radius - y * y);
-                if (halfWidth > 0)
-                {
-                    spriteBatch.Draw(pixel, new Rectangle(centerX - halfWidth, centerY + y, halfWidth * 2, 1), color);
-                }
-            }
-        }
 
         private void RefreshInventoryContent()
         {
@@ -2503,11 +2339,18 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     item.Definition.Width * INVENTORY_SQUARE_WIDTH,
                     item.Definition.Height * INVENTORY_SQUARE_HEIGHT);
 
-                // Item glow effect
-                Color glowColor = ItemUiHelper.GetItemGlowColor(item, GlowPalette);
-                if (glowColor.A > 0)
+                if (!IsSeason6)
                 {
-                    ItemUiHelper.DrawItemGlow(spriteBatch, pixel, itemRect, glowColor);
+                    OrnateItemUi.ItemBacking(spriteBatch, itemRect, OrnateRarity(item), Alpha);
+                }
+                else
+                {
+                    // Item glow effect
+                    Color glowColor = ItemUiHelper.GetItemGlowColor(item, GlowPalette);
+                    if (glowColor.A > 0)
+                    {
+                        ItemUiHelper.DrawItemGlow(spriteBatch, pixel, itemRect, glowColor);
+                    }
                 }
 
                 // Item texture
@@ -2774,11 +2617,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            DrawCloseButton(spriteBatch);
-            DrawFooterButton(spriteBatch, _footerLeftButtonRect, "$", _leftFooterHovered);
-            DrawShopButtonState(spriteBatch);
-            string buttonText = (_networkManager?.GetCharacterState()?.Level >= _repairEnableLevel) ? "R" : "+";
-            DrawFooterButton(spriteBatch, _footerRightButtonRect, buttonText, _rightFooterHovered);
+            DrawOrnateChrome(spriteBatch);
         }
 
         private void DrawSeason6Chrome(SpriteBatch spriteBatch)
@@ -3091,6 +2930,16 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     gridTopLeft.Y + _hoveredItem.GridPosition.Y * INVENTORY_SQUARE_HEIGHT,
                     _hoveredItem.Definition.Width * INVENTORY_SQUARE_WIDTH,
                     _hoveredItem.Definition.Height * INVENTORY_SQUARE_HEIGHT);
+            }
+
+            if (!IsSeason6)
+            {
+                Color rarity = _hoveredItem.Details.IsExcellent ? Theme.GlowExcellent :
+                               _hoveredItem.Details.IsAncient ? Theme.GlowAncient :
+                               _hoveredItem.Details.Level >= 7 ? OrnateStyle.Gold :
+                               OrnateStyle.TextLight;
+                OrnateItemUi.Tooltip(spriteBatch, lines, rarity, hoveredItemRect, mousePosition);
+                return;
             }
 
             // Tooltip positioning

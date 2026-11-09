@@ -41,6 +41,29 @@ namespace Client.Main.Controls.UI.Ornate
                 sb.DrawString(font, text, position + new Vector2(0.6f, 0f), color * alpha, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
+        /// <summary>
+        /// Largest font size from <paramref name="size"/> down to <paramref name="minSize"/> (in half-point steps) at
+        /// which <paramref name="text"/> is at most <paramref name="maxWidth"/> wide.
+        /// </summary>
+        public static float FitSize(string text, float size, float maxWidth, float minSize = 10f)
+        {
+            while (size > minSize && Measure(text, size).X > maxWidth)
+                size -= 0.5f;
+            return size;
+        }
+
+        /// <summary>Part of a plate between its end caps, where a label can go without covering the ornaments.</summary>
+        public static Rectangle PlateInner(Texture2D tex, PlateLayout layout, Rectangle plate)
+        {
+            if (tex == null)
+                return new Rectangle(plate.X + 6, plate.Y, plate.Width - 12, plate.Height);
+
+            PlateGeometry g = Measure(tex, layout, plate);
+            // The caps hold the pointed ends and gems; keep a little air before them.
+            int left = g.LeftCap + 2, right = g.RightCap + 2;
+            return new Rectangle(plate.X + left, plate.Y, Math.Max(0, plate.Width - left - right), plate.Height);
+        }
+
         /// <summary>Text vertically centred in <paramref name="area"/>, starting at its left edge.</summary>
         public static void TextLeft(SpriteBatch sb, string text, Rectangle area, float size, Color color,
             float alpha = 1f, bool bold = false)

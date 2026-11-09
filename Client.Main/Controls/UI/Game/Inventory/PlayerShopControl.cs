@@ -23,7 +23,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         private static readonly Rectangle GridLocal = new(Pad, HeaderHeight + 10, PlayerShopUi.GridWidth, PlayerShopUi.GridHeight);
         private static readonly int InfoY = GridLocal.Bottom + 10;
         private static readonly int WindowHeight = InfoY + 50;
-        private static readonly Rectangle CloseLocal = new(WindowWidth - 34, 12, 22, 22);
+        private static readonly Rectangle CloseLocal = new(WindowWidth - 40, 10, 28, 28);
 
         private string _storeName = string.Empty;
         private ushort _ownerId;
@@ -329,7 +329,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             }
             else
             {
-                hint = _items.Count == 1 ? "1 item  |  Click an item to buy  |  ESC closes" : $"{_items.Count} items  |  Click an item to buy  |  ESC closes";
+                hint = _items.Count == 1 ? "1 item  |  Click an item to buy" : $"{_items.Count} items  |  Click an item to buy";
                 hintColor = ModernHudTheme.TextGray;
             }
             var line = Translate(new Rectangle(Pad, InfoY + 26, WindowWidth - Pad * 2, 18));

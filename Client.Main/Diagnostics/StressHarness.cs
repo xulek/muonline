@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Controls.UI.Game.Inventory;
 using Client.Main.Graphics;
 using Client.Main.Objects;
 using Client.Main.Scenes;
@@ -348,11 +350,7 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Inventory:
-                    if (elapsed >= 4)
-                    {
-                        SaveScreenshot(game, $"{_label}_inventory");
-                        Finish(game, null);
-                    }
+                    UpdateInventoryShots(game, elapsed);
                     break;
 
                 case Phase.Spawn:
@@ -759,6 +757,85 @@ namespace Client.Main.Diagnostics
             if (game.ActiveScene is GameScene scene)
                 scene.InventoryControl?.Show();
             Console.WriteLine("[stress] inventory filled and opened");
+        }
+
+        private static int _inventoryShot;
+
+        /// <summary>
+        /// Inventory screenshots (Modern theme, window at its default right-aligned position): plain, item tooltip, empty
+        /// slot hover, personal shop hint, repair mode, the personal shop editor and another player's shop.
+        /// </summary>
+        private static void UpdateInventoryShots(MuGame game, double elapsed)
+        {
+            const double first = 4, step = 1.2;
+            if (elapsed < first + _inventoryShot * step)
+                return;
+
+            if (game.ActiveScene is not GameScene scene || scene.InventoryControl is not { } inventory)
+            {
+                Finish(game, "no inventory");
+                return;
+            }
+
+            Rectangle window = inventory.DisplayRectangle;
+            Point At(int x, int y) => new(window.X + x, window.Y + y);
+            var state = MuGame.Network.GetCharacterState();
+
+            // Capture the state prepared on the previous step, then prepare the next one.
+            string[] names = { "plain", "tooltip", "empty_slot", "shop_hint", "repair", "repair_tooltip", "own_shop", "player_shop" };
+            if (_inventoryShot > 0)
+                SaveScreenshot(game, $"{_label}_inventory_{names[_inventoryShot - 1]}");
+            if (_inventoryShot == names.Length)
+            {
+                Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = null;
+                Finish(game, null);
+                return;
+            }
+
+            switch (_inventoryShot)
+            {
+                case 0:
+                    inventory.ZenAmount = 1_234_567_890; // longest realistic amount must fit the Zen field
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(20, 700);
+                    break;
+                case 1: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(198, 106); break;   // helm
+                case 2: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(72, 106); break;    // empty pet slot
+                case 3: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(186, 665); break;   // personal shop button
+                case 4:
+                    state.Level = 120;
+                    typeof(InventoryControl).GetField("_isRepairMode", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(inventory, true);
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(322, 665);              // repair button
+                    break;
+                case 5: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(80, 358); break;    // first grid item
+                case 6:
+                    typeof(InventoryControl).GetField("_isRepairMode", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(inventory, false);
+                    state.AddOrUpdateInventoryItem(204, SampleItem(0, 13, 9));
+                    state.AddOrUpdateInventoryItem(206, SampleItem(14, 13));
+                    state.AddOrUpdateInventoryItem(207, SampleItem(14, 14));
+                    state.AddOrUpdateInventoryItem(209, SampleItem(7, 1, 11));
+                    state.RaiseInventoryChanged();
+                    scene.OwnPlayerShop?.Show();
+                    if (scene.OwnPlayerShop != null &&
+                        typeof(OwnPlayerShopControl).GetField("_prices", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(scene.OwnPlayerShop) is System.Collections.Generic.Dictionary<byte, uint> prices)
+                    {
+                        prices[204] = 25_000_000;
+                        prices[206] = 1_500_000;
+                    }
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(640, 700);
+                    break;
+                case 7:
+                    scene.OwnPlayerShop?.Hide();
+                    scene.PlayerShop?.OpenShop(4242, "Merchant", "Best jewels in Lorencia", new (byte, byte[], uint)[]
+                    {
+                        (204, SampleItem(14, 13), 9_000_000), (205, SampleItem(14, 14), 6_500_000),
+                        (206, SampleItem(14, 16), 45_000_000), (212, SampleItem(0, 13, 9), 2_000_000_000),
+                        (214, SampleItem(7, 1, 11), 750_000),
+                    });
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(640, 700);
+                    break;
+            }
+
+            _inventoryShot++;
         }
 
         private static void Next(Phase phase)

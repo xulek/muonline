@@ -6,6 +6,7 @@ using System.Text;
 using Client.Main.Controllers;
 using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Controls.UI.Ornate;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
@@ -34,7 +35,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         private static readonly int EditorY = SummaryY + 30;
         private static readonly int ActionY = EditorY + 62;
         private static readonly int WindowHeight = ActionY + 44;
-        private static readonly Rectangle CloseLocal = new(WindowWidth - 34, 12, 22, 22);
+        private static readonly Rectangle CloseLocal = new(WindowWidth - 40, 10, 28, 28);
         private static readonly Rectangle ActionLocal = new(Pad, ActionY, PlayerShopUi.GridWidth, 32);
         private static readonly Rectangle ConfirmLocal = new(Pad + 150, EditorY + 26, 54, 24);
         private static readonly Rectangle CancelLocal = new(Pad + 210, EditorY + 26, 62, 24);
@@ -89,11 +90,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             field.X = x;
             field.Y = y;
             field.ViewSize = new Point(width, 24);
-            field.FontSize = 12f;
-            field.TextColor = ModernHudTheme.TextWhite;
-            field.BackgroundColor = ModernHudTheme.SlotBg;
-            field.BorderColor = ModernHudTheme.BorderInner;
-            field.BorderThickness = 1;
+            OrnateWidgets.StyleTextField(field, 12f);
             return field;
         }
 
@@ -628,11 +625,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
             {
                 PlayerShopUi.DrawWindow(sb, DisplayRectangle, Alpha);
                 var header = Translate(new Rectangle(0, 0, WindowWidth, HeaderHeight));
-                PlayerShopUi.DrawHeader(sb, header, "MY PERSONAL SHOP", null, Alpha);
+                PlayerShopUi.DrawHeader(sb, header, "My Personal Shop", null, Alpha);
                 PlayerShopUi.DrawCloseButton(sb, Translate(CloseLocal), _closeHovered, Alpha);
-                PlayerShopUi.DrawPill(sb, Translate(new Rectangle(16, 17, 52, 16)), shopOpen ? "OPEN" : "CLOSED",
+                // Open/closed gem; the summary below says it in words.
+                PlayerShopUi.DrawPill(sb, Translate(new Rectangle(18, 13, 22, 22)), string.Empty,
                     shopOpen ? ModernHudTheme.Success : ModernHudTheme.TextGray, Alpha);
 
+                OrnateWidgets.InputFrame(sb, _title.DisplayRectangle, _title.IsFocused, false, Alpha);
+                if (_price.Visible)
+                    OrnateWidgets.InputFrame(sb, _price.DisplayRectangle, _price.IsFocused, _price.Value.Length > 0 && !PlayerShopUi.TryParseZen(_price.Value, out _), Alpha);
                 PlayerShopUi.DrawText(sb, "Shop name", Translate(new Rectangle(Pad, TitleLabelY, 0, 0)).Location.ToVector2(), ModernHudTheme.TextGray, 11f, Alpha);
                 string counter = $"{Encoding.UTF8.GetByteCount(_title.Value)}/{MaxTitleBytes}";
                 var counterSize = PlayerShopUi.Measure(counter, 10f);
@@ -644,7 +645,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 DrawEditor(sb, shopOpen);
 
                 bool canAct = shopOpen || (!IsBusy && GetOpenBlocker() == null);
-                PlayerShopUi.DrawButton(sb, Translate(ActionLocal), shopOpen ? "CLOSE SHOP" : "OPEN SHOP", _actionHovered, canAct,
+                PlayerShopUi.DrawButton(sb, Translate(ActionLocal), shopOpen ? "Close Shop" : "Open Shop", _actionHovered, canAct,
                     shopOpen ? ModernHudTheme.Danger : ModernHudTheme.Success, Alpha, 14f);
             }
             finally
@@ -734,18 +735,20 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 if (_prices.TryGetValue(slot, out uint price)) total += price;
             string left = _shopItems.Count == 1 ? "1 item" : $"{_shopItems.Count} items";
             PlayerShopUi.DrawText(sb, left, new Vector2(panel.X + 8, panel.Y + 4), ModernHudTheme.TextWhite, 11f, Alpha);
-            if (total > 0)
-            {
-                string totalText = $"Total: {PlayerShopUi.FormatZen((uint)Math.Min(total, uint.MaxValue))} Zen";
-                var leftSize = PlayerShopUi.Measure(left, 11f);
-                PlayerShopUi.DrawText(sb, totalText, new Vector2(panel.X + 16 + leftSize.X, panel.Y + 4), ModernHudTheme.TextGold, 11f, Alpha);
-            }
-
             string? right = shopOpen ? "Selling" : GetOpenBlocker();
             Color rightColor = shopOpen ? ModernHudTheme.Success : ModernHudTheme.Warning;
             if (right == null) { right = "Ready to open"; rightColor = ModernHudTheme.Success; }
             var rightSize = PlayerShopUi.Measure(right, 11f);
             PlayerShopUi.DrawText(sb, right, new Vector2(panel.Right - rightSize.X - 8, panel.Y + 4), rightColor, 11f, Alpha);
+
+            if (total > 0)
+            {
+                // The total goes between the count and the status only while it fits there.
+                string totalText = $"Total: {PlayerShopUi.FormatZenShort((uint)Math.Min(total, uint.MaxValue))}";
+                float totalX = panel.X + 16 + PlayerShopUi.Measure(left, 11f).X;
+                if (totalX + PlayerShopUi.Measure(totalText, 11f).X + 10 <= panel.Right - rightSize.X - 8)
+                    PlayerShopUi.DrawText(sb, totalText, new Vector2(totalX, panel.Y + 4), ModernHudTheme.TextGold, 11f, Alpha);
+            }
         }
 
         private void DrawEditor(SpriteBatch sb, bool shopOpen)
@@ -807,8 +810,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
             }
             else
             {
-                line1 = "Drag or right-click inventory items to add them.";
-                line2 = "Click: change price   |   Right-click: take back";
+                line1 = "Drag or right-click items to add them.";
+                line2 = "Click: price   |   Right-click: take back";
             }
             PlayerShopUi.DrawTextCentered(sb, PlayerShopUi.Ellipsize(line1, 11f, area.Width - 16), new Rectangle(area.X, area.Y + 8, area.Width, 18), color1, 11f, Alpha);
             PlayerShopUi.DrawTextCentered(sb, PlayerShopUi.Ellipsize(line2, 11f, area.Width - 16), new Rectangle(area.X, area.Y + 30, area.Width, 18), ModernHudTheme.TextGray * 0.85f, 11f, Alpha);
