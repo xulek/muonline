@@ -17,6 +17,33 @@ internal sealed class MainPlayerCameraController
     private float _cameraPitch = Constants.DEFAULT_CAMERA_PITCH;
     private int _middleMouseTravel;
 
+    // Showcase view while the inventory is open in a safe zone: the camera comes down to half the hero's height, level
+    // with them, far enough to frame them from head to toe, with the hero moved to the left of the screen so the window
+    // on the right does not cover them. Blends in and out.
+    private const float ShowcaseDistance = 560f;
+    private static readonly float ShowcasePitch = MathHelper.ToRadians(176f); // almost level with the hero
+    private const float ShowcaseHeight = 95f;   // half of the character
+    private const float ShowcaseSideOffset = 125f;
+    private const float ShowcaseBlendSpeed = 3.5f;
+    private float _showcase;
+
+    /// <summary>When true the camera blends into the showcase view; the player's own zoom and angle come back after.</summary>
+    public bool Showcase { get; set; }
+
+    /// <summary>How far the showcase view is blended in (0..1).</summary>
+    public float ShowcaseBlend => _showcase;
+
+    /// <summary>Horizontal direction from the hero towards the camera (unit length).</summary>
+    public Vector2 TowardCamera
+    {
+        get
+        {
+            float pitch = MathHelper.Lerp(_cameraPitch, ShowcasePitch, _showcase);
+            var v = new Vector2(MathF.Cos(pitch) * MathF.Sin(_cameraYaw), MathF.Cos(pitch) * MathF.Cos(_cameraYaw));
+            return v.LengthSquared() > 1e-6f ? Vector2.Normalize(v) : Vector2.UnitY;
+        }
+    }
+
     public bool MouseScrollToZoom
     {
         get => _mouseScrollToZoom;
@@ -38,10 +65,15 @@ internal sealed class MainPlayerCameraController
             _targetCameraDistance,
             Constants.ZOOM_SPEED * deltaTime);
 
+        float blendTarget = Showcase ? 1f : 0f;
+        _showcase = _showcase < blendTarget
+            ? Math.Min(blendTarget, _showcase + ShowcaseBlendSpeed * deltaTime)
+            : Math.Max(blendTarget, _showcase - ShowcaseBlendSpeed * deltaTime);
+
         var mouse = MuGame.Instance.Mouse;
         var previousMouse = MuGame.Instance.PrevMouseState;
 
-        if (MouseScrollToZoom)
+        if (MouseScrollToZoom && _showcase <= 0f)
         {
             int scrollDelta = mouse.ScrollWheelValue - _previousScrollValue;
             if (scrollDelta != 0)
@@ -93,9 +125,23 @@ internal sealed class MainPlayerCameraController
 
     public void Apply(Vector3 target)
     {
-        float x = _currentCameraDistance * MathF.Cos(_cameraPitch) * MathF.Sin(_cameraYaw);
-        float y = _currentCameraDistance * MathF.Cos(_cameraPitch) * MathF.Cos(_cameraYaw);
-        float z = _currentCameraDistance * MathF.Sin(_cameraPitch);
+        // Smoothstep so the move starts and ends gently.
+        float blend = _showcase * _showcase * (3f - 2f * _showcase);
+        float distance = MathHelper.Lerp(_currentCameraDistance, ShowcaseDistance, blend);
+        float pitch = MathHelper.Lerp(_cameraPitch, ShowcasePitch, blend);
+
+        float x = distance * MathF.Cos(pitch) * MathF.Sin(_cameraYaw);
+        float y = distance * MathF.Cos(pitch) * MathF.Cos(_cameraYaw);
+        float z = distance * MathF.Sin(pitch);
+
+        if (blend > 0f)
+        {
+            // Screen-right in the ground plane: perpendicular to the horizontal view direction.
+            var toCamera = new Vector2(x, y);
+            var right = toCamera.LengthSquared() > 1f ? Vector2.Normalize(new Vector2(-toCamera.Y, toCamera.X)) : Vector2.Zero;
+            target += new Vector3(right * (ShowcaseSideOffset * blend), ShowcaseHeight * blend);
+        }
+
         var cameraPosition = target + new Vector3(x, y, z);
 
         Camera.Instance.FOV = 35 * Constants.FOV_SCALE;

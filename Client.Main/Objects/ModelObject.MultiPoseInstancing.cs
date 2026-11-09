@@ -119,6 +119,11 @@ namespace Client.Main.Objects
         {
             /// <summary>Blend state of a transparent (DrawAfter) batch; null for the opaque batches.</summary>
             public BlendState Blend;
+            /// <summary>
+            /// Cutout meshes of map placements (swaying trees, plants) write depth like the static map path: as
+            /// read-only depth, branches drawn later (of the same or a neighbouring tree) covered the nearer ones.
+            /// </summary>
+            public bool WritesDepth;
             public VertexBuffer GeometryVertexBuffer;
             public IndexBuffer GeometryIndexBuffer;
             public int PrimitiveCount;
@@ -716,7 +721,10 @@ namespace Client.Main.Objects
                     batch.Blend = group.Key.BlendState;
 
                     if (batch.Instances.Count == 0)
+                    {
+                        batch.WritesDepth = IsMapPlacementObject;
                         _walkerCrowdTransparentActiveBatches.Add(batch);
+                    }
 
                     batch.Instances.Add(instanceData);
                 }
@@ -784,6 +792,7 @@ namespace Client.Main.Objects
                 {
                     WalkerCrowdMultiPoseBatch batch = _walkerCrowdTransparentActiveBatches[i];
                     gd.BlendState = batch.Blend ?? BlendState.AlphaBlend;
+                    gd.DepthStencilState = batch.WritesDepth ? DepthStencilState.Default : GraphicsManager.ReadOnlyDepth;
                     bindings.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(batch.Blend));
                     DrawWalkerCrowdMultiPoseBatch(gd, effect, bindings, batch);
                 }

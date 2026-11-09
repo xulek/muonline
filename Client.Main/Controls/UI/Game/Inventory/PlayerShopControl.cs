@@ -190,16 +190,17 @@ namespace Client.Main.Controls.UI.Game.Inventory
             var mouse = MuGame.Instance.UiMouseState;
             var previous = MuGame.Instance.PrevUiMouseState;
             Point position = mouse.Position;
+            Point hit = PointerForHitTest(position); // hovers and clicks only when no window covers this one
             bool leftDown = mouse.LeftButton == ButtonState.Pressed;
             bool leftPressed = leftDown && previous.LeftButton == ButtonState.Released;
 
-            _closeHovered = Translate(CloseLocal).Contains(position);
+            _closeHovered = Translate(CloseLocal).Contains(hit);
             _hovered = null;
-            if (!_isDragging && Grid.Contains(position))
+            if (!_isDragging && Grid.Contains(hit))
             {
                 foreach (var entry in _items)
                 {
-                    if (PlayerShopUi.CellRect(Grid, entry.Item.GridPosition, entry.Item.Definition.Width, entry.Item.Definition.Height).Contains(position))
+                    if (PlayerShopUi.CellRect(Grid, entry.Item.GridPosition, entry.Item.Definition.Width, entry.Item.Definition.Height).Contains(hit))
                     {
                         _hovered = entry;
                         break;
@@ -214,7 +215,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            if (!leftPressed || !DisplayRectangle.Contains(position)) return;
+            if (!leftPressed || !DisplayRectangle.Contains(hit)) return;
             Scene?.SetMouseInputConsumed();
 
             if (_closeHovered)
@@ -223,7 +224,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            if (Translate(new Rectangle(0, 0, WindowWidth, HeaderHeight)).Contains(position))
+            if (Translate(new Rectangle(0, 0, WindowWidth, HeaderHeight)).Contains(hit))
             {
                 _isDragging = true;
                 _dragOffset = new Point(position.X - X, position.Y - Y);

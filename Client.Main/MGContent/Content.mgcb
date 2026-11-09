@@ -19,6 +19,18 @@
 /processorParam:DebugMode=Optimize
 /build:AlphaRGB.fx
 
+#begin GrassShadow.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:GrassShadow.fx
+
+#begin HudOrb.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:HudOrb.fx
+
 #begin GammaCorrection.fx
 /importer:EffectImporter
 /processor:EffectProcessor

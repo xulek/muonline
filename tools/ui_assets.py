@@ -38,7 +38,8 @@ Manifest format:
 "quality" (WebP, default 90) can be lowered for big opaque illustrations (82 is plenty for full-screen art).
 Cut steps, in order: crop (fractions x0,y0,x1,y1) -> band (vertical fractions) -> bbox -> desaturate_green ->
 disk -> hollow -> resize (square | width+height | width | height).
-"hollow": inset fraction; the dark inside of a frame beyond it becomes transparent (the game draws its own fill). A list of rules for one item writes several outputs.
+"hollow": inset fraction; the dark inside of a frame beyond it becomes transparent (the game draws its own fill).
+"tileable": true blends an opaque texture with a half-shifted copy so it repeats without seams (after hollow). A list of rules for one item writes several outputs.
 "disk": cut out the inside of a medallion: the gold ring is detected (its centre is rarely the image centre because
 the spikes around it are asymmetric) and the area inside it is kept as a round emblem with a soft edge, ready to be
 placed into a socket of another plate (see OrnateWidgets.Card). "measure --ring" reports such sockets.
@@ -190,6 +191,18 @@ def hollow(image, inset, threshold=40):
     return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8))
 
 
+def tileable(image):
+    """Hide the seams of an opaque texture: blend it with a copy shifted by half its size, weighted so the original
+    wins in the middle and the shifted copy (whose middle is the original's edges) wins at the edges."""
+    pixels = np.array(image.convert("RGBA")).astype(np.float32)
+    h, w = pixels.shape[:2]
+    shifted = np.roll(np.roll(pixels, h // 2, axis=0), w // 2, axis=1)
+    wy = 1 - np.abs(np.linspace(-1, 1, h))[:, None]
+    wx = 1 - np.abs(np.linspace(-1, 1, w))[None, :]
+    weight = np.clip(np.minimum(wx, wy) * 2.2, 0, 1)[..., None]
+    return Image.fromarray(np.clip(pixels * weight + shifted * (1 - weight), 0, 255).astype(np.uint8))
+
+
 def gold_mask(pixels):
     r, g, b, a = (pixels[..., i].astype(np.int16) for i in range(4))
     return (a > 200) & (r > 110) & (r > b + 45) & (g > b + 20)
@@ -283,6 +296,8 @@ def apply_rule(image, rule, opaque):
         image = disk(image)
     if "hollow" in rule:
         image = hollow(image, rule["hollow"])
+    if rule.get("tileable"):
+        image = tileable(image)
     return resize(image, rule)
 
 

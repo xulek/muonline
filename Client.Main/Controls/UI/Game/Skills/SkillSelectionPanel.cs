@@ -1,13 +1,13 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using System.Text;
 using Client.Data.BMD;
-using Client.Main.Controls.UI;
-using Client.Main.Controls.UI.Common;
-using Client.Main.Controls.UI.Game.Common;
+using Client.Main.Content;
 using Client.Main.Controllers;
+using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Ornate;
 using Client.Main.Core.Client;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
@@ -18,562 +18,369 @@ using Microsoft.Xna.Framework.Input;
 namespace Client.Main.Controls.UI.Game.Skills
 {
     /// <summary>
-    /// Popup panel displaying all available skills in a modern grid + detail layout.
+    /// Ornate skill picker shared by both HUDs: the character's skills in a grid of HUD slot frames and a detail panel
+    /// (costs, range, cooldown, requirements with unmet ones in red, hotbar key). A click picks the skill; Esc or a
+    /// click outside closes it.
     /// </summary>
     public class SkillSelectionPanel : UIControl, IUiTexturePreloadable
     {
-        private const int COLUMNS = 6;
-        private const int OUTER_PADDING = 14;
-        private const int HEADER_HEIGHT = 52;
-        private const int CONTENT_GAP = 12;
-        private const int GRID_PADDING = 12;
-        private const int SLOT_GAP = 10;
-        private const int DETAIL_WIDTH = 320;
-        private const int DETAIL_PADDING = 14;
-        private const int MIN_DETAIL_HEIGHT = 300;
-        private const float TARGET_SLOT_SCALE = 1.24f;
-        private const float OPEN_ANIMATION_DURATION = 0.18f;
-        private const int OPEN_ANIMATION_OFFSET_Y = 18;
+        private const int Columns = 6;
+        private const int Padding = 22;
+        private const int HeaderHeight = 58;
+        private const int FooterHeight = 30;
+        private const int SlotGap = 8;
+        private const int MaxSlotSize = 52, MinSlotSize = 40;
+        private const int GridInset = 12;
+        private const int DetailWidth = 300;
+        private const int ContentGap = 14;
+        private const int MinContentHeight = 300;
+        private const float OpenDuration = 0.18f;
+        private const int OpenOffsetY = 18;
 
-        private readonly List<SkillSlotControl> _skillSlots = new();
-        private readonly LabelControl _titleLabel;
-        private readonly UIControl _detailPanel;
-        private readonly LabelControl _detailNameLabel;
-        private readonly LabelControl _detailTypeLabel;
-        private readonly LabelControl _detailStatsLabel;
+        private static readonly Color ManaColor = new(130, 180, 255);
+        private static readonly Color AgColor = new(196, 150, 245);
+        private static readonly Color UnmetColor = new(240, 110, 100);
 
-        private Rectangle _headerRectLocal;
-        private Rectangle _contentRectLocal;
-        private Rectangle _gridRectLocal;
-        private Rectangle _detailRectLocal;
+        private readonly List<SkillEntryState> _skills = new();
+        private readonly List<Rectangle> _slotRects = new();
+        private CharacterState? _state;
         private ushort? _selectedSkillId;
-        private float _slotScale = TARGET_SLOT_SCALE;
-        private bool _isOpeningAnimation;
-        private float _openAnimationElapsedSeconds;
+        private int _hovered = -1;
+        private bool _closeHovered;
+        private int _slotSize = MaxSlotSize;
+        private Rectangle _gridLocal, _detailLocal, _footerLocal;
+        private bool _opening;
+        private float _openElapsed;
 
-        private sealed class PanelControl : UIControl { }
-
-        /// <summary>
-        /// Fired when a skill is selected from the panel.
-        /// </summary>
+        /// <summary>Fired when a skill is picked.</summary>
         public event Action<SkillEntryState>? SkillSelected;
+
+        /// <summary>Key label of the hotbar slot a skill is on (null when it is not), shown on its slot.</summary>
+        public Func<ushort, string?>? HotbarKeyOf { get; set; }
+
+        /// <summary>Key label of the slot being assigned, shown in the footer.</summary>
+        public string? TargetSlotLabel { get; set; }
 
         public SkillSelectionPanel()
         {
             Interactive = true;
+            AutoViewSize = false;
             BackgroundColor = Color.Transparent;
             BorderColor = Color.Transparent;
             BorderThickness = 0;
             Visible = false;
             Align = ControlAlign.HorizontalCenter | ControlAlign.VerticalCenter;
-
-            _titleLabel = new LabelControl
-            {
-                Text = "Select Skill",
-                TextColor = ModernHudTheme.TextGold,
-                FontSize = 15f,
-                X = OUTER_PADDING,
-                Y = 14,
-                ViewSize = new Point(460, 26),
-                Align = ControlAlign.HorizontalCenter
-            };
-            Controls.Add(_titleLabel);
-
-            _detailPanel = new PanelControl
-            {
-                AutoViewSize = false,
-                ControlSize = new Point(DETAIL_WIDTH, MIN_DETAIL_HEIGHT),
-                ViewSize = new Point(DETAIL_WIDTH, MIN_DETAIL_HEIGHT),
-                BackgroundColor = Color.Transparent,
-                BorderColor = Color.Transparent,
-                BorderThickness = 0,
-                Interactive = false
-            };
-            Controls.Add(_detailPanel);
-
-            _detailNameLabel = new LabelControl
-            {
-                Text = "Skill Info",
-                TextColor = ModernHudTheme.TextGold,
-                FontSize = 15f,
-                X = DETAIL_PADDING,
-                Y = DETAIL_PADDING,
-                ViewSize = new Point(DETAIL_WIDTH - DETAIL_PADDING * 2, 28)
-            };
-            _detailPanel.Controls.Add(_detailNameLabel);
-
-            _detailTypeLabel = new LabelControl
-            {
-                Text = string.Empty,
-                TextColor = ModernHudTheme.SecondaryBright,
-                FontSize = 12f,
-                X = DETAIL_PADDING,
-                Y = DETAIL_PADDING + 28,
-                ViewSize = new Point(DETAIL_WIDTH - DETAIL_PADDING * 2, 22)
-            };
-            _detailPanel.Controls.Add(_detailTypeLabel);
-
-            _detailStatsLabel = new LabelControl
-            {
-                Text = "Hover a skill to see details.",
-                TextColor = ModernHudTheme.TextGray,
-                X = DETAIL_PADDING,
-                Y = DETAIL_PADDING + 54,
-                ViewSize = new Point(DETAIL_WIDTH - DETAIL_PADDING * 2, 200),
-                Scale = 0.9f
-            };
-            _detailPanel.Controls.Add(_detailStatsLabel);
-
-            Alpha = 1f;
-            Offset = Point.Zero;
         }
 
-        /// <summary>
-        /// Opens the panel and populates it with the character's skills.
-        /// </summary>
+        /// <summary>Opens the panel with the character's skills.</summary>
         public void Open(CharacterState characterState)
         {
             if (characterState == null)
+                return;
+
+            _state = characterState;
+            _skills.Clear();
+            _skills.AddRange(characterState.GetSkills()
+                .OrderBy(s => SkillDatabase.GetSkillName(s.SkillId))
+                .ThenBy(s => s.SkillId));
+
+            int rows = Math.Max(1, (int)Math.Ceiling(_skills.Count / (float)Columns));
+            int maxGridHeight = Math.Max(200, UiScaler.VirtualSize.Y - 200 - HeaderHeight - FooterHeight);
+            _slotSize = MaxSlotSize;
+            while (_slotSize > MinSlotSize && rows * (_slotSize + SlotGap) - SlotGap + GridInset * 2 > maxGridHeight)
+                _slotSize -= 2;
+
+            int gridWidth = Columns * (_slotSize + SlotGap) - SlotGap + GridInset * 2;
+            int gridHeight = rows * (_slotSize + SlotGap) - SlotGap + GridInset * 2;
+            int contentHeight = Math.Max(MinContentHeight, gridHeight);
+            int width = Padding * 2 + gridWidth + ContentGap + DetailWidth;
+            int height = HeaderHeight + contentHeight + FooterHeight + Padding / 2;
+
+            ControlSize = ViewSize = new Point(width, height);
+            _gridLocal = new Rectangle(Padding, HeaderHeight, gridWidth, contentHeight);
+            _detailLocal = new Rectangle(_gridLocal.Right + ContentGap, HeaderHeight, DetailWidth, contentHeight);
+            _footerLocal = new Rectangle(Padding, HeaderHeight + contentHeight + 4, width - Padding * 2, FooterHeight - 4);
+
+            _slotRects.Clear();
+            for (int i = 0; i < _skills.Count; i++)
             {
+                _slotRects.Add(new Rectangle(
+                    _gridLocal.X + GridInset + i % Columns * (_slotSize + SlotGap),
+                    _gridLocal.Y + GridInset + i / Columns * (_slotSize + SlotGap),
+                    _slotSize, _slotSize));
+            }
+
+            _hovered = -1;
+            _ = OrnateAssets.PreloadAsync(new[] { "Hud/slot", "Hud/slot_active" });
+            Visible = true;
+            BringToFront();
+            _opening = true;
+            _openElapsed = 0f;
+            Alpha = 0f;
+            Offset = new Point(0, OpenOffsetY);
+        }
+
+        /// <summary>Closes the panel.</summary>
+        public void Close()
+        {
+            _opening = false;
+            Alpha = 1f;
+            Offset = Point.Zero;
+            Visible = false;
+            TargetSlotLabel = null;
+        }
+
+        public void HighlightSkill(ushort skillId) => _selectedSkillId = skillId;
+
+        public IEnumerable<string> GetPreloadTexturePaths() => SkillIconAtlas.TexturePaths;
+
+        private Rectangle At(Rectangle local) => new(DisplayRectangle.X + local.X, DisplayRectangle.Y + local.Y, local.Width, local.Height);
+
+        private Rectangle CloseRect => At(new Rectangle(ViewSize.X - 52, 14, 32, 32));
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+            if (!Visible)
+                return;
+
+            if (_opening)
+            {
+                _openElapsed += (float)gameTime.ElapsedGameTime.TotalSeconds;
+                float t = MathHelper.Clamp(_openElapsed / OpenDuration, 0f, 1f);
+                float eased = 1f - MathF.Pow(1f - t, 3f);
+                Alpha = eased;
+                Offset = new Point(0, (int)MathF.Round((1f - eased) * OpenOffsetY));
+                _opening = t < 1f;
+            }
+
+            Point mouse = MuGame.Instance.UiMouseState.Position;
+            Point hit = PointerForHitTest(mouse);
+            _closeHovered = CloseRect.Contains(hit);
+            _hovered = -1;
+            for (int i = 0; i < _slotRects.Count; i++)
+            {
+                if (At(_slotRects[i]).Contains(hit))
+                {
+                    _hovered = i;
+                    break;
+                }
+            }
+
+            if (MuGame.Instance.Keyboard.IsKeyDown(Keys.Escape) && MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.Escape))
+            {
+                Close();
+                Scene?.ConsumeKeyboardEscape();
                 return;
             }
 
-            var skills = characterState
-                .GetSkills()
-                .OrderBy(s => SkillDatabase.GetSkillName(s.SkillId))
-                .ThenBy(s => s.SkillId)
-                .ToList();
+            bool clicked = MuGame.Instance.UiMouseState.LeftButton == ButtonState.Pressed &&
+                           MuGame.Instance.PrevUiMouseState.LeftButton == ButtonState.Released;
+            if (!clicked)
+                return;
 
-            _titleLabel.Text = $"Select Skill ({skills.Count} available)";
-
-            foreach (var slot in _skillSlots)
+            if (_closeHovered || !DisplayRectangle.Contains(mouse))
             {
-                slot.HoverChanged -= OnSkillSlotHover;
-                Controls.Remove(slot);
-            }
-            _skillSlots.Clear();
-
-            int rows = (int)Math.Ceiling(skills.Count / (float)COLUMNS);
-            if (rows == 0)
-            {
-                rows = 1;
+                Close();
+                Scene?.SetMouseInputConsumed();
+                return;
             }
 
-            _slotScale = CalculateSlotScale(rows);
-
-            int slotWidth = Math.Max(1, (int)MathF.Round(SkillSlotControl.SLOT_WIDTH * _slotScale));
-            int slotHeight = Math.Max(1, (int)MathF.Round(SkillSlotControl.SLOT_HEIGHT * _slotScale));
-
-            int gridSlotsWidth = (COLUMNS * slotWidth) + ((COLUMNS - 1) * SLOT_GAP);
-            int gridSlotsHeight = (rows * slotHeight) + ((rows - 1) * SLOT_GAP);
-
-            int gridPanelWidth = gridSlotsWidth + (GRID_PADDING * 2);
-            int gridPanelHeight = Math.Max(gridSlotsHeight + (GRID_PADDING * 2), MIN_DETAIL_HEIGHT);
-            int contentHeight = Math.Max(gridPanelHeight, MIN_DETAIL_HEIGHT);
-            int contentWidth = gridPanelWidth + CONTENT_GAP + DETAIL_WIDTH;
-
-            int totalWidth = contentWidth + (OUTER_PADDING * 2);
-            int totalHeight = HEADER_HEIGHT + contentHeight + OUTER_PADDING;
-
-            ViewSize = new Point(totalWidth, totalHeight);
-            ControlSize = ViewSize;
-
-            _headerRectLocal = new Rectangle(0, 0, totalWidth, HEADER_HEIGHT);
-            _contentRectLocal = new Rectangle(OUTER_PADDING, HEADER_HEIGHT, contentWidth, contentHeight);
-            _gridRectLocal = new Rectangle(_contentRectLocal.X, _contentRectLocal.Y, gridPanelWidth, contentHeight);
-            _detailRectLocal = new Rectangle(_gridRectLocal.Right + CONTENT_GAP, _contentRectLocal.Y, DETAIL_WIDTH, contentHeight);
-
-            _titleLabel.ViewSize = new Point(totalWidth - (OUTER_PADDING * 2), 28);
-            _titleLabel.X = OUTER_PADDING;
-
-            int slotsStartX = _gridRectLocal.X + GRID_PADDING;
-            int slotsStartY = _gridRectLocal.Y + GRID_PADDING;
-
-            for (int i = 0; i < skills.Count; i++)
+            if (_hovered >= 0)
             {
-                int row = i / COLUMNS;
-                int col = i % COLUMNS;
-
-                var slot = new SkillSlotControl
-                {
-                    Skill = skills[i],
-                    X = slotsStartX + (col * (slotWidth + SLOT_GAP)),
-                    Y = slotsStartY + (row * (slotHeight + SLOT_GAP)),
-                    Scale = _slotScale,
-                    IsTooltipEnabled = false,
-                    ShowFooter = false
-                };
-
-                slot.Click += (sender, args) => OnSkillSlotClicked(slot);
-                slot.HoverChanged += OnSkillSlotHover;
-                slot.IsSelected = _selectedSkillId.HasValue && slot.Skill?.SkillId == _selectedSkillId.Value;
-                _skillSlots.Add(slot);
-                Controls.Add(slot);
+                SkillEntryState skill = _skills[_hovered];
+                _selectedSkillId = skill.SkillId;
+                SoundController.Instance.PlayBuffer("Sound/iButtonClick.wav");
+                SkillSelected?.Invoke(skill);
+                Close();
+                Scene?.SetMouseInputConsumed();
             }
-
-            _detailPanel.X = _detailRectLocal.X;
-            _detailPanel.Y = _detailRectLocal.Y;
-            _detailPanel.ControlSize = new Point(_detailRectLocal.Width, _detailRectLocal.Height);
-            _detailPanel.ViewSize = _detailPanel.ControlSize;
-
-            _detailNameLabel.ViewSize = new Point(_detailRectLocal.Width - DETAIL_PADDING * 2, 28);
-            _detailTypeLabel.ViewSize = new Point(_detailRectLocal.Width - DETAIL_PADDING * 2, 22);
-
-            int statsHeight = Math.Max(_detailRectLocal.Height - (DETAIL_PADDING + 54), 60);
-            _detailStatsLabel.ViewSize = new Point(_detailRectLocal.Width - DETAIL_PADDING * 2, statsHeight);
-
-            if (_selectedSkillId.HasValue)
-            {
-                HighlightSkill(_selectedSkillId.Value);
-            }
-
-            UpdateDetail(null);
-
-            Visible = true;
-            BringToFront();
-            StartOpenAnimation();
-        }
-
-        /// <summary>
-        /// Closes the panel.
-        /// </summary>
-        public void Close()
-        {
-            _isOpeningAnimation = false;
-            _openAnimationElapsedSeconds = 0f;
-            Alpha = 1f;
-            Offset = Point.Zero;
-            ApplyAlphaToChildren(1f);
-            Visible = false;
         }
 
         public override void Draw(GameTime gameTime)
         {
             if (Status != GameControlStatus.Ready || !Visible)
-            {
                 return;
-            }
 
-            var spriteBatch = GraphicsManager.Instance.Sprite;
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (spriteBatch == null || pixel == null)
-            {
+            SpriteBatch sb = GraphicsManager.Instance.Sprite;
+            if (sb == null)
                 return;
+
+            float alpha = Alpha;
+            Rectangle frame = DisplayRectangle;
+            OrnateDraw.Window(sb, frame, alpha);
+
+            // Grid of skills.
+            Rectangle grid = At(_gridLocal);
+            OrnateDraw.Inset(sb, grid, alpha, 0.5f);
+            UiDrawHelper.DrawBorder(sb, new Rectangle(grid.X - 1, grid.Y - 1, grid.Width + 2, grid.Height + 2), OrnateItemUi.Rim * (0.9f * alpha));
+            for (int i = 0; i < _skills.Count; i++)
+                DrawSlot(sb, At(_slotRects[i]), _skills[i], i == _hovered, alpha);
+            if (_skills.Count == 0)
+                OrnateDraw.TextCentered(sb, "No skills learned yet", grid, 14f, OrnateStyle.TextMuted, alpha);
+
+            DrawDetail(sb, At(_detailLocal), _hovered >= 0 ? _skills[_hovered] : null, alpha);
+            DrawFooter(sb, At(_footerLocal), alpha);
+
+            OrnateWidgets.CloseButton(sb, CloseRect, _closeHovered, alpha);
+            OrnateDraw.TitlePlaque(sb, "Skills", frame.Center.X, frame.Y + 2, 38, alpha);
+            string count = _skills.Count == 1 ? "1 skill" : $"{_skills.Count} skills";
+            OrnateDraw.TextCentered(sb, count, new Rectangle(frame.X, frame.Y + 30, frame.Width, 20), 12f, OrnateStyle.TextMuted, alpha);
+        }
+
+        private void DrawSlot(SpriteBatch sb, Rectangle rect, SkillEntryState skill, bool hover, float alpha)
+        {
+            bool selected = _selectedSkillId == skill.SkillId;
+            var inner = new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 6, rect.Height - 6);
+            UiDrawHelper.DrawVerticalGradient(sb, inner, new Color(34, 29, 24) * alpha, new Color(12, 10, 9) * alpha, 12);
+            DrawSkillIcon(sb, inner, skill.SkillId, alpha);
+            if (hover)
+                sb.Draw(GraphicsManager.Instance.Pixel, inner, new Color(255, 214, 128) * (0.12f * alpha));
+
+            Texture2D? frameTexture = OrnateAssets.Get(selected || hover ? "Hud/slot_active" : "Hud/slot");
+            if (frameTexture != null)
+            {
+                Color tint = selected || hover ? Color.White : new Color(205, 195, 180);
+                sb.Draw(frameTexture, new Rectangle(rect.X - 2, rect.Y - 2, rect.Width + 4, rect.Height + 4), tint * alpha);
+            }
+            else
+            {
+                UiDrawHelper.DrawBorder(sb, rect, (selected || hover ? OrnateStyle.Gold : OrnateStyle.Bronze) * alpha);
             }
 
-            DrawWindowFrame(spriteBatch, pixel, Alpha);
-
-            var controls = Controls.GetSnapshotArray();
-            for (int i = 0; i < controls.Length; i++)
+            // Hotbar key badge, bottom-right.
+            string? key = HotbarKeyOf?.Invoke(skill.SkillId);
+            if (!string.IsNullOrEmpty(key))
             {
-                controls[i].Draw(gameTime);
+                Vector2 size = OrnateDraw.Measure(key, 11f);
+                var badge = new Rectangle(rect.Right - (int)size.X - 9, rect.Bottom - (int)size.Y - 5, (int)size.X + 6, (int)size.Y + 1);
+                sb.Draw(GraphicsManager.Instance.Pixel, badge, Color.Black * (0.75f * alpha));
+                UiDrawHelper.DrawBorder(sb, badge, OrnateStyle.Bronze * alpha);
+                OrnateDraw.TextCentered(sb, key, badge, 11f, OrnateStyle.Gold, alpha, bold: true);
             }
         }
 
-        public override void Update(GameTime gameTime)
+        private static void DrawSkillIcon(SpriteBatch sb, Rectangle dest, ushort skillId, float alpha)
         {
-            base.Update(gameTime);
-
-            if (!Visible)
-            {
+            var definition = SkillDatabase.GetSkillDefinition(skillId);
+            if (!SkillIconAtlas.TryResolve(skillId, definition, out var frame))
                 return;
-            }
 
-            UpdateOpenAnimation(gameTime);
-            HandleOutsideClickClose();
-        }
-
-        private void DrawWindowFrame(SpriteBatch spriteBatch, Texture2D pixel, float alpha)
-        {
-            Rectangle rect = DisplayRectangle;
-            spriteBatch.Draw(pixel, rect, ModernHudTheme.BorderOuter * alpha);
-
-            Rectangle inner = new(rect.X + 1, rect.Y + 1, Math.Max(1, rect.Width - 2), Math.Max(1, rect.Height - 2));
-            UiDrawHelper.DrawVerticalGradient(spriteBatch, inner, new Color(20, 24, 32, 252) * alpha, new Color(10, 12, 16, 255) * alpha);
-            UiDrawHelper.DrawCornerAccents(spriteBatch, rect, ModernHudTheme.Accent * 0.35f * alpha, size: 8, thickness: 1);
-
-            Rectangle headerRect = ToDisplayRect(_headerRectLocal);
-            UiDrawHelper.DrawPanel(
-                spriteBatch,
-                headerRect,
-                ModernHudTheme.BgMid * alpha,
-                ModernHudTheme.BorderInner * alpha,
-                ModernHudTheme.BorderOuter * alpha,
-                ModernHudTheme.BorderHighlight * 0.3f * alpha);
-
-            var headerInner = new Rectangle(
-                headerRect.X + 1,
-                headerRect.Y + 1,
-                Math.Max(1, headerRect.Width - 2),
-                Math.Max(1, headerRect.Height - 2));
-            UiDrawHelper.DrawVerticalGradient(spriteBatch, headerInner, ModernHudTheme.BgLight * alpha, ModernHudTheme.BgMid * alpha);
-
-            spriteBatch.Draw(
-                pixel,
-                new Rectangle(headerInner.X + 10, headerInner.Bottom - 2, Math.Max(1, headerInner.Width - 20), 1),
-                ModernHudTheme.Accent * 0.6f * alpha);
-
-            Rectangle gridRect = ToDisplayRect(_gridRectLocal);
-            DrawSectionPanel(spriteBatch, gridRect, ModernHudTheme.BgMid * alpha, ModernHudTheme.BgDarkest * alpha, alpha);
-
-            Rectangle detailRect = ToDisplayRect(_detailRectLocal);
-            DrawSectionPanel(spriteBatch, detailRect, new Color(20, 26, 36, 250) * alpha, new Color(9, 12, 17, 255) * alpha, alpha);
-
-            spriteBatch.Draw(
-                pixel,
-                new Rectangle(detailRect.X + 1, detailRect.Y + 44, Math.Max(1, detailRect.Width - 2), 1),
-                ModernHudTheme.BorderInner * 0.35f * alpha);
-        }
-
-        private static void DrawSectionPanel(SpriteBatch spriteBatch, Rectangle rect, Color topColor, Color bottomColor, float alpha)
-        {
-            UiDrawHelper.DrawPanel(
-                spriteBatch,
-                rect,
-                topColor,
-                ModernHudTheme.BorderInner * 0.7f * alpha,
-                ModernHudTheme.BorderOuter * alpha,
-                ModernHudTheme.BorderHighlight * 0.2f * alpha);
-
-            var inner = new Rectangle(
-                rect.X + 1,
-                rect.Y + 1,
-                Math.Max(1, rect.Width - 2),
-                Math.Max(1, rect.Height - 2));
-
-            UiDrawHelper.DrawVerticalGradient(spriteBatch, inner, topColor, bottomColor);
-        }
-
-        private void StartOpenAnimation()
-        {
-            _isOpeningAnimation = true;
-            _openAnimationElapsedSeconds = 0f;
-            Alpha = 0f;
-            Offset = new Point(0, OPEN_ANIMATION_OFFSET_Y);
-            ApplyAlphaToChildren(Alpha);
-        }
-
-        private void UpdateOpenAnimation(GameTime gameTime)
-        {
-            if (!_isOpeningAnimation)
-            {
+            Texture2D? texture = TextureLoader.Instance.GetTexture2D(frame.TexturePath);
+            if (texture == null)
                 return;
-            }
 
-            _openAnimationElapsedSeconds += (float)gameTime.ElapsedGameTime.TotalSeconds;
-            float t = MathHelper.Clamp(_openAnimationElapsedSeconds / OPEN_ANIMATION_DURATION, 0f, 1f);
-            float eased = 1f - MathF.Pow(1f - t, 3f);
-
-            Alpha = eased;
-            Offset = new Point(0, (int)MathF.Round((1f - eased) * OPEN_ANIMATION_OFFSET_Y));
-            ApplyAlphaToChildren(eased);
-
-            if (t >= 1f)
-            {
-                _isOpeningAnimation = false;
-                Alpha = 1f;
-                Offset = Point.Zero;
-                ApplyAlphaToChildren(1f);
-            }
+            const int pad = 3;
+            float scale = MathF.Min((dest.Width - pad * 2) / (float)SkillIconAtlas.IconWidth, (dest.Height - pad * 2) / (float)SkillIconAtlas.IconHeight);
+            int w = Math.Max(1, (int)MathF.Round(SkillIconAtlas.IconWidth * scale));
+            int h = Math.Max(1, (int)MathF.Round(SkillIconAtlas.IconHeight * scale));
+            sb.Draw(texture, new Rectangle(dest.Center.X - w / 2, dest.Center.Y - h / 2, w, h), frame.SourceRectangle, Color.White * alpha);
         }
 
-        private void HandleOutsideClickClose()
+        private void DrawDetail(SpriteBatch sb, Rectangle area, SkillEntryState? skill, float alpha)
         {
-            bool leftJustPressed =
-                CurrentMouseState.LeftButton == ButtonState.Pressed &&
-                PreviousMouseState.LeftButton == ButtonState.Released;
+            OrnateDraw.Inset(sb, area, alpha, 0.45f);
+            UiDrawHelper.DrawBorder(sb, new Rectangle(area.X - 1, area.Y - 1, area.Width + 2, area.Height + 2), OrnateItemUi.Rim * (0.9f * alpha));
 
-            if (!leftJustPressed)
-            {
-                return;
-            }
-
-            Point mousePos = CurrentMouseState.Position;
-            if (DisplayRectangle.Contains(mousePos))
-            {
-                return;
-            }
-
-            Close();
-            Scene?.SetMouseInputConsumed();
-        }
-
-        private void ApplyAlphaToChildren(float alpha)
-        {
-            var controls = Controls.GetSnapshotArray();
-            for (int i = 0; i < controls.Length; i++)
-            {
-                ApplyAlphaRecursive(controls[i], alpha);
-            }
-        }
-
-        private static void ApplyAlphaRecursive(GameControl control, float alpha)
-        {
-            control.Alpha = alpha;
-            if (control is LabelControl label)
-            {
-                label.Alpha = alpha;
-            }
-
-            var children = control.Controls.GetSnapshotArray();
-            for (int i = 0; i < children.Length; i++)
-            {
-                ApplyAlphaRecursive(children[i], alpha);
-            }
-        }
-
-        private Rectangle ToDisplayRect(Rectangle localRect)
-        {
-            Point p = DisplayPosition;
-            return new Rectangle(p.X + localRect.X, p.Y + localRect.Y, localRect.Width, localRect.Height);
-        }
-
-        private static float CalculateSlotScale(int rows)
-        {
-            float scale = TARGET_SLOT_SCALE;
-            int availableHeight = Math.Max(300, UiScaler.VirtualSize.Y - 220);
-
-            while (scale > 1.0f)
-            {
-                int slotHeight = Math.Max(1, (int)MathF.Round(SkillSlotControl.SLOT_HEIGHT * scale));
-                int gridSlotsHeight = (rows * slotHeight) + ((rows - 1) * SLOT_GAP);
-                int panelHeight = gridSlotsHeight + (GRID_PADDING * 2);
-                if (panelHeight <= availableHeight)
-                {
-                    break;
-                }
-
-                scale -= 0.05f;
-            }
-
-            return Math.Max(1.0f, scale);
-        }
-
-        private void OnSkillSlotClicked(SkillSlotControl slot)
-        {
-            if (slot.Skill == null)
-            {
-                return;
-            }
-
-            _selectedSkillId = slot.Skill.SkillId;
-            SkillSelected?.Invoke(slot.Skill);
-            Close();
-        }
-
-        public void HighlightSkill(ushort skillId)
-        {
-            _selectedSkillId = skillId;
-
-            SkillEntryState? selected = null;
-            foreach (var slot in _skillSlots)
-            {
-                bool isMatch = slot.Skill?.SkillId == skillId;
-                slot.IsSelected = isMatch;
-                if (isMatch)
-                {
-                    selected = slot.Skill;
-                }
-            }
-
-        }
-
-        private void OnSkillSlotHover(SkillEntryState? skill)
-        {
-            UpdateDetail(skill);
-        }
-
-        private void UpdateDetail(SkillEntryState? skill)
-        {
             if (skill == null)
             {
-                _detailNameLabel.Text = "Skill Info";
-                _detailTypeLabel.Text = string.Empty;
-                _detailStatsLabel.Text = "Hover a skill to see details.";
-                _detailStatsLabel.TextColor = ModernHudTheme.TextGray;
+                OrnateDraw.TextCentered(sb, "Hover a skill to see its details", area, 13f, OrnateStyle.TextMuted, alpha);
                 return;
             }
 
+            // Header: big icon in a gold frame, name and type.
+            var icon = new Rectangle(area.X + 14, area.Y + 14, 58, 58);
+            UiDrawHelper.DrawVerticalGradient(sb, icon, new Color(40, 34, 27) * alpha, new Color(12, 10, 9) * alpha, 12);
+            DrawSkillIcon(sb, new Rectangle(icon.X + 3, icon.Y + 3, icon.Width - 6, icon.Height - 6), skill.SkillId, alpha);
+            Texture2D? frame = OrnateAssets.Get("Hud/slot_active");
+            if (frame != null)
+                sb.Draw(frame, new Rectangle(icon.X - 3, icon.Y - 3, icon.Width + 6, icon.Height + 6), Color.White * alpha);
+
             var definition = SkillDatabase.GetSkillDefinition(skill.SkillId);
-            var type = SkillDatabase.GetSkillType(skill.SkillId);
-
-            string typeText = type switch
+            string type = SkillDatabase.GetSkillType(skill.SkillId) switch
             {
-                SkillType.Area => "Area",
-                SkillType.Self => "Self",
-                _ => "Target"
+                SkillType.Area => "Area skill",
+                SkillType.Self => "Self skill",
+                _ => "Target skill",
             };
+            int textX = icon.Right + 12;
+            int textWidth = area.Right - textX - 10;
+            string name = Ellipsize(SkillDatabase.GetSkillName(skill.SkillId), 17f, textWidth);
+            OrnateDraw.Text(sb, name, new Vector2(textX, icon.Y + 4), 17f, OrnateStyle.Gold, alpha, bold: true);
+            string subtitle = skill.SkillLevel > 0 ? $"{type}  ·  Level {skill.SkillLevel}" : type;
+            OrnateDraw.Text(sb, subtitle, new Vector2(textX, icon.Y + 30), 12f, OrnateStyle.TextMuted, alpha);
+            string? key = HotbarKeyOf?.Invoke(skill.SkillId);
+            if (!string.IsNullOrEmpty(key))
+                OrnateDraw.Text(sb, $"On hotbar: {key}", new Vector2(textX, icon.Y + 46), 12f, OrnateStyle.GoldDim, alpha);
 
-            _detailNameLabel.Text = SkillDatabase.GetSkillName(skill.SkillId);
-            _detailTypeLabel.Text = $"Type: {typeText}  |  Level {skill.SkillLevel}";
+            OrnateDraw.Divider(sb, new Rectangle(area.X + 12, icon.Bottom + 8, area.Width - 24, 12), alpha);
 
-            var sb = new StringBuilder();
-            sb.AppendLine($"Skill ID: {skill.SkillId}");
-
-            if (definition != null)
+            int y = icon.Bottom + 28;
+            void Row(string label, string value, Color color)
             {
-                if (definition.RequiredLevel > 0)
-                {
-                    sb.AppendLine($"Required Level: {definition.RequiredLevel}");
-                }
-                if (definition.RequiredStrength > 0)
-                {
-                    sb.AppendLine($"Required Strength: {definition.RequiredStrength}");
-                }
-                if (definition.RequiredDexterity > 0)
-                {
-                    sb.AppendLine($"Required Dexterity: {definition.RequiredDexterity}");
-                }
-                if (definition.RequiredEnergy > 0)
-                {
-                    sb.AppendLine($"Required Energy: {definition.RequiredEnergy}");
-                }
-                if (definition.RequiredLeadership > 0)
-                {
-                    sb.AppendLine($"Required Command: {definition.RequiredLeadership}");
-                }
-
-                if (definition.ManaCost > 0 || definition.AbilityGaugeCost > 0)
-                {
-                    sb.Append("Cost: ");
-                    if (definition.ManaCost > 0)
-                    {
-                        sb.Append($"Mana {definition.ManaCost}");
-                    }
-                    if (definition.AbilityGaugeCost > 0)
-                    {
-                        if (definition.ManaCost > 0)
-                        {
-                            sb.Append(" | ");
-                        }
-                        sb.Append($"AG {definition.AbilityGaugeCost}");
-                    }
-                    sb.AppendLine();
-                }
-
-                if (definition.Damage > 0)
-                {
-                    sb.AppendLine($"Base Damage: {definition.Damage}");
-                }
-                if (definition.Distance > 0)
-                {
-                    sb.AppendLine($"Range: {definition.Distance}");
-                }
-                if (definition.Delay > 0)
-                {
-                    sb.AppendLine($"Cooldown: {definition.Delay} ms");
-                }
+                var row = new Rectangle(area.X + 16, y, area.Width - 32, 20);
+                OrnateDraw.TextLeft(sb, label, row, 13f, OrnateStyle.TextMuted, alpha);
+                OrnateDraw.TextRight(sb, value, row, 13f, color, alpha, bold: true);
+                y += 22;
             }
 
-            if (sb.Length == 0)
+            if (definition == null)
             {
-                sb.Append("No additional data available.");
+                Row("Details", "not available", OrnateStyle.TextMuted);
+                return;
             }
 
-            _detailStatsLabel.Text = sb.ToString();
-            _detailStatsLabel.TextColor = ModernHudTheme.TextWhite;
+            if (definition.ManaCost > 0)
+                Row("Mana cost", definition.ManaCost.ToString(CultureInfo.InvariantCulture), ManaColor);
+            if (definition.AbilityGaugeCost > 0)
+                Row("AG cost", definition.AbilityGaugeCost.ToString(CultureInfo.InvariantCulture), AgColor);
+            if (definition.Damage > 0)
+                Row("Base damage", definition.Damage.ToString(CultureInfo.InvariantCulture), OrnateStyle.TextLight);
+            if (definition.Distance > 0)
+                Row("Range", definition.Distance.ToString(CultureInfo.InvariantCulture), OrnateStyle.TextLight);
+            if (definition.Delay > 0)
+                Row("Cooldown", (definition.Delay / 1000f).ToString("0.##", CultureInfo.InvariantCulture) + " s", OrnateStyle.TextLight);
+
+            bool anyRequirement = definition.RequiredLevel > 0 || definition.RequiredStrength > 0 || definition.RequiredDexterity > 0 ||
+                                  definition.RequiredEnergy > 0 || definition.RequiredLeadership > 0;
+            if (!anyRequirement)
+                return;
+
+            y += 10;
+            OrnateWidgets.SectionHeader(sb, new Rectangle(area.X + 10, y, area.Width - 20, 24), "Requirements", alpha);
+            y += 30;
+            void Requirement(string label, int required, int have)
+            {
+                if (required > 0)
+                    Row(label, required.ToString(CultureInfo.InvariantCulture), _state != null && have < required ? UnmetColor : OrnateStyle.TextLight);
+            }
+
+            Requirement("Level", definition.RequiredLevel, _state?.Level ?? 0);
+            Requirement("Strength", definition.RequiredStrength, _state?.TotalStrength ?? 0);
+            Requirement("Agility", definition.RequiredDexterity, _state?.TotalAgility ?? 0);
+            Requirement("Energy", definition.RequiredEnergy, _state?.TotalEnergy ?? 0);
+            Requirement("Command", definition.RequiredLeadership, _state?.TotalLeadership ?? 0);
         }
 
-        public IEnumerable<string> GetPreloadTexturePaths() => SkillIconAtlas.TexturePaths;
+        private void DrawFooter(SpriteBatch sb, Rectangle area, float alpha)
+        {
+            string text = string.IsNullOrEmpty(TargetSlotLabel)
+                ? "Click a skill to choose it   ·   Esc closes"
+                : $"Click a skill to put it on slot {TargetSlotLabel}   ·   Esc closes";
+            OrnateDraw.TextCentered(sb, text, area, 12f, OrnateStyle.TextMuted, alpha);
+        }
+
+        private static string Ellipsize(string text, float size, float maxWidth)
+        {
+            if (OrnateDraw.Measure(text, size).X <= maxWidth)
+                return text;
+            for (int length = text.Length - 1; length > 0; length--)
+            {
+                string candidate = text[..length].TrimEnd() + "...";
+                if (OrnateDraw.Measure(candidate, size).X <= maxWidth)
+                    return candidate;
+            }
+            return "...";
+        }
     }
 }

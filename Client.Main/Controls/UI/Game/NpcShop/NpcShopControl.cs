@@ -20,7 +20,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace Client.Main.Controls.UI.Game
 {
-    public class NpcShopControl : UIControl
+    public partial class NpcShopControl : UIControl
     {
         // ═══════════════════════════════════════════════════════════════
         // SHOP MODE
@@ -41,20 +41,15 @@ namespace Client.Main.Controls.UI.Game
         private const int SHOP_SQUARE_HEIGHT = 32;
 
         private static int HEADER_HEIGHT => IsSeason6 ? NpcShopLayout.DragBarH : 46;
-        private const int SECTION_HEADER_HEIGHT = 22;
-        private const int GRID_PADDING = 10;
-        private const int BUTTON_AREA_HEIGHT = 40;
-        private const int FOOTER_HEIGHT = 46;
-        private const int WINDOW_MARGIN = 12;
 
         private static int GRID_WIDTH => SHOP_COLUMNS * SHOP_SQUARE_WIDTH;
         private static int GRID_HEIGHT => SHOP_ROWS * SHOP_SQUARE_HEIGHT;
         private static int WINDOW_WIDTH => IsSeason6
             ? NpcShopLayout.PanelW
-            : GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
+            : GRID_WIDTH + OrnateSidePad * 2;
         private int WindowHeight => IsSeason6
             ? NpcShopLayout.PanelH
-            : HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + (_isRepairShop ? BUTTON_AREA_HEIGHT : 0) + FOOTER_HEIGHT + WINDOW_MARGIN;
+            : OrnateGridTop + GRID_HEIGHT + 14 + (_isRepairShop ? OrnateButtonRow : 0) + OrnateFooterHeight + 12;
 
         // ═══════════════════════════════════════════════════════════════
         // MODERN DARK THEME
@@ -217,35 +212,7 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
-            int buttonAreaHeight = _isRepairShop ? BUTTON_AREA_HEIGHT : 0;
-
-            _headerRect = new Rectangle(0, 0, WINDOW_WIDTH, HEADER_HEIGHT);
-
-            int gridFrameX = WINDOW_MARGIN;
-            int gridFrameY = HEADER_HEIGHT;
-            int gridFrameWidth = GRID_WIDTH + GRID_PADDING * 2;
-            int gridFrameHeight = SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT;
-            _gridFrameRect = new Rectangle(gridFrameX, gridFrameY, gridFrameWidth, gridFrameHeight);
-
-            _gridRect = new Rectangle(
-                gridFrameX + GRID_PADDING,
-                gridFrameY + SECTION_HEADER_HEIGHT + GRID_PADDING,
-                GRID_WIDTH,
-                GRID_HEIGHT);
-
-            _buttonAreaRect = new Rectangle(WINDOW_MARGIN, _gridFrameRect.Bottom + 2, _gridFrameRect.Width, buttonAreaHeight);
-            _footerRect = new Rectangle(WINDOW_MARGIN, _buttonAreaRect.Bottom + 4, _gridFrameRect.Width, FOOTER_HEIGHT - 8);
-            _closeButtonRect = new Rectangle(WINDOW_WIDTH - 30, 10, 20, 20);
-
-            // Repair buttons in button area
-            int buttonWidth = 100;
-            int buttonHeight = 29;
-            int buttonSpacing = 10;
-            int buttonY = _buttonAreaRect.Y + (_buttonAreaRect.Height - buttonHeight) / 2;
-            int startX = _buttonAreaRect.X + 10;
-
-            _repairButtonRect = new Rectangle(startX, buttonY, buttonWidth, buttonHeight);
-            _repairAllButtonRect = new Rectangle(startX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight);
+            BuildOrnateLayout();
         }
 
         public override async System.Threading.Tasks.Task Load()
@@ -323,6 +290,7 @@ namespace Client.Main.Controls.UI.Game
 
                 // Handle 'L' key for repair mode toggle (only if repair shop and no dragged item)
                 if (_isRepairShop &&
+                    Scene?.IsTextInputActive != true &&
                     MuGame.Instance.Keyboard.IsKeyDown(Keys.L) &&
                     MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.L))
                 {
@@ -416,6 +384,7 @@ namespace Client.Main.Controls.UI.Game
 
         private bool IsMouseOverDragArea(Point mousePos)
         {
+            mousePos = PointerForHitTest(mousePos);
             Rectangle headerScreen = Translate(_headerRect);
             Rectangle closeScreen = Translate(_closeButtonRect);
             return headerScreen.Contains(mousePos) && !closeScreen.Contains(mousePos);
@@ -423,6 +392,7 @@ namespace Client.Main.Controls.UI.Game
 
         private void UpdateChromeHover(Point mousePos)
         {
+            mousePos = PointerForHitTest(mousePos);
             var closeRect = Translate(_closeButtonRect);
             _closeHovered = closeRect.Contains(mousePos);
 
@@ -445,7 +415,8 @@ namespace Client.Main.Controls.UI.Game
         {
             if (!Visible) return;
 
-            EnsureStaticSurface();
+            if (IsSeason6)
+                EnsureStaticSurface();
 
             var gm = GraphicsManager.Instance;
             var spriteBatch = gm?.Sprite;
@@ -459,6 +430,12 @@ namespace Client.Main.Controls.UI.Game
 
             try
             {
+                if (!IsSeason6)
+                {
+                    DrawOrnateShop(spriteBatch);
+                    return;
+                }
+
                 if (_staticSurface != null && !_staticSurface.IsDisposed)
                 {
                     spriteBatch.Draw(_staticSurface, DisplayRectangle, Color.White * Alpha);
@@ -496,7 +473,10 @@ namespace Client.Main.Controls.UI.Game
 
             try
             {
-                DrawTooltip(spriteBatch);
+                if (IsSeason6)
+                    DrawTooltip(spriteBatch);
+                else
+                    DrawOrnateTooltip(spriteBatch);
             }
             finally
             {
@@ -551,24 +531,6 @@ namespace Client.Main.Controls.UI.Game
                 withBorder ? Theme.BorderOuter : (Color?)null,
                 withBorder ? Theme.BorderInner * 0.6f : null);
         }
-
-        private void DrawSectionHeader(SpriteBatch spriteBatch, string title, int x, int y, int width)
-        {
-            if (_font == null) return;
-
-            float scale = 0.32f;
-            Vector2 size = _font.MeasureString(title) * scale;
-            float textX = x + (width - size.X) / 2;
-
-            spriteBatch.DrawString(_font, title, new Vector2(textX + 1, y + 1), Color.Black * 0.6f,
-                                   0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            spriteBatch.DrawString(_font, title, new Vector2(textX, y), Theme.TextGold,
-                                   0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // STATIC SURFACE RENDERING
-        // ═══════════════════════════════════════════════════════════════
 
         private void EnsureStaticSurface()
         {
@@ -634,12 +596,6 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
-            var fullRect = new Rectangle(0, 0, WINDOW_WIDTH, WindowHeight);
-            DrawWindowBackground(spriteBatch, fullRect);
-            DrawModernHeader(spriteBatch);
-            DrawModernGridSection(spriteBatch);
-            DrawModernButtonArea(spriteBatch);
-            DrawModernFooter(spriteBatch);
         }
 
         private void DrawSeason6StaticElements(SpriteBatch spriteBatch)
@@ -716,115 +672,6 @@ namespace Client.Main.Controls.UI.Game
             spriteBatch.Draw(texture, new Rectangle(destination.X, destination.Y + margin, margin, dh), new Rectangle(0, margin, margin, sh), Color.White);
             spriteBatch.Draw(texture, new Rectangle(destination.Right - margin, destination.Y + margin, margin, dh), new Rectangle(texture.Width - margin, margin, margin, sh), Color.White);
             spriteBatch.Draw(texture, new Rectangle(destination.X + margin, destination.Y + margin, dw, dh), new Rectangle(margin, margin, sw, sh), Color.White);
-        }
-
-        private void DrawModernHeader(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            var headerBg = new Rectangle(8, 6, WINDOW_WIDTH - 16, HEADER_HEIGHT - 8);
-            DrawPanel(spriteBatch, headerBg, Theme.BgMid);
-
-            spriteBatch.Draw(pixel, new Rectangle(20, 8, WINDOW_WIDTH - 40, 2), Theme.Accent * 0.8f);
-            spriteBatch.Draw(pixel, new Rectangle(30, 10, WINDOW_WIDTH - 60, 1), Theme.AccentDim * 0.4f);
-
-            if (_font != null)
-            {
-                string title = "NPC SHOP";
-                float scale = 0.50f;
-                Vector2 size = _font.MeasureString(title) * scale;
-                Vector2 pos = new((WINDOW_WIDTH - size.X) / 2, (HEADER_HEIGHT - size.Y) / 2 + 2);
-
-                spriteBatch.Draw(pixel, new Rectangle((int)pos.X - 20, (int)pos.Y - 4, (int)size.X + 40, (int)size.Y + 8),
-                                Theme.AccentGlow * 0.3f);
-
-                spriteBatch.DrawString(_font, title, pos + new Vector2(2, 2), Color.Black * 0.5f,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                spriteBatch.DrawString(_font, title, pos, Theme.TextWhite,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            }
-
-            int sepY = HEADER_HEIGHT - 2;
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(20, sepY, (WINDOW_WIDTH - 40) / 2, 1),
-                                  Color.Transparent, Theme.BorderInner);
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(WINDOW_WIDTH / 2, sepY, (WINDOW_WIDTH - 40) / 2, 1),
-                                  Theme.BorderInner, Color.Transparent);
-        }
-
-        private void DrawModernGridSection(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            DrawSectionHeader(spriteBatch, "ITEMS FOR SALE", _gridFrameRect.X, _gridFrameRect.Y + 4, _gridFrameRect.Width);
-            DrawPanel(spriteBatch, _gridFrameRect, Theme.BgMid);
-
-            spriteBatch.Draw(pixel, _gridRect, Theme.SlotBg);
-
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y, _gridRect.Width, 2), Color.Black * 0.4f);
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Y, 2, _gridRect.Height), Color.Black * 0.3f);
-
-            Color gridLine = new(40, 48, 60, 100);
-            Color gridLineMajor = new(55, 65, 80, 120);
-
-            for (int x = 1; x < SHOP_COLUMNS; x++)
-            {
-                int lineX = _gridRect.X + x * SHOP_SQUARE_WIDTH;
-                bool isMajor = x == SHOP_COLUMNS / 2;
-                spriteBatch.Draw(pixel, new Rectangle(lineX, _gridRect.Y, 1, _gridRect.Height), isMajor ? gridLineMajor : gridLine);
-            }
-
-            for (int y = 1; y < SHOP_ROWS; y++)
-            {
-                int lineY = _gridRect.Y + y * SHOP_SQUARE_HEIGHT;
-                bool isMajor = y == SHOP_ROWS / 2;
-                spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, lineY, _gridRect.Width, 1), isMajor ? gridLineMajor : gridLine);
-            }
-
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.X, _gridRect.Bottom - 1, _gridRect.Width, 1), Theme.BorderHighlight * 0.2f);
-            spriteBatch.Draw(pixel, new Rectangle(_gridRect.Right - 1, _gridRect.Y, 1, _gridRect.Height), Theme.BorderHighlight * 0.15f);
-        }
-
-        private void DrawModernButtonArea(SpriteBatch spriteBatch)
-        {
-            if (_buttonAreaRect.Height == 0) return;
-
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            DrawPanel(spriteBatch, _buttonAreaRect, Theme.BgMid);
-        }
-
-        private void DrawModernFooter(SpriteBatch spriteBatch)
-        {
-            var pixel = GraphicsManager.Instance.Pixel;
-            if (pixel == null) return;
-
-            int sepY = _footerRect.Y - 4;
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(30, sepY, (WINDOW_WIDTH - 60) / 2, 1),
-                                  Color.Transparent, Theme.Accent * 0.4f);
-            UiDrawHelper.DrawHorizontalGradient(spriteBatch, new Rectangle(WINDOW_WIDTH / 2, sepY, (WINDOW_WIDTH - 60) / 2, 1),
-                                  Theme.Accent * 0.4f, Color.Transparent);
-
-            DrawPanel(spriteBatch, _footerRect, Theme.BgMid);
-
-            if (_font != null)
-            {
-                string hint = _isRepairShop
-                    ? (_shopMode == ShopMode.Repair ? "Repair mode - Click items" : "Buy/Sell - Press 'L' to repair")
-                    : "Click item to buy";
-                float scale = 0.38f;
-                Vector2 size = _font.MeasureString(hint) * scale;
-                int hintX = _footerRect.X;
-                Vector2 pos = new(hintX + ((_footerRect.Width - (hintX - _footerRect.X)) - size.X) / 2,
-                                  _footerRect.Y + (_footerRect.Height - size.Y) / 2);
-
-                spriteBatch.DrawString(_font, hint, pos + Vector2.One, Color.Black * 0.5f,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                spriteBatch.DrawString(_font, hint, pos, Theme.TextGold,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            }
         }
 
         private void DrawRepairButtons(SpriteBatch spriteBatch)
@@ -1095,7 +942,7 @@ namespace Client.Main.Controls.UI.Game
             // Ignore shop clicks while dragging an item from inventory/vault (so a sell drop doesn't auto-buy a shop item)
             if (InventoryControl.Instance?.GetDraggedItem() != null || VaultControl.Instance?.GetDraggedItem() != null) return;
 
-            Point mousePos = mouse.Position;
+            Point mousePos = PointerForHitTest(mouse.Position);
 
             if (DisplayRectangle.Contains(mousePos))
             {
@@ -1128,6 +975,7 @@ namespace Client.Main.Controls.UI.Game
 
         private InventoryItem GetItemAt(Point mousePos)
         {
+            mousePos = PointerForHitTest(mousePos);
             if (!DisplayRectangle.Contains(mousePos)) return null;
 
             Point gridOrigin = new(DisplayRectangle.X + _gridRect.X, DisplayRectangle.Y + _gridRect.Y);

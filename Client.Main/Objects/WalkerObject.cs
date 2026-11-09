@@ -38,6 +38,13 @@ namespace Client.Main.Objects
         public static double LastPathSendScheduleMs { get; private set; }
 
     private readonly MainPlayerCameraController _mainPlayerCameraController = new();
+    /// <summary>Showcase camera (inventory open in a safe zone), see <see cref="MainPlayerCameraController.Showcase"/>.</summary>
+    public bool CameraShowcase
+    {
+        get => _mainPlayerCameraController.Showcase;
+        set => _mainPlayerCameraController.Showcase = value;
+    }
+
     public bool MouseScrollToZoom
     {
         get => _mainPlayerCameraController.MouseScrollToZoom;
@@ -808,6 +815,17 @@ namespace Client.Main.Objects
         private void HandleMouseInput()
         {
             _mainPlayerCameraController.Update(MuGame.Instance.GameTime);
+
+            // Showcase camera: a hero standing still turns to face it.
+            if (_mainPlayerCameraController.Showcase)
+            {
+                var standing = new Vector2(MoveTargetPosition.X - Position.X, MoveTargetPosition.Y - Position.Y).LengthSquared() < 25f;
+                if (standing)
+                {
+                    Vector2 toCamera = _mainPlayerCameraController.TowardCamera;
+                    SetFacingAngleZ(MathF.Atan2(toCamera.X, -toCamera.Y));
+                }
+            }
         }
 
         /// <summary>

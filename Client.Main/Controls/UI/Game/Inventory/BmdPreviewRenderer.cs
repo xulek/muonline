@@ -1018,7 +1018,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     return entry.Texture;
             }
 
-            if (!TryReserveRenderBudget(requiresAnimation))
+            // Only refreshes of an animation count against the animated budget: an item that has no texture yet must
+            // not wait behind items that already show one, or it stays blank while others keep animating.
+            bool animatedRefresh = requiresAnimation && entry != null;
+            if (!TryReserveRenderBudget(animatedRefresh))
             {
                 RenderPassProfiler.RecordPreviewBudgetSkip();
                 return entry?.Texture;
@@ -1049,7 +1052,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 if (!didRender)
                 {
-                    ReleaseRenderBudget(requiresAnimation);
+                    ReleaseRenderBudget(animatedRefresh);
                     return entry?.Texture;
                 }
 

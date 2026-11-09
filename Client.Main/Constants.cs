@@ -301,7 +301,7 @@ namespace Client.Main
             ENABLE_BMD_MESH_BATCHING = true;
             ENABLE_EFFECT_POOLING = true;
             ENABLE_STATIC_CHUNK_CACHING = true;
-            ENABLE_ITEM_MATERIAL_ANIMATION = false;
+            ENABLE_ITEM_MATERIAL_ANIMATION = true;
             ENABLE_DYNAMIC_BUFFER_POOL = true;
             ENABLE_DEFERRED_ACTOR_MESH_DRAWS = true;
             RENDER_METRICS_LEVEL = 1;
@@ -328,8 +328,6 @@ namespace Client.Main
         private static void ApplyDebugDefaults()
         {
             DRAW_BOUNDING_BOXES = false;
-            BACKGROUND_MUSIC = false;
-            SOUND_EFFECTS = false;
             SHOW_DEBUG_PANEL = false;
         }
 #endif

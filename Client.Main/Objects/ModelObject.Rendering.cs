@@ -358,6 +358,17 @@ namespace Client.Main.Objects
             return false;
         }
 
+        /// <summary>Diagnostics (StressHarness): texture, RGBA and two-sidedness of every mesh.</summary>
+        internal string DescribeMeshesForDiagnostics()
+        {
+            if (_meshes == null || Model?.Meshes == null)
+                return "no meshes";
+            var parts = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < _meshes.Length && i < Model.Meshes.Length; i++)
+                parts.Add($"#{i} tex={Model.Meshes[i].TexturePath} rgba={_meshes[i].IsRgba} twoSided={IsMeshTwoSided(i, IsBlendMesh(i))} blend={IsBlendMesh(i)}");
+            return string.Join(" | ", parts);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsTransparentMesh(int mesh, bool isBlendMesh)
         {

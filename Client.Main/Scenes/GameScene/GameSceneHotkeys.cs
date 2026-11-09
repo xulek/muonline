@@ -91,7 +91,8 @@ namespace Client.Main.Scenes
         private HotkeyContext CreateContext(KeyboardState keyboard, KeyboardState prevKeyboard)
         {
             bool isUiInputActive =
-                (_scene.FocusControl is TextFieldControl textField && textField.Visible)
+                _scene.IsTextInputActive
+                || (_scene.FocusControl is TextFieldControl textField && textField.Visible)
                 || (_scene.FocusControl == _moveCommandWindow && _moveCommandWindow.Visible)
                 || (_pauseMenu != null && _pauseMenu.Visible);
 
@@ -144,7 +145,8 @@ namespace Client.Main.Scenes
             => _miniMap?.Visible == true || !context.IsUiInputActive;
 
         private bool WhenCharacterInfoToggle(HotkeyContext context)
-            => !(context.Scene.FocusControl is TextFieldControl textField && textField.Visible)
+            => !context.Scene.IsTextInputActive
+               && !(context.Scene.FocusControl is TextFieldControl textField && textField.Visible)
                && !(_moveCommandWindow?.Visible ?? false)
                && !(_pauseMenu?.Visible ?? false);
 

@@ -144,7 +144,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         }
 
         /// <summary>True when an inventory item released at <paramref name="position"/> should be handed to this window.</summary>
-        public bool AcceptsDrop(Point position) => Visible && DisplayRectangle.Contains(position);
+        public bool AcceptsDrop(Point position) => Visible && DisplayRectangle.Contains(position) && !IsCoveredByOtherUi();
 
         private Rectangle Grid => Translate(GridLocal);
 
@@ -510,11 +510,12 @@ namespace Client.Main.Controls.UI.Game.Inventory
             var mouse = MuGame.Instance.UiMouseState;
             var previous = MuGame.Instance.PrevUiMouseState;
             Point position = mouse.Position;
+            Point hit = PointerForHitTest(position); // hovers and clicks only when no window covers this one
             bool leftDown = mouse.LeftButton == ButtonState.Pressed;
             bool leftPressed = leftDown && previous.LeftButton == ButtonState.Released;
             bool rightPressed = mouse.RightButton == ButtonState.Pressed && previous.RightButton == ButtonState.Released;
 
-            UpdateFieldFocus(position, leftPressed && !_isDragging);
+            UpdateFieldFocus(hit, leftPressed && !_isDragging);
 
             if (_isDragging)
             {
@@ -523,13 +524,13 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            _closeHovered = Translate(CloseLocal).Contains(position);
-            _actionHovered = Translate(ActionLocal).Contains(position);
-            _confirmHovered = _pricing != null && Translate(ConfirmLocal).Contains(position);
-            _cancelHovered = _pricing != null && Translate(CancelLocal).Contains(position);
-            _hoveredSlot = FindShopSlotAt(position);
+            _closeHovered = Translate(CloseLocal).Contains(hit);
+            _actionHovered = Translate(ActionLocal).Contains(hit);
+            _confirmHovered = _pricing != null && Translate(ConfirmLocal).Contains(hit);
+            _cancelHovered = _pricing != null && Translate(CancelLocal).Contains(hit);
+            _hoveredSlot = FindShopSlotAt(hit);
 
-            if (!DisplayRectangle.Contains(position) || (!leftPressed && !rightPressed)) return;
+            if (!DisplayRectangle.Contains(hit) || (!leftPressed && !rightPressed)) return;
             // An item carried from the inventory is dropped by InventoryControl on release.
             if (CarriedInventoryItem != null) return;
             Scene?.SetMouseInputConsumed();
@@ -545,7 +546,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     else OpenShop();
                     return;
                 }
-                if (Translate(new Rectangle(0, 0, WindowWidth, HeaderHeight)).Contains(position))
+                if (Translate(new Rectangle(0, 0, WindowWidth, HeaderHeight)).Contains(hit))
                 {
                     _isDragging = true;
                     _dragOffset = new Point(position.X - X, position.Y - Y);

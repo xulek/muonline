@@ -230,6 +230,7 @@ namespace Client.Main.Objects
         {
             s_blobShadowBatchActive = false;
             var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
+            DrawGroundShadowMask(graphicsDevice);
             try
             {
                 FlushBlobShadowBatch(graphicsDevice);
@@ -238,6 +239,29 @@ namespace Client.Main.Objects
             {
                 DrawQueuedProjectedShadows(graphicsDevice);
                 Client.Main.Diagnostics.DrawPathCounter.StopExtra(pathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.GroundShadows);
+            }
+        }
+
+        /// <summary>
+        /// The queued ground shadows once more, seen from above into <see cref="GroundShadowMask"/>, for the grass
+        /// drawn after this pass. Skipped when there is no grass or no shadow.
+        /// </summary>
+        private static void DrawGroundShadowMask(GraphicsDevice graphicsDevice)
+        {
+            if (!Constants.DRAW_GRASS || !GroundShadowMask.Enabled || graphicsDevice == null || Camera.Instance == null ||
+                (s_blobShadowBatchIndexCount == 0 && s_projectedShadowDraws.Count == 0))
+                return;
+
+            if (!GroundShadowMask.Begin(graphicsDevice, Camera.Instance.Target, out Matrix maskViewProjection))
+                return;
+            try
+            {
+                FlushBlobShadowBatch(graphicsDevice, maskViewProjection, keepQueued: true);
+                DrawQueuedProjectedShadows(graphicsDevice, maskViewProjection, keepQueued: true);
+            }
+            finally
+            {
+                GroundShadowMask.End(graphicsDevice);
             }
         }
 
@@ -305,12 +329,17 @@ namespace Client.Main.Objects
                 Array.Resize(ref s_blobShadowBatchIndices, Math.Max(indices, s_blobShadowBatchIndices.Length * 2));
         }
 
-        private static void FlushBlobShadowBatch(GraphicsDevice graphicsDevice)
+        /// <param name="maskViewProjection">Set when drawing into <see cref="GroundShadowMask"/> (no depth test).</param>
+        /// <param name="keepQueued">Leaves the queue for the screen draw that follows.</param>
+        private static void FlushBlobShadowBatch(GraphicsDevice graphicsDevice, Matrix? maskViewProjection = null, bool keepQueued = false)
         {
             int vertexCount = s_blobShadowBatchVertexCount;
             int indexCount = s_blobShadowBatchIndexCount;
-            s_blobShadowBatchVertexCount = 0;
-            s_blobShadowBatchIndexCount = 0;
+            if (!keepQueued)
+            {
+                s_blobShadowBatchVertexCount = 0;
+                s_blobShadowBatchIndexCount = 0;
+            }
             if (indexCount == 0 || graphicsDevice == null)
                 return;
 
@@ -329,11 +358,13 @@ namespace Client.Main.Objects
             {
                 float constBias = 1f / (1 << 24);
                 graphicsDevice.BlendState = Blendings.ShadowBlend;
-                graphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
-                graphicsDevice.RasterizerState = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
+                graphicsDevice.DepthStencilState = maskViewProjection.HasValue ? DepthStencilState.None : DepthStencilState.DepthRead;
+                graphicsDevice.RasterizerState = maskViewProjection.HasValue
+                    ? RasterizerState.CullNone
+                    : GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
                 effect.CurrentTechnique = batchedTechnique;
                 bindings.ShadowTexture?.SetValue(blobTexture);
-                bindings.WorldViewProjection?.SetValue(s_blobShadowBatchViewProjection);
+                bindings.WorldViewProjection?.SetValue(maskViewProjection ?? s_blobShadowBatchViewProjection);
                 batchedTechnique.Passes[0].Apply();
                 graphicsDevice.DrawUserIndexedPrimitives(
                     PrimitiveType.TriangleList,

@@ -241,6 +241,32 @@ namespace Client.Main.Controls
         public bool IsMousePressed { get; set; }
         public bool HasFocus => Scene?.FocusControl == this;
 
+        /// <summary>
+        /// True when the topmost UI control under the pointer (<see cref="BaseScene.MouseHoverControl"/>) is neither
+        /// this control nor one of its descendants, i.e. another window covers it at the pointer.
+        /// </summary>
+        /// <summary>
+        /// The pointer position for this control's own hit tests: off-screen while another window covers it, so
+        /// hovers and clicks go only to the window on top. Window dragging keeps using the real position.
+        /// </summary>
+        public Point PointerForHitTest(Point position) =>
+            IsCoveredByOtherUi() ? new Point(-100000, -100000) : position;
+
+        public bool IsCoveredByOtherUi()
+        {
+            BaseScene scene = Scene;
+            GameControl top = scene?.MouseHoverControl;
+            if (top == null || ReferenceEquals(top, scene) || ReferenceEquals(top, scene.World) || ReferenceEquals(this, scene))
+                return false;
+
+            for (GameControl control = top; control != null; control = control.Parent)
+            {
+                if (ReferenceEquals(control, this))
+                    return false;
+            }
+            return true;
+        }
+
         // Events
         public event EventHandler Click;
         public event EventHandler SizeChanged;
@@ -354,6 +380,11 @@ namespace Client.Main.Controls
                 Point mousePosition = mouse.Position;
                 IsMouseOver = mousePosition.X >= rectangle.Left && mousePosition.X <= rectangle.Right &&
                               mousePosition.Y >= rectangle.Top && mousePosition.Y <= rectangle.Bottom;
+
+                // A window lying on top owns the pointer: controls underneath it are not "under the mouse", so they
+                // neither hover nor take clicks meant for the window above.
+                if (IsMouseOver && IsCoveredByOtherUi())
+                    IsMouseOver = false;
 
                 if (!Interactive)
                 {

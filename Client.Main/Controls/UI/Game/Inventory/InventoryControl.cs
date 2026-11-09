@@ -530,7 +530,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         {
             _currentGameTime = gameTime;
 
-            bool isTyping = Scene?.FocusControl is TextFieldControl { Visible: true, IsFocused: true };
+            bool isTyping = Scene?.IsTextInputActive == true;
 
             if (MuGame.Instance.Keyboard.IsKeyDown(Keys.Escape) &&
                 MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.Escape) &&
@@ -545,6 +545,13 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 MuGame.Instance.PrevKeyboard.IsKeyUp(Keys.L))
             {
                 ToggleRepairMode();
+            }
+
+            // Inventory open in a safe zone: the camera moves in to show off the character's equipment.
+            if (Scene is Client.Main.Scenes.GameScene { Hero: { } hero })
+            {
+                var heroState = _networkManager?.GetCharacterState();
+                hero.CameraShowcase = Visible && heroState != null && IsHeroInSafeZone(heroState);
             }
 
             if (!Visible)
@@ -1434,6 +1441,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private void UpdateChromeHover(Point mousePos)
         {
+            mousePos = PointerForHitTest(mousePos);
             var closeRect = Translate(_closeButtonRect);
             var leftRect = Translate(_footerLeftButtonRect);
             var rightRect = Translate(_footerRightButtonRect);
@@ -2413,9 +2421,16 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 {
                     spriteBatch.Draw(itemTexture, itemRect, Color.White);
                 }
+                else if (!IsSeason6)
+                {
+                    // Preview not ready yet (model still loading or retried): show what belongs there, dimmed.
+                    int side = Math.Min(itemRect.Width, itemRect.Height) - 12;
+                    var glyphRect = new Rectangle(itemRect.Center.X - side / 2, itemRect.Center.Y - side / 2, side, side);
+                    OrnateItemUi.Glyph(spriteBatch, EquipGlyph(kv.Key), glyphRect, Color.White * 0.45f, Alpha);
+                }
                 else if (GraphicsManager.Instance?.Pixel != null)
                 {
-                    spriteBatch.Draw(GraphicsManager.Instance.Pixel, itemRect, new Color(40, 40, 40, 200));
+                    spriteBatch.Draw(GraphicsManager.Instance.Pixel, itemRect, new Color(40, 40, 40) * 0.8f);
                 }
             }
         }
@@ -3059,13 +3074,13 @@ namespace Client.Main.Controls.UI.Game.Inventory
             Point mousePos = MuGame.Instance.UiMouseState.Position;
             Rectangle gridScreenRect = Translate(_gridRect);
 
-            return gridScreenRect.Contains(mousePos);
+            return gridScreenRect.Contains(PointerForHitTest(mousePos));
         }
 
         private bool IsMouseOverDragArea()
         {
             Point mousePos = MuGame.Instance.UiMouseState.Position;
-            return Translate(_headerRect).Contains(mousePos);
+            return Translate(_headerRect).Contains(PointerForHitTest(mousePos));
         }
 
         private Point GetSlotAtScreenPosition(Point screenPos)

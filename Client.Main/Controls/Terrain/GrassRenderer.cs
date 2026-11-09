@@ -404,7 +404,9 @@ namespace Client.Main.Controls.Terrain
 
             bool additive = IsSpecialBlendMap(_worldIndex);
             BasicEffect additiveEffect = additive ? EnsureAdditiveEffect() : null;
-            Effect effect = additive ? additiveEffect : alphaEffect;
+            // Shadows on the grass: the shader reads the ground shadow mask filled this frame (GroundShadowMask).
+            Effect shadowEffect = additive ? null : GraphicsManager.Instance.GrassShadowEffect;
+            Effect effect = additive ? additiveEffect : shadowEffect ?? alphaEffect;
             if (effect == null)
                 return;
 
@@ -412,6 +414,7 @@ namespace Client.Main.Controls.Terrain
             DepthStencilState previousDepth = _graphicsDevice.DepthStencilState;
             RasterizerState previousRasterizer = _graphicsDevice.RasterizerState;
             SamplerState previousSampler = _graphicsDevice.SamplerStates[0];
+            SamplerState previousSampler1 = _graphicsDevice.SamplerStates[1];
             int previousReferenceAlpha = alphaEffect.ReferenceAlpha;
             CompareFunction previousAlphaFunction = alphaEffect.AlphaFunction;
 
@@ -424,8 +427,19 @@ namespace Client.Main.Controls.Terrain
                     ? DepthStencilState.DepthRead
                     : DepthStencilState.Default;
 
-                ConfigureEffect(effect, additive ? additiveEffect : null);
-                if (!additive)
+                EffectParameter grassTexture = null;
+                if (shadowEffect != null)
+                {
+                    ConfigureShadowEffect(shadowEffect);
+                    grassTexture = shadowEffect.Parameters["GrassTexture"] ?? shadowEffect.Parameters["GrassSampler"];
+                    _graphicsDevice.SamplerStates[1] = SamplerState.LinearClamp;
+                }
+                else
+                {
+                    ConfigureEffect(effect, additive ? additiveEffect : null);
+                }
+
+                if (!additive && shadowEffect == null)
                 {
                     alphaEffect.AlphaFunction = CompareFunction.Greater;
                     alphaEffect.ReferenceAlpha = (int)(255f * 0.01f);
@@ -448,6 +462,8 @@ namespace Client.Main.Controls.Terrain
                     _graphicsDevice.SetVertexBuffer(batch.VertexBuffer);
                     if (additive)
                         additiveEffect.Texture = batch.Texture;
+                    else if (grassTexture != null)
+                        grassTexture.SetValue(batch.Texture);
                     else
                         alphaEffect.Texture = batch.Texture;
 
@@ -471,9 +487,22 @@ namespace Client.Main.Controls.Terrain
                 _graphicsDevice.DepthStencilState = previousDepth;
                 _graphicsDevice.RasterizerState = previousRasterizer;
                 _graphicsDevice.SamplerStates[0] = previousSampler;
+                _graphicsDevice.SamplerStates[1] = previousSampler1;
                 alphaEffect.ReferenceAlpha = previousReferenceAlpha;
                 alphaEffect.AlphaFunction = previousAlphaFunction;
             }
+        }
+
+        private const float GrassShadowStrength = 0.85f;
+
+        private static void ConfigureShadowEffect(Effect effect)
+        {
+            bool hasMask = GroundShadowMask.Frame == MuGame.FrameIndex && GroundShadowMask.Texture != null;
+            effect.Parameters["WorldViewProjection"]?.SetValue(Camera.Instance.View * Camera.Instance.Projection);
+            effect.Parameters["ShadowMaskViewProjection"]?.SetValue(hasMask ? GroundShadowMask.ViewProjection : Matrix.Identity);
+            effect.Parameters["ShadowStrength"]?.SetValue(hasMask ? GrassShadowStrength : 0f);
+            (effect.Parameters["ShadowMask"] ?? effect.Parameters["ShadowMaskSampler"])?.SetValue(
+                hasMask ? GroundShadowMask.Texture : GraphicsManager.Instance.Pixel);
         }
 
         private void ConfigureEffect(Effect effect, BasicEffect additiveEffect)

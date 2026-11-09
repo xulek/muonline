@@ -294,6 +294,13 @@ namespace Client.Main.Controls
             base.Draw(time);
         }
 
+        /// <summary>Grass on top of the ground shadows; see <see cref="TerrainRenderer.DrawGrassAfterShadows"/>.</summary>
+        internal void DrawGrassAfterShadows()
+        {
+            if (Visible && Status == Models.GameControlStatus.Ready)
+                _renderer?.DrawGrassAfterShadows();
+        }
+
         public override void DrawAfter(GameTime gameTime)
         {
             if (!Visible || Status != Models.GameControlStatus.Ready)

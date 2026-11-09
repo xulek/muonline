@@ -20,34 +20,8 @@ using Microsoft.Xna.Framework.Input;
 
 namespace Client.Main.Controls.UI.Game.Hud
 {
-    public sealed class ModernBottomHud : UIControl
+    public sealed partial class ModernBottomHud : UIControl
     {
-        // ──────────────── Bar-specific colors ────────────────
-        private static readonly Color HpColor = new(200, 45, 45);
-        private static readonly Color HpColorBright = new(255, 80, 80);
-        private static readonly Color HpColorDark = new(100, 18, 18);
-        private static readonly Color HpGlow = new(255, 60, 60, 50);
-
-        private static readonly Color MpColor = new(55, 120, 210);
-        private static readonly Color MpColorBright = new(100, 170, 255);
-        private static readonly Color MpColorDark = new(25, 55, 110);
-        private static readonly Color MpGlow = new(80, 150, 255, 50);
-
-        private static readonly Color SdColor = new(210, 185, 50);
-        private static readonly Color SdColorBright = new(255, 230, 90);
-        private static readonly Color SdColorDark = new(110, 90, 20);
-        private static readonly Color SdGlow = new(255, 220, 60, 45);
-
-        private static readonly Color AgColor = new(150, 70, 200);
-        private static readonly Color AgColorBright = new(200, 120, 255);
-        private static readonly Color AgColorDark = new(70, 30, 100);
-        private static readonly Color AgGlow = new(180, 100, 255, 45);
-
-        private static readonly Color ExpColor = new(212, 175, 85);
-        private static readonly Color ExpColorBright = new(255, 220, 130);
-        private static readonly Color ExpColorDark = new(110, 88, 35);
-        private static readonly Color ExpGlow = new(255, 210, 100, 35);
-
         private static readonly Color CompanionColorGood = new(92, 188, 122);
         private static readonly Color CompanionColorWarn = new(234, 186, 78);
         private static readonly Color CompanionColorDanger = new(220, 88, 88);
@@ -66,16 +40,10 @@ namespace Client.Main.Controls.UI.Game.Hud
         private float _targetHpPct, _targetMpPct, _targetSdPct, _targetAgPct;
         private uint _lastCurrentHealth = uint.MaxValue;
         private uint _lastMaximumHealth = uint.MaxValue;
-        private uint _lastCurrentShield = uint.MaxValue;
-        private uint _lastMaximumShield = uint.MaxValue;
         private uint _lastCurrentMana = uint.MaxValue;
         private uint _lastMaximumMana = uint.MaxValue;
-        private uint _lastCurrentAbility = uint.MaxValue;
-        private uint _lastMaximumAbility = uint.MaxValue;
-        private string _healthText = string.Empty;
-        private string _shieldText = string.Empty;
-        private string _manaText = string.Empty;
-        private string _abilityText = string.Empty;
+        private string _healthText = string.Empty, _healthMaxText = string.Empty;
+        private string _manaText = string.Empty, _manaMaxText = string.Empty;
         private const float LerpSpeed = 6f;
 
         // Layout rects (recomputed on resize)
@@ -84,10 +52,7 @@ namespace Client.Main.Controls.UI.Game.Hud
         private Rectangle _expBarRect;
         private Rectangle[] _slotRects = Array.Empty<Rectangle>();
         private Rectangle[] _btnRects = Array.Empty<Rectangle>();
-        private float _barFontScale;
         private float _slotFontScale;
-        private float _btnFontScale;
-        private float _expFontScale;
         private readonly CompanionLifeInfo?[] _companionInfos = new CompanionLifeInfo?[2];
 
         // Skill slots: 0-2 = potion (Q/W/E), 3-12 = skills (1-0)
@@ -127,7 +92,7 @@ namespace Client.Main.Controls.UI.Game.Hud
         private Rectangle[] _potionPickerItemRects = Array.Empty<Rectangle>();
 
         // Interface buttons
-        private static readonly string[] ButtonLabels = { "MENU", "CHAR", "INV", "PARTY", "GUILD", "QUEST" };
+        private static readonly string[] ButtonLabels = { "MENU", "CHAR", "INV", "PARTY", "GUILD", "FRIENDS" };
         private int _hoveredButton = -1;
         private int _hoveredSlot = -1;
 
@@ -165,6 +130,7 @@ namespace Client.Main.Controls.UI.Game.Hud
             BorderThickness = 0;
 
             _skillPanel.SkillSelected += OnSkillSelectedFromPanel;
+            _skillPanel.HotbarKeyOf = HotbarKeyOf;
             _state.InventoryChanged += OnInventoryChanged;
             _state.KeyConfigurationReceived += OnServerKeyConfigurationReceived;
 
@@ -215,6 +181,7 @@ namespace Client.Main.Controls.UI.Game.Hud
             _displayMpPct = MathHelper.Lerp(_displayMpPct, _targetMpPct, LerpSpeed * dt);
             _displaySdPct = MathHelper.Lerp(_displaySdPct, _targetSdPct, LerpSpeed * dt);
             _displayAgPct = MathHelper.Lerp(_displayAgPct, _targetAgPct, LerpSpeed * dt);
+            UpdateOrbTrails(dt);
 
             RefreshCompanionLifeInfos();
             if (IsModernRenderer)
@@ -256,28 +223,8 @@ namespace Client.Main.Controls.UI.Game.Hud
                 if (pixel == null)
                     return;
 
-                DrawPanelBackground(spriteBatch, pixel);
+                DrawFrame(spriteBatch);
                 DrawCompanionLifeBars(spriteBatch, pixel);
-
-                // Left bars: HP + SD (next to quick slots)
-                DrawResourceBar(spriteBatch, pixel, _hpBarRect, _displayHpPct,
-                    HpColorDark, HpColor, HpColorBright, HpGlow,
-                    _healthText, "HP", critical: _targetHpPct < 0.25f);
-                DrawResourceBar(spriteBatch, pixel, _sdBarRect, _displaySdPct,
-                    SdColorDark, SdColor, SdColorBright, SdGlow,
-                    _shieldText, "SD", critical: false);
-
-                // Right bars: MP + AG (next to quick slots)
-                DrawResourceBar(spriteBatch, pixel, _mpBarRect, _displayMpPct,
-                    MpColorDark, MpColor, MpColorBright, MpGlow,
-                    _manaText, "MP", critical: _targetMpPct < 0.15f);
-                DrawResourceBar(spriteBatch, pixel, _agBarRect, _displayAgPct,
-                    AgColorDark, AgColor, AgColorBright, AgGlow,
-                    _abilityText, "AG", critical: false);
-
-                DrawQuickSlots(spriteBatch, pixel);
-                DrawInterfaceButtons(spriteBatch, pixel);
-                DrawExpBar(spriteBatch, pixel);
 
                 if (_potionPickerOpen)
                     DrawPotionPicker(spriteBatch, pixel);
@@ -325,40 +272,29 @@ namespace Client.Main.Controls.UI.Game.Hud
                 }
             }
 
-            if (_panelRect.Contains(mousePos.X, mousePos.Y) || _expBarRect.Contains(mousePos.X, mousePos.Y))
+            if (IsOverFrame(new Point(mousePos.X, mousePos.Y)))
                 return true;
 
             return false;
         }
 
+        /// <summary>Orb captions, rebuilt only when the values change.</summary>
         private void RefreshResourceTexts()
         {
             if (_lastCurrentHealth != _state.CurrentHealth || _lastMaximumHealth != _state.MaximumHealth)
             {
                 _lastCurrentHealth = _state.CurrentHealth;
                 _lastMaximumHealth = _state.MaximumHealth;
-                _healthText = $"{_lastCurrentHealth}/{_lastMaximumHealth}";
-            }
-
-            if (_lastCurrentShield != _state.CurrentShield || _lastMaximumShield != _state.MaximumShield)
-            {
-                _lastCurrentShield = _state.CurrentShield;
-                _lastMaximumShield = _state.MaximumShield;
-                _shieldText = $"{_lastCurrentShield}/{_lastMaximumShield}";
+                _healthText = _lastCurrentHealth.ToString();
+                _healthMaxText = "/ " + _lastMaximumHealth;
             }
 
             if (_lastCurrentMana != _state.CurrentMana || _lastMaximumMana != _state.MaximumMana)
             {
                 _lastCurrentMana = _state.CurrentMana;
                 _lastMaximumMana = _state.MaximumMana;
-                _manaText = $"{_lastCurrentMana}/{_lastMaximumMana}";
-            }
-
-            if (_lastCurrentAbility != _state.CurrentAbility || _lastMaximumAbility != _state.MaximumAbility)
-            {
-                _lastCurrentAbility = _state.CurrentAbility;
-                _lastMaximumAbility = _state.MaximumAbility;
-                _abilityText = $"{_lastCurrentAbility}/{_lastMaximumAbility}";
+                _manaText = _lastCurrentMana.ToString();
+                _manaMaxText = "/ " + _lastMaximumMana;
             }
         }
 
@@ -366,6 +302,10 @@ namespace Client.Main.Controls.UI.Game.Hud
         {
             var kb = MuGame.Instance.Keyboard;
             var prev = MuGame.Instance.PrevKeyboard;
+
+            // Typing in a text field (chat, shop price, trade amount...): the keys are text, not hotbar keys.
+            if (Scene?.IsTextInputActive == true)
+                return;
 
             // Q/W/E → consume assigned potion
             for (int i = 0; i < PotionSlotCount; i++)
@@ -395,7 +335,8 @@ namespace Client.Main.Controls.UI.Game.Hud
 
         private void HandleMouseHover()
         {
-            var mousePos = MuGame.Instance.UiMouseState;
+            // Hovers only where no window lies on top of the HUD.
+            var mousePos = PointerForHitTest(MuGame.Instance.UiMouseState.Position);
             _hoveredButton = -1;
             _hoveredSlot = -1;
             _hoveredPotionCandidate = -1;
@@ -512,6 +453,15 @@ namespace Client.Main.Controls.UI.Game.Hud
             PersistQuickSlots();
         }
 
+        /// <summary>Key label of the skill slot holding <paramref name="skillId"/>, or null.</summary>
+        private string? HotbarKeyOf(ushort skillId)
+        {
+            for (int i = PotionSlotCount; i < _slotSkills.Length; i++)
+                if (_slotSkills[i]?.SkillId == skillId)
+                    return SlotKeyLabels[i];
+            return null;
+        }
+
         /// <summary>
         /// Opens the shared skill picker for a zero-based combat hotbar slot.
         /// Classic uses this path as well, so assignment does not depend on the HUD renderer.
@@ -523,6 +473,7 @@ namespace Client.Main.Controls.UI.Game.Hud
 
             _pendingAssignSlot = PotionSlotCount + hotbarIndex;
             _skillPanel.Interactive = true;
+            _skillPanel.TargetSlotLabel = SlotKeyLabels[_pendingAssignSlot];
             _skillPanel.Open(_state);
             _skillPanel.BringToFront();
             if (Scene != null)
@@ -876,6 +827,8 @@ namespace Client.Main.Controls.UI.Game.Hud
                     }
                     break;
                 case 3: ToggleWindow<Party.PartyPanelControl>(gs); break;
+                case 4: gs.GuildInfo?.Toggle(); break;
+                case 5: gs.FriendList?.Toggle(); break;
             }
         }
 
@@ -890,123 +843,6 @@ namespace Client.Main.Controls.UI.Game.Hud
                     return;
                 }
             }
-        }
-
-        // ════════════════════════════ Layout ════════════════════════════
-        //
-        // Layout (left → right):
-        //   [PARTY][GUILD][QUEST] | HP SD | [Q][W][E]  [1][2]...[0] | MP AG | [MENU][CHAR][INV]
-
-        private void RefreshLayout()
-        {
-            Point virtualSize = UiScaler.VirtualSize;
-            if (virtualSize == _lastVirtualSize)
-                return;
-
-            _lastVirtualSize = virtualSize;
-
-            int vw = virtualSize.X;
-            int vh = virtualSize.Y;
-
-            int panelH = 92;
-            int expH = 12;
-            int panelY = vh - panelH - expH;
-
-            _panelRect = new Rectangle(0, panelY, vw, panelH);
-            _expBarRect = new Rectangle(0, vh - expH, vw, expH);
-
-            // Font scales
-            _barFontScale = 0.45f;
-            _slotFontScale = 0.36f;
-            _btnFontScale = 0.40f;
-            _expFontScale = 0.42f;
-
-            int pad = 6;
-            int innerTop = panelY + pad;
-            int innerH = panelH - pad * 2;
-
-            // ── Buttons (edges, tall, stacked vertically) ──
-            int btnW = 56;
-            int btnGap = 3;
-            int btnCount = 3;
-            int btnH = (innerH - btnGap * (btnCount - 1)) / btnCount;
-
-            _btnRects = new Rectangle[ButtonLabels.Length];
-
-            // Left side buttons: PARTY(3), GUILD(4), QUEST(5)
-            int leftBtnX = pad;
-            for (int i = 0; i < 3; i++)
-            {
-                _btnRects[3 + i] = new Rectangle(
-                    leftBtnX, innerTop + i * (btnH + btnGap),
-                    btnW, btnH);
-            }
-
-            // Right side buttons: MENU(0), CHAR(1), INV(2)
-            int rightBtnX = vw - pad - btnW;
-            for (int i = 0; i < 3; i++)
-            {
-                _btnRects[i] = new Rectangle(
-                    rightBtnX, innerTop + i * (btnH + btnGap),
-                    btnW, btnH);
-            }
-
-            // ── Available center space ──
-            int contentLeft = leftBtnX + btnW + 6;
-            int contentRight = rightBtnX - 6;
-            int contentW = contentRight - contentLeft;
-
-            // ── Quick slots first — compute how big they can be ──
-            int slotGap = 3;
-            int potionGap = 10;
-            int fixedGaps = (SlotCount - 1) * slotGap + potionGap;
-
-            // Slots take ~45% of center, bars take rest
-            int barW = (int)(contentW * 0.19f);
-            int barSlotGap = 6;
-            int slotsAreaW = contentW - 2 * barW - 2 * barSlotGap;
-            int slotSize = Math.Min(
-                (slotsAreaW - fixedGaps) / SlotCount,
-                innerH); // don't exceed panel height
-            slotSize = Math.Max(slotSize, 30); // minimum
-            int slotWidth = Math.Max(28, slotSize - 4);
-            int slotHeight = Math.Min(innerH, slotSize + 4);
-
-            int totalSlotW = SlotCount * slotWidth + fixedGaps;
-            int slotsAreaLeft = contentLeft + barW + barSlotGap;
-            int slotsAreaRight = contentRight - barW - barSlotGap;
-            int actualSlotsW = slotsAreaRight - slotsAreaLeft;
-            int slotStartX = slotsAreaLeft + (actualSlotsW - totalSlotW) / 2;
-            int slotY = panelY + (panelH - slotHeight) / 2;
-
-            _slotRects = new Rectangle[SlotCount];
-            int sx = slotStartX;
-            for (int i = 0; i < SlotCount; i++)
-            {
-                _slotRects[i] = new Rectangle(sx, slotY, slotWidth, slotHeight);
-                sx += slotWidth + slotGap;
-                if (i == PotionSlotCount - 1) sx += potionGap;
-            }
-
-            // ── Resource bars (between buttons and slots, vertically centered) ──
-            int barH = 24;
-            int barGapV = 4;
-            int barsBlockH = barH * 2 + barGapV;
-            int barsTopY = panelY + (panelH - barsBlockH) / 2;
-
-            // Left bars: HP + SD
-            _hpBarRect = new Rectangle(contentLeft, barsTopY, barW, barH);
-            _sdBarRect = new Rectangle(contentLeft, barsTopY + barH + barGapV, barW, barH);
-
-            // Right bars: MP + AG
-            int rightBarX = contentRight - barW;
-            _mpBarRect = new Rectangle(rightBarX, barsTopY, barW, barH);
-            _agBarRect = new Rectangle(rightBarX, barsTopY + barH + barGapV, barW, barH);
-
-            X = 0;
-            Y = panelY;
-            ControlSize = new Point(vw, panelH + expH);
-            ViewSize = ControlSize;
         }
 
         private void RefreshCompanionLifeInfos()
@@ -1146,7 +982,7 @@ namespace Client.Main.Controls.UI.Game.Hud
             int barWidth = Math.Clamp((int)(_panelRect.Width * 0.12f), 120, 156);
             int totalWidth = (count * barWidth) + ((count - 1) * barGap);
             int startX = _panelRect.Center.X - (totalWidth / 2);
-            int y = _panelRect.Y + 4;
+            int y = _panelRect.Y - barHeight - 34; // above the bar's top ornaments
             int drawn = 0;
 
             for (int i = 0; i < _companionInfos.Length; i++)
@@ -1196,233 +1032,6 @@ namespace Client.Main.Controls.UI.Game.Hud
         }
 
         // ════════════════════════════ Drawing ════════════════════════════
-
-        private void DrawPanelBackground(SpriteBatch sb, Texture2D pixel)
-        {
-            // Top shadow fade above the panel
-            var shadowRect = new Rectangle(_panelRect.X, _panelRect.Y - 8, _panelRect.Width, 8);
-            UiDrawHelper.DrawVerticalGradient(sb, shadowRect,
-                Color.Transparent, new Color(0, 0, 0, 100));
-
-            // Outer border frame
-            sb.Draw(pixel, _panelRect, ModernHudTheme.BorderOuter);
-
-            // Inner gradient background
-            var inner = new Rectangle(_panelRect.X + 1, _panelRect.Y + 1,
-                Math.Max(1, _panelRect.Width - 2), Math.Max(1, _panelRect.Height - 2));
-            UiDrawHelper.DrawVerticalGradient(sb, inner,
-                new Color(20, 24, 32, 252), new Color(8, 10, 14, 255));
-
-            // Top accent line (gold)
-            sb.Draw(pixel,
-                new Rectangle(inner.X + 2, inner.Y, Math.Max(1, inner.Width - 4), 1),
-                ModernHudTheme.Accent * 0.55f);
-
-            // Second subtle highlight line
-            sb.Draw(pixel,
-                new Rectangle(inner.X + 2, inner.Y + 1, Math.Max(1, inner.Width - 4), 1),
-                ModernHudTheme.BorderInner * 0.25f);
-
-            // Vertical separators between buttons and bars
-            DrawVerticalSeparator(sb, pixel,
-                _btnRects[0].Right + 3, _panelRect.Y + 4, _panelRect.Height - 8);
-            DrawVerticalSeparator(sb, pixel,
-                _btnRects[3].X - 4, _panelRect.Y + 4, _panelRect.Height - 8);
-        }
-
-        private static void DrawVerticalSeparator(SpriteBatch sb, Texture2D pixel, int x, int y, int height)
-        {
-            sb.Draw(pixel, new Rectangle(x, y, 1, height), ModernHudTheme.BorderOuter * 0.9f);
-            sb.Draw(pixel, new Rectangle(x + 1, y, 1, height), ModernHudTheme.BorderInner * 0.3f);
-            sb.Draw(pixel, new Rectangle(x - 1, y, 3, 2), ModernHudTheme.Accent * 0.45f);
-        }
-
-        private void DrawResourceBar(SpriteBatch sb, Texture2D pixel, Rectangle rect,
-            float pct, Color darkColor, Color mainColor, Color brightColor, Color glowColor,
-            string valueText, string label, bool critical)
-        {
-            float clampedPct = MathHelper.Clamp(pct, 0f, 1f);
-
-            // Pulsing alpha for critical state
-            float critAlpha = 1f;
-            if (critical && clampedPct > 0f)
-            {
-                critAlpha = 0.65f + 0.35f * (float)Math.Sin(_totalTime * 4.0);
-            }
-
-            // Outer frame with rounded-look bevel
-            sb.Draw(pixel, rect, ModernHudTheme.BorderOuter);
-
-            // Inner track
-            var track = new Rectangle(rect.X + 1, rect.Y + 1,
-                Math.Max(1, rect.Width - 2), Math.Max(1, rect.Height - 2));
-
-            // Track background with subtle gradient
-            UiDrawHelper.DrawVerticalGradient(sb, track,
-                new Color(18, 20, 28, 240), new Color(8, 10, 14, 250));
-
-            // Fill bar
-            int fillW = Math.Max(0, (int)(track.Width * clampedPct));
-            if (fillW > 0)
-            {
-                var fillRect = new Rectangle(track.X, track.Y, fillW, track.Height);
-
-                // Main gradient fill (dark → bright)
-                UiDrawHelper.DrawHorizontalGradient(sb, fillRect, darkColor * critAlpha, mainColor * critAlpha);
-
-                // Top shine line (bright, 1px)
-                sb.Draw(pixel, new Rectangle(fillRect.X, fillRect.Y, fillRect.Width, 1),
-                    brightColor * 0.6f * critAlpha);
-
-                // Second shine line (softer)
-                if (fillRect.Height > 4)
-                {
-                    sb.Draw(pixel, new Rectangle(fillRect.X, fillRect.Y + 1, fillRect.Width, 1),
-                        brightColor * 0.2f * critAlpha);
-                }
-
-                // Bottom shadow line
-                sb.Draw(pixel, new Rectangle(fillRect.X, fillRect.Bottom - 1, fillRect.Width, 1),
-                    Color.Black * 0.3f);
-
-                // Right edge glow at fill boundary
-                if (fillW > 2 && glowColor.A > 0)
-                {
-                    int glowW = Math.Min(6, fillW);
-                    sb.Draw(pixel, new Rectangle(fillRect.Right - glowW, fillRect.Y, glowW, fillRect.Height),
-                        glowColor * critAlpha);
-                }
-
-                // Segment tick marks every 25%
-                for (int seg = 1; seg < 4; seg++)
-                {
-                    int tickX = track.X + (int)(track.Width * (seg / 4f));
-                    if (tickX < fillRect.Right && tickX > track.X)
-                    {
-                        sb.Draw(pixel, new Rectangle(tickX, track.Y, 1, track.Height),
-                            Color.Black * 0.25f);
-                    }
-                }
-            }
-
-            // Segment tick marks (unfilled region too, very subtle)
-            for (int seg = 1; seg < 4; seg++)
-            {
-                int tickX = track.X + (int)(track.Width * (seg / 4f));
-                if (tickX >= track.X + fillW)
-                {
-                    sb.Draw(pixel, new Rectangle(tickX, track.Y, 1, track.Height),
-                        ModernHudTheme.BorderInner * 0.15f);
-                }
-            }
-
-            // Inner border highlight (top-left bevel)
-            sb.Draw(pixel, new Rectangle(rect.X + 1, rect.Y + 1, Math.Max(1, rect.Width - 2), 1),
-                ModernHudTheme.BorderHighlight * 0.12f);
-
-            // Text
-            if (_font != null)
-            {
-                float textScale = _barFontScale;
-
-                // Label (left-aligned)
-                var labelSize = _font.MeasureString(label) * textScale;
-                float labelX = rect.X + 5;
-                float labelY = rect.Y + (rect.Height - labelSize.Y) / 2f;
-                DrawTextWithShadow(sb, label, new Vector2(labelX, labelY), mainColor * 0.9f, textScale);
-
-                // Value (right-aligned)
-                var valSize = _font.MeasureString(valueText) * textScale;
-                float valX = rect.Right - valSize.X - 5;
-                float valY = rect.Y + (rect.Height - valSize.Y) / 2f;
-                DrawTextWithShadow(sb, valueText, new Vector2(valX, valY), ModernHudTheme.TextWhite, textScale);
-            }
-        }
-
-        private void DrawQuickSlots(SpriteBatch sb, Texture2D pixel)
-        {
-            for (int i = 0; i < _slotRects.Length; i++)
-            {
-                var rect = _slotRects[i];
-                bool isActive = i == _activeSkillSlot;
-                bool isHovered = i == _hoveredSlot;
-                bool isSkillSlot = i >= PotionSlotCount;
-                bool isPotionSlot = i < PotionSlotCount;
-
-                // Active slot: outer glow aura
-                if (isActive)
-                {
-                    float glowPulse = 0.35f + 0.15f * (float)Math.Sin(_totalTime * 3.0);
-                    var glowRect = new Rectangle(rect.X - 2, rect.Y - 2, rect.Width + 4, rect.Height + 4);
-                    sb.Draw(pixel, glowRect, ModernHudTheme.AccentGlow * glowPulse);
-                }
-
-                // Slot outer border
-                Color borderColor = isActive ? ModernHudTheme.Accent
-                    : isHovered ? ModernHudTheme.SlotHover
-                    : isPotionSlot ? new Color(55, 45, 65, 180) // slightly purple tint for potions
-                    : ModernHudTheme.SlotBorder;
-
-                sb.Draw(pixel, rect, borderColor);
-
-                // Slot inner background with gradient
-                var inner = new Rectangle(rect.X + 1, rect.Y + 1,
-                    Math.Max(1, rect.Width - 2), Math.Max(1, rect.Height - 2));
-                UiDrawHelper.DrawVerticalGradient(sb, inner,
-                    new Color(16, 18, 24, 245), new Color(8, 10, 14, 250));
-
-                // Inner top highlight
-                sb.Draw(pixel, new Rectangle(inner.X, inner.Y, inner.Width, 1),
-                    ModernHudTheme.BorderHighlight * 0.15f);
-
-                // Hover highlight overlay
-                if (isHovered && !isActive)
-                {
-                    sb.Draw(pixel, inner, ModernHudTheme.SlotHover * 0.15f);
-                }
-
-                // Draw skill icon if assigned
-                if (isSkillSlot && _slotSkills[i] != null)
-                {
-                    DrawSkillIcon(sb, inner, _slotSkills[i]!);
-                }
-
-                // Potion slot: draw assigned item icon or empty indicator
-                if (isPotionSlot)
-                {
-                    DrawPotionSlotContent(sb, pixel, inner, i);
-                }
-
-                // Key label badge (top-left)
-                if (_font != null)
-                {
-                    string keyLabel = SlotKeyLabels[i];
-                    float keyScale = _slotFontScale;
-                    var keySize = _font.MeasureString(keyLabel) * keyScale;
-
-                    // Badge background
-                    int badgeW = (int)keySize.X + 5;
-                    int badgeH = (int)keySize.Y + 2;
-                    var badgeRect = new Rectangle(rect.X, rect.Y, badgeW, badgeH);
-                    sb.Draw(pixel, badgeRect, Color.Black * 0.55f);
-
-                    float kx = rect.X + 2;
-                    float ky = rect.Y + 1;
-                    Color keyColor = isActive ? ModernHudTheme.AccentBright
-                        : isHovered ? ModernHudTheme.TextWhite
-                        : ModernHudTheme.TextGray;
-                    sb.DrawString(_font, keyLabel, new Vector2(kx, ky), keyColor,
-                        0f, Vector2.Zero, keyScale, SpriteEffects.None, 0f);
-                }
-
-                // Active slot bottom indicator bar
-                if (isActive)
-                {
-                    sb.Draw(pixel, new Rectangle(rect.X + 2, rect.Bottom - 2, rect.Width - 4, 2),
-                        ModernHudTheme.Accent * 0.9f);
-                }
-            }
-        }
 
         private void DrawSkillIcon(SpriteBatch sb, Rectangle dest, SkillEntryState skill)
         {
@@ -1500,148 +1109,6 @@ namespace Client.Main.Controls.UI.Game.Hud
                 Color.Black * 0.85f * Alpha, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
             spriteBatch.DrawString(_font, timerText, new Vector2(tx, ty),
                 ModernHudTheme.TextWhite * Alpha, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
-        }
-
-        private void DrawInterfaceButtons(SpriteBatch sb, Texture2D pixel)
-        {
-            for (int i = 0; i < _btnRects.Length; i++)
-            {
-                var rect = _btnRects[i];
-                bool isHovered = i == _hoveredButton;
-
-                // Button border
-                sb.Draw(pixel, rect, isHovered ? ModernHudTheme.BorderInner : ModernHudTheme.BorderOuter);
-
-                // Button background with gradient
-                var inner = new Rectangle(rect.X + 1, rect.Y + 1,
-                    Math.Max(1, rect.Width - 2), Math.Max(1, rect.Height - 2));
-
-                if (isHovered)
-                {
-                    UiDrawHelper.DrawVerticalGradient(sb, inner,
-                        ModernHudTheme.BgLighter, ModernHudTheme.BgMid);
-                    // Hover glow underline
-                    sb.Draw(pixel, new Rectangle(rect.X + 2, rect.Bottom - 1, rect.Width - 4, 1),
-                        ModernHudTheme.Accent * 0.5f);
-                }
-                else
-                {
-                    UiDrawHelper.DrawVerticalGradient(sb, inner,
-                        ModernHudTheme.BgMid, ModernHudTheme.BgDark);
-                }
-
-                // Top highlight
-                sb.Draw(pixel, new Rectangle(inner.X, inner.Y, inner.Width, 1),
-                    ModernHudTheme.BorderHighlight * (isHovered ? 0.3f : 0.12f));
-
-                // Button text
-                if (_font != null)
-                {
-                    string label = ButtonLabels[i];
-                    float btnScale = _btnFontScale;
-                    var textSize = _font.MeasureString(label) * btnScale;
-                    float tx = rect.X + (rect.Width - textSize.X) / 2f;
-                    float ty = rect.Y + (rect.Height - textSize.Y) / 2f;
-
-                    Color textColor = isHovered ? ModernHudTheme.TextGold : ModernHudTheme.TextGray;
-                    DrawTextWithShadow(sb, label, new Vector2(tx, ty), textColor, btnScale);
-                }
-            }
-        }
-
-        private void DrawExpBar(SpriteBatch sb, Texture2D pixel)
-        {
-            // Frame
-            sb.Draw(pixel, _expBarRect, ModernHudTheme.BorderOuter);
-
-            // Track with gradient
-            var track = new Rectangle(_expBarRect.X + 1, _expBarRect.Y + 1,
-                Math.Max(1, _expBarRect.Width - 2), Math.Max(1, _expBarRect.Height - 2));
-            UiDrawHelper.DrawVerticalGradient(sb, track,
-                new Color(12, 14, 20, 245), new Color(6, 8, 12, 250));
-
-            // Calculate EXP percentage
-            double expPercent = 0;
-            if (_state.ExperienceForNextLevel > 0)
-            {
-                ushort currentLevel = _state.Level;
-                ulong prevLevelExp = currentLevel > 1
-                    ? (ulong)((currentLevel - 1 + 9) * (currentLevel - 1) * (currentLevel - 1) * 10)
-                    : 0;
-                ulong expInCurrentLevel = _state.Experience >= prevLevelExp ? _state.Experience - prevLevelExp : 0;
-                ulong expNeededForLevel = _state.ExperienceForNextLevel >= prevLevelExp
-                    ? _state.ExperienceForNextLevel - prevLevelExp : 1;
-                expPercent = expNeededForLevel > 0 ? (expInCurrentLevel / (double)expNeededForLevel) * 100.0 : 0.0;
-            }
-
-            float pct = MathHelper.Clamp((float)(expPercent / 100.0), 0f, 1f);
-            int fillW = (int)(track.Width * pct);
-
-            if (fillW > 0)
-            {
-                var fillRect = new Rectangle(track.X, track.Y, fillW, track.Height);
-
-                // Main gradient fill
-                UiDrawHelper.DrawHorizontalGradient(sb, fillRect, ExpColorDark, ExpColor);
-
-                // Top shine
-                sb.Draw(pixel, new Rectangle(fillRect.X, fillRect.Y, fillRect.Width, 1),
-                    ExpColorBright * 0.5f);
-
-                // Bottom shadow
-                sb.Draw(pixel, new Rectangle(fillRect.X, fillRect.Bottom - 1, fillRect.Width, 1),
-                    Color.Black * 0.3f);
-
-                // Glow at the fill edge
-                if (fillW > 3 && ExpGlow.A > 0)
-                {
-                    int glowW = Math.Min(8, fillW);
-                    sb.Draw(pixel, new Rectangle(fillRect.Right - glowW, fillRect.Y, glowW, fillRect.Height),
-                        ExpGlow);
-                }
-
-                // Animated shimmer moving across the bar
-                float shimmerPhase = (float)(_totalTime * 0.3 % 1.0);
-                int shimmerX = track.X + (int)(track.Width * shimmerPhase);
-                int shimmerW = 20;
-                if (shimmerX < fillRect.Right && shimmerX + shimmerW > fillRect.X)
-                {
-                    int clippedX = Math.Max(shimmerX, fillRect.X);
-                    int clippedR = Math.Min(shimmerX + shimmerW, fillRect.Right);
-                    int clippedW = clippedR - clippedX;
-                    if (clippedW > 0)
-                    {
-                        sb.Draw(pixel, new Rectangle(clippedX, fillRect.Y, clippedW, fillRect.Height),
-                            ExpColorBright * 0.15f);
-                    }
-                }
-            }
-
-            // 10% segment tick marks
-            for (int seg = 1; seg < 10; seg++)
-            {
-                int tickX = track.X + (int)(track.Width * (seg / 10f));
-                Color tickColor = tickX < track.X + fillW
-                    ? Color.Black * 0.2f
-                    : ModernHudTheme.BorderInner * 0.12f;
-                sb.Draw(pixel, new Rectangle(tickX, track.Y, 1, track.Height), tickColor);
-            }
-
-            // EXP text
-            if (_font != null)
-            {
-                string expText = $"EXP {expPercent:F1}%";
-                float textScale = _expFontScale;
-                var textSize = _font.MeasureString(expText) * textScale;
-                float tx = _expBarRect.X + (_expBarRect.Width - textSize.X) / 2f;
-                float ty = _expBarRect.Y + (_expBarRect.Height - textSize.Y) / 2f;
-
-                // Text shadow
-                sb.DrawString(_font, expText, new Vector2(tx + 1, ty + 1),
-                    Color.Black * 0.8f, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
-                sb.DrawString(_font, expText, new Vector2(tx, ty),
-                    ExpColorBright, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
-            }
         }
 
         // ════════════════════════════ Potions ════════════════════════════

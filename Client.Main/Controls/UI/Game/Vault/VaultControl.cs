@@ -24,7 +24,7 @@ using MUnique.OpenMU.Network.Packets.ClientToServer;
 
 namespace Client.Main.Controls.UI.Game
 {
-    public class VaultControl : UIControl
+    public class VaultControl : UIControl, IKeyboardCapture
     {
         // ═══════════════════════════════════════════════════════════════
         // WINDOW DIMENSIONS
@@ -161,6 +161,9 @@ namespace Client.Main.Controls.UI.Game
         private bool _depositHovered;
         private bool _withdrawHovered;
         private bool _isZenInputActive;
+
+        /// <summary>The amount field reads digits itself while it is active.</summary>
+        public bool IsCapturingKeyboard => Visible && _isZenInputActive;
         private string _zenInputText = string.Empty;
         private double _zenInputBlinkTimer;
         private bool _zenInputShowCursor;

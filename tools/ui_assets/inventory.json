@@ -95,10 +95,17 @@
           "out": "Icons/repair",
           "square": 96
         },
-        {
-          "out": "Icons/inventory",
-          "square": 96
-        },
+        [
+          {
+            "out": "Icons/inventory",
+            "square": 96
+          },
+          {
+            "out": "Emblems/inventory",
+            "disk": true,
+            "square": 96
+          }
+        ],
         {
           "out": "Icons/zen",
           "square": 96

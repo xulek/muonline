@@ -37,6 +37,10 @@ namespace Client.Main.Controllers
         public BasicEffect BasicEffect3D { get; private set; }
         public BasicEffect BoundingBoxEffect3D { get; private set; }
         public Effect AlphaRGBEffect { get; set; }
+        /// <summary>Liquid orb of the Modern HUD (HudOrb.fx); null where the effect could not be loaded.</summary>
+        public Effect HudOrbEffect { get; private set; }
+        /// <summary>Terrain grass with the ground shadow mask (GrassShadow.fx); null where it could not be loaded.</summary>
+        public Effect GrassShadowEffect { get; private set; }
         public Effect FXAAEffect { get; private set; }
         public Effect GammaCorrectionEffect { get; private set; }
 
@@ -105,6 +109,8 @@ namespace Client.Main.Controllers
             FXAAEffect = LoadEffect("FXAA");
             ShadowEffect = LoadEffect("Shadow");
             GammaCorrectionEffect = LoadEffect("GammaCorrection");
+            HudOrbEffect = LoadEffect("HudOrb");
+            GrassShadowEffect = LoadEffect("GrassShadow");
             ItemMaterialEffect = LoadEffect("ItemMaterial");
             ItemMaterialEffect?.Parameters["GlowColor"]?.SetValue(new Vector3(0.6f, 0.5f, 0.0f));
             MonsterMaterialEffect = LoadEffect("MonsterMaterial");

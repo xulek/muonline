@@ -10,10 +10,12 @@ using System.Threading;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Controls.UI.Game.Inventory;
+using Client.Main.Core.Client;
 using Client.Main.Graphics;
 using Client.Main.Objects;
 using Client.Main.Scenes;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MUnique.OpenMU.Network.Packets;
 
 namespace Client.Main.Diagnostics
@@ -33,7 +35,7 @@ namespace Client.Main.Diagnostics
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, Done }
 
         // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
         private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
@@ -125,6 +127,19 @@ namespace Client.Main.Diagnostics
                 Constants.ENABLE_GPU_SKINNING = gpuSkin == "1";
             if (Environment.GetEnvironmentVariable("MU_STRESS_VERTEX_LIT") is { } vertexLit)
                 Constants.ENABLE_DISTANCE_VERTEX_LIGHTING = vertexLit == "1";
+            // MU_STRESS_SET=NAME=0,OTHER=1: sets bool flags of Constants by name (to find which optimisation breaks a frame).
+            foreach (var pair in (Environment.GetEnvironmentVariable("MU_STRESS_SET") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = pair.Split('=');
+                var field = typeof(Constants).GetField(kv[0].Trim(), BindingFlags.Public | BindingFlags.Static);
+                if (field?.FieldType == typeof(bool) && kv.Length == 2)
+                {
+                    field.SetValue(null, kv[1].Trim() == "1");
+                    Console.WriteLine($"[stress] {field.Name} = {field.GetValue(null)}");
+                }
+            }
+            if (Environment.GetEnvironmentVariable("MU_STRESS_GRASS_SHADOW") == "0")
+                Graphics.GroundShadowMask.Enabled = false;
             if (Environment.GetEnvironmentVariable("MU_STRESS_PRESET") is { } preset &&
                 System.Enum.TryParse(preset, true, out Graphics.GraphicsQualityPreset qualityPreset))
                 Graphics.GraphicsQualityManager.ApplyPreset(qualityPreset, null, null);
@@ -305,6 +320,22 @@ namespace Client.Main.Diagnostics
                             FillInventory(game);
                             Next(Phase.Inventory);
                         }
+                        else if (ShotScene)
+                        {
+                            // Offline the worlds spawn the hero at their default point: put it at MU_STRESS_POS directly.
+                            if (game.ActiveScene is GameScene { Hero: { } shotHero })
+                            {
+                                shotHero.Location = new Vector2(HeroX, HeroY);
+                                shotHero.MoveTargetPosition = shotHero.TargetPosition;
+                                shotHero.Position = shotHero.TargetPosition;
+                            }
+                            Next(Phase.Shot);
+                        }
+                        else if (HudScene)
+                        {
+                            _hudShot = 0;
+                            Next(Phase.Hud);
+                        }
                         else
                         {
                             Next(Phase.Spawn);
@@ -351,6 +382,31 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Inventory:
                     UpdateInventoryShots(game, elapsed);
+                    break;
+
+                case Phase.Shot:
+                    // MU_STRESS_SHOT=1: one screenshot at MU_STRESS_MAP / MU_STRESS_POS once the scene has settled.
+                    if (elapsed >= 4)
+                    {
+                        SaveScreenshot(game, $"{_label}_shot");
+                        // MU_STRESS_SHOT_DUMP=1: what stands around the hero (type, model, transparency, blend state).
+                        if (Environment.GetEnvironmentVariable("MU_STRESS_SHOT_DUMP") == "1" && game.ActiveScene is GameScene { Hero: { } dumpHero, World: { } dumpWorld })
+                        {
+                            foreach (var o in dumpWorld.Objects.GetSnapshotArray().OfType<ModelObject>())
+                            {
+                                if (Vector2.Distance(new Vector2(o.Position.X, o.Position.Y), new Vector2(dumpHero.Position.X, dumpHero.Position.Y)) > 900f)
+                                    continue;
+                                Console.WriteLine($"[stress] near {o.GetType().Name} type={o.Type} model={System.IO.Path.GetFileName(o.Model?.Name ?? "")} " +
+                                    $"pos=({o.Position.X / 100f:F1},{o.Position.Y / 100f:F1}) transparent={o.IsTransparent} blend={o.BlendState?.Name} " +
+                                    $"blendMesh={o.BlendMesh} meshes={o.Model?.Meshes?.Length} alpha={o.Alpha:F2} :: {o.DescribeMeshesForDiagnostics()}");
+                            }
+                        }
+                        Finish(game, null);
+                    }
+                    break;
+
+                case Phase.Hud:
+                    UpdateHudShots(game, elapsed);
                     break;
 
                 case Phase.Spawn:
@@ -436,6 +492,18 @@ namespace Client.Main.Diagnostics
                 hero.Location = grassTile;
                 hero.Position = hero.TargetPosition;
                 Console.WriteLine($"[stress] hero moved to grass tile {grassTile}");
+
+                // MU_STRESS_GRASS_PLAYERS=1: players standing around the hero on the grass, to see their shadows on it.
+                if (Environment.GetEnvironmentVariable("MU_STRESS_GRASS_PLAYERS") == "1")
+                {
+                    for (int i = 0; i < BackItemSets.Length; i++)
+                    {
+                        var set = BackItemSets[i];
+                        byte px = (byte)(grassTile.X + (i % 3) - 1), py = (byte)(grassTile.Y + i / 3 + 1);
+                        Inject(BuildPlayerPacket((ushort)(FirstPlayerId + i), px, py, $"Grass{i}", set.Class, i,
+                            set.Slot0, set.Slot1, BackDirection, bare: false));
+                    }
+                }
             }
 
             if (elapsed < 4)
@@ -444,6 +512,11 @@ namespace Client.Main.Diagnostics
             string[] names = { "start", "off", "on_again" };
             Console.WriteLine($"[stress] grass {names[_grassStep]}: {terrain.DescribeGrassForDiagnostics()}");
             SaveScreenshot(game, $"{_label}_grass_{names[_grassStep]}");
+            if (Graphics.GroundShadowMask.Texture is RenderTarget2D mask && Environment.GetEnvironmentVariable("MU_STRESS_SHOTS") is { } maskDir)
+            {
+                using var file = File.Create(Path.Combine(maskDir, $"{_label}_shadowmask_{names[_grassStep]}.png"));
+                mask.SaveAsPng(file, mask.Width, mask.Height);
+            }
             if (++_grassStep >= names.Length)
             {
                 Finish(game, null);
@@ -724,6 +797,10 @@ namespace Client.Main.Diagnostics
         private static byte[] SampleItem(byte group, short number, byte level = 0, byte flags = 0) =>
             new byte[] { (byte)((group << 4) | ((number >> 8) & 0x0F)), (byte)number, level, 255, flags };
 
+        /// <summary>Excellent item with luck: extended item data with the excellent options byte after the flags.</summary>
+        private static byte[] ExcellentItem(byte group, short number, byte level = 0) =>
+            new byte[] { (byte)((group << 4) | ((number >> 8) & 0x0F)), (byte)number, level, 255, 0x0A, 0x3F };
+
         private static void FillInventory(MuGame game)
         {
             var state = MuGame.Network.GetCharacterState();
@@ -753,10 +830,167 @@ namespace Client.Main.Diagnostics
             state.AddOrUpdateInventoryItem(52, SampleItem(8, 5, 0));    // armor
             state.AddOrUpdateInventoryItem(54, SampleItem(12, 2));      // wings
             state.AddOrUpdateInventoryItem(57, SampleItem(14, 19, 1));  // Devil's Invitation
+            // MU_STRESS_INV_EXC=1: excellent +15 equipment and a grid full of excellent items, all with animated
+            // materials, to check that every preview still gets rendered.
+            if (Environment.GetEnvironmentVariable("MU_STRESS_INV_EXC") == "1")
+            {
+                for (byte slot = 0; slot <= 11; slot++)
+                {
+                    byte[] data = slot switch
+                    {
+                        0 => ExcellentItem(0, 13, 15), 1 => ExcellentItem(6, 6, 15),
+                        2 => ExcellentItem(7, 1, 15), 3 => ExcellentItem(8, 1, 15),
+                        4 => ExcellentItem(9, 1, 15), 5 => ExcellentItem(10, 1, 15),
+                        6 => ExcellentItem(11, 1, 15), 7 => SampleItem(12, 5),
+                        9 => ExcellentItem(13, 12), 10 => ExcellentItem(13, 8), 11 => ExcellentItem(13, 9), _ => null,
+                    };
+                    if (data != null)
+                        state.AddOrUpdateInventoryItem(slot, data);
+                }
+                // Excellent armour pieces filling the free rows of the grid.
+                short[] groups = { 7, 9, 10, 11 };
+                for (int i = 0; i < 8; i++)
+                    state.AddOrUpdateInventoryItem((byte)(12 + 6 * 8 + i), ExcellentItem((byte)groups[i % 4], (short)(1 + i / 4), (byte)(7 + i)));
+            }
+
             state.RaiseInventoryChanged();
             if (game.ActiveScene is GameScene scene)
                 scene.InventoryControl?.Show();
             Console.WriteLine("[stress] inventory filled and opened");
+
+            // MU_STRESS_NPCSHOP=1: a repairing NPC's shop next to the inventory (weapons, armour, jewels, potions).
+            if (Environment.GetEnvironmentVariable("MU_STRESS_NPCSHOP") == "1")
+            {
+                state.ClearShopItems();
+                state.InventoryZen = 12_500_000;
+                state.AddOrUpdateShopItem(0, SampleItem(0, 13, 9));
+                state.AddOrUpdateShopItem(2, SampleItem(7, 1, 7));
+                state.AddOrUpdateShopItem(4, SampleItem(8, 1));
+                state.AddOrUpdateShopItem(6, SampleItem(14, 13));
+                state.AddOrUpdateShopItem(7, SampleItem(14, 14));
+                state.AddOrUpdateShopItem(24, SampleItem(9, 1, 3));
+                state.AddOrUpdateShopItem(26, SampleItem(5, 0, 2));
+                state.AddOrUpdateShopItem(30, SampleItem(14, 3));
+                state.AddOrUpdateShopItem(31, SampleItem(14, 6));
+                state.AddOrUpdateShopItem(48, SampleItem(4, 3));
+                state.AddOrUpdateShopItem(50, SampleItem(11, 1, 11));
+                state.AddOrUpdateShopItem(52, SampleItem(10, 1));
+                state.RaiseShopItemsChanged();
+                var shop = Controls.UI.Game.NpcShopControl.Instance;
+                shop.SetRepairShop(true);
+                shop.Visible = true;
+                shop.BringToFront();
+            }
+        }
+
+        // MU_STRESS_HUD=1: fills the character's resources and screenshots the Modern HUD: resting, two frames of the
+        // liquid animation, the drain band right after a hit, low health, and hover hints of an orb and a menu button.
+        private static readonly bool ShotScene = Environment.GetEnvironmentVariable("MU_STRESS_SHOT") == "1";
+        private static readonly bool HudScene = Environment.GetEnvironmentVariable("MU_STRESS_HUD") == "1";
+        private static int _hudShot;
+
+        private static void UpdateHudShots(MuGame game, double elapsed)
+        {
+            double[] at = { 3.0, 4.5, 4.75, 5.5, 5.8, 7.5, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0 };
+            if (_hudShot >= at.Length || elapsed < at[_hudShot])
+                return;
+
+            var state = MuGame.Network.GetCharacterState();
+            var pointer = (Point?)new Point(640, 300);
+            switch (_hudShot)
+            {
+                case 0:
+                    // MU_STRESS_NEAR=<type name>: stand next to the nearest map object of that type (e.g. TreeObject).
+                    if (Environment.GetEnvironmentVariable("MU_STRESS_NEAR") is { Length: > 0 } nearType &&
+                        game.ActiveScene is GameScene { Hero: { } nearHero } nearScene && nearScene.World != null)
+                    {
+                        // MU_STRESS_NEAR_SKIP=n: the n-th nearest instead of the nearest.
+                        int skip = int.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_NEAR_SKIP"), out int nearSkip) ? nearSkip : 0;
+                        var heroXY = new Vector2(nearHero.Position.X, nearHero.Position.Y);
+                        WorldObject nearest = nearScene.World.Objects.GetSnapshotArray()
+                            .Where(o => o.GetType().Name == nearType)
+                            .OrderBy(o => Vector2.Distance(new Vector2(o.Position.X, o.Position.Y), heroXY))
+                            .Skip(skip).FirstOrDefault();
+                        Console.WriteLine("[stress] object types: " + string.Join(", ", nearScene.World.Objects.GetSnapshotArray()
+                            .GroupBy(o => o is ModelObject m && m.Model != null ? $"{o.GetType().Name}:{System.IO.Path.GetFileName(m.Model.Name ?? "")}" : o.GetType().Name)
+                            .OrderByDescending(g => g.Count()).Take(60).Select(g => $"{g.Key}x{g.Count()}")));
+                        if (nearest != null)
+                        {
+                            nearHero.Location = new Vector2((int)(nearest.Position.X / Constants.TERRAIN_SCALE) + 1, (int)(nearest.Position.Y / Constants.TERRAIN_SCALE) + 1);
+                            nearHero.Position = nearHero.TargetPosition;
+                            Console.WriteLine($"[stress] hero moved next to {nearType} at {nearest.Position}");
+                        }
+                    }
+                    state.Level = 150;
+                    state.Experience = (ulong)((150 - 1 + 9) * (150 - 1) * (150 - 1) * 10) + 300_000;
+                    state.ExperienceForNextLevel = (ulong)((150 + 9) * 150 * 150 * 10);
+                    state.MaximumHealth = 2400; state.CurrentHealth = 1850;
+                    state.MaximumMana = 1600; state.CurrentMana = 1020;
+                    state.MaximumShield = 900; state.CurrentShield = 640;
+                    state.MaximumAbility = 300; state.CurrentAbility = 170;
+                    break;
+                case 1: SaveScreenshot(game, $"{_label}_hud_rest_a"); break;
+                case 2: SaveScreenshot(game, $"{_label}_hud_rest_b"); break;
+                case 3: state.CurrentHealth = 1050; break;                     // a heavy hit
+                case 4: SaveScreenshot(game, $"{_label}_hud_hit"); break;
+                case 5: state.CurrentHealth = 380; break;                      // low health
+                case 6: SaveScreenshot(game, $"{_label}_hud_low"); pointer = new Point(299, 634); break;
+                case 7: SaveScreenshot(game, $"{_label}_hud_orb_hint"); pointer = new Point(1181, 675); break;
+                case 8:
+                {
+                    SaveScreenshot(game, $"{_label}_hud_button_hint");
+                    // Dark Knight and Dark Wizard skills, two of them on the hotbar, then the picker for slot 3.
+                    ushort[] ids = { 19, 20, 21, 22, 23, 41, 42, 43, 47, 48, 1, 2, 3, 4, 5, 7, 9, 12 };
+                    state.Strength = 900; state.Agility = 300; state.Energy = 120;
+                    foreach (ushort id in ids)
+                        state.AddOrUpdateSkill(new SkillEntryState { SkillId = id, SkillLevel = 0 });
+                    if (game.ActiveScene is GameScene hudScene && hudScene.ModernHud is { } hud)
+                    {
+                        hud.SetHotbarSkillAt(0, new SkillEntryState { SkillId = 41 });
+                        hud.SetHotbarSkillAt(1, new SkillEntryState { SkillId = 43 });
+                        hud.BeginSkillAssignment(2);
+                    }
+                    break;
+                }
+                case 9:
+                {
+                    SaveScreenshot(game, $"{_label}_hud_skills");
+                    if (game.ActiveScene is GameScene hudScene && hudScene.ModernHud is { } hud &&
+                        typeof(Controls.UI.Game.Hud.ModernBottomHud).GetField("_skillPanel", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(hud) is Controls.UI.Game.Skills.SkillSelectionPanel panel)
+                    {
+                        Rectangle r = panel.DisplayRectangle;
+                        pointer = new Point(r.X + 34 + 60 * 5 + 26, r.Y + 70 + 26); // sixth skill of the first row
+                    }
+                    break;
+                }
+                case 10:
+                {
+                    SaveScreenshot(game, $"{_label}_hud_skills_hover");
+                    if (game.ActiveScene is GameScene charScene)
+                    {
+                        (typeof(Controls.UI.Game.Hud.ModernBottomHud).GetField("_skillPanel", BindingFlags.NonPublic | BindingFlags.Instance)
+                            ?.GetValue(charScene.ModernHud) as Controls.UI.Game.Skills.SkillSelectionPanel)?.Close();
+                        state.Name = "Aragorn"; state.Class = CharacterClassNumber.BladeKnight;
+                        state.Vitality = 400; state.AddedStrength = 35; state.AddedAgility = 12; state.LevelUpPoints = 25;
+                        (typeof(GameScene).GetField("_characterInfoWindow", BindingFlags.NonPublic | BindingFlags.Instance)
+                            ?.GetValue(charScene) as Controls.UI.Game.Character.CharacterInfoWindowControl)?.ShowWindow();
+                    }
+                    break;
+                }
+                case 11:
+                    SaveScreenshot(game, $"{_label}_hud_character");
+                    pointer = new Point(235, 230); // "+" of Strength
+                    break;
+                case 12:
+                    SaveScreenshot(game, $"{_label}_hud_character_plus");
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = null;
+                    Finish(game, null);
+                    _hudShot++;
+                    return;
+            }
+
+            Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = pointer;
+            _hudShot++;
         }
 
         private static int _inventoryShot;

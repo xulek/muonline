@@ -24,7 +24,7 @@ namespace Client.Main.Controls.UI.Game.Trade
     /// <summary>
     /// Player-to-player trade window with two 8x4 grids (partner + player).
     /// </summary>
-    public class TradeControl : UIControl
+    public class TradeControl : UIControl, IKeyboardCapture
     {
         // ═══════════════════════════════════════════════════════════════
         // WINDOW DIMENSIONS
@@ -155,6 +155,9 @@ namespace Client.Main.Controls.UI.Game.Trade
         private const int MoneyInputMaxDigits = 10;
         private const double CursorBlinkIntervalMs = 500;
         private bool _isMoneyInputActive;
+
+        /// <summary>The amount field reads digits itself while it is active.</summary>
+        public bool IsCapturingKeyboard => Visible && _isMoneyInputActive;
         private bool _moneyInputHovered;
         private string _moneyInputText = string.Empty;
         private double _moneyInputBlinkTimer;

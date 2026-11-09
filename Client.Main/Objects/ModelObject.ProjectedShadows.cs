@@ -257,7 +257,9 @@ namespace Client.Main.Objects
         }
 
         /// <summary>Draws the queued projected shadows, skinned ones first; called at the ground shadow batch end.</summary>
-        private static void DrawQueuedProjectedShadows(GraphicsDevice gd)
+        /// <param name="maskViewProjection">Set when drawing into <see cref="GroundShadowMask"/> (no depth test).</param>
+        /// <param name="keepQueued">Leaves the queue for the screen draw that follows.</param>
+        private static void DrawQueuedProjectedShadows(GraphicsDevice gd, Matrix? maskViewProjection = null, bool keepQueued = false)
         {
             if (s_projectedShadowDraws.Count == 0 || gd == null)
                 return;
@@ -272,7 +274,8 @@ namespace Client.Main.Objects
             // DirectX/Vulkan read the height texture; OpenGL gets a node window per draw (GroundPatch).
             if (staticTechnique == null || groundHeights == null || camera == null)
             {
-                s_projectedShadowDraws.Clear();
+                if (!keepQueued)
+                    s_projectedShadowDraws.Clear();
                 return;
             }
 
@@ -284,9 +287,11 @@ namespace Client.Main.Objects
             {
                 float constBias = 1f / (1 << 24);
                 gd.BlendState = Blendings.ShadowBlend;
-                gd.DepthStencilState = DepthStencilState.DepthRead;
-                gd.RasterizerState = GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
-                bindings.ViewProjection?.SetValue(camera.ViewProjection);
+                gd.DepthStencilState = maskViewProjection.HasValue ? DepthStencilState.None : DepthStencilState.DepthRead;
+                gd.RasterizerState = maskViewProjection.HasValue
+                    ? RasterizerState.CullNone
+                    : GraphicsManager.GetCachedRasterizerState(constBias * -20, CullMode.None);
+                bindings.ViewProjection?.SetValue(maskViewProjection ?? camera.ViewProjection);
                 bindings.GroundHeightTexture?.SetValue(groundHeights);
 
                 // The shadow blend only darkens, so the draws may go in any order: grouped by technique (one
@@ -315,7 +320,8 @@ namespace Client.Main.Objects
             }
             finally
             {
-                s_projectedShadowDraws.Clear();
+                if (!keepQueued)
+                    s_projectedShadowDraws.Clear();
                 // The effect is shared; the shadow-map casters rely on the default.
                 bindings.ShadowOpaqueCaster?.SetValue(0f);
                 if (previousTechnique != null)

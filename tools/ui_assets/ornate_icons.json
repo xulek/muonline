@@ -6,30 +6,80 @@
       "prompt": "A row of exactly 4 separate square game menu ICONS, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a glowing golden sword pointing up (continue/resume), 2) an ornate bronze gear cog (settings), 3) a knight helmet (character select), 4) a glowing blue magic portal/globe (server select).",
       "split": 4,
       "cut": [
-        { "out": "Icons/resume", "square": 96 },
-        { "out": "Icons/settings", "square": 96 },
-        { "out": "Icons/character", "square": 96 },
-        { "out": "Icons/server", "square": 96 }
+        {
+          "out": "Icons/resume",
+          "square": 96
+        },
+        [
+          {
+            "out": "Icons/settings",
+            "square": 96
+          },
+          {
+            "out": "Emblems/settings",
+            "disk": true,
+            "square": 96
+          }
+        ],
+        [
+          {
+            "out": "Icons/character",
+            "square": 96
+          },
+          {
+            "out": "Emblems/character",
+            "disk": true,
+            "square": 96
+          }
+        ],
+        {
+          "out": "Icons/server",
+          "square": 96
+        }
       ]
     },
     "icons_exit_display": {
       "prompt": "A row of exactly 4 separate square game menu ICONS, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a red glowing open gothic door (exit game), 2) a magic crystal mirror/screen with blue glow (display), 3) a faceted multicolor gemstone with sparkle (graphics quality), 4) a golden radiant sun (lighting).",
       "split": 4,
       "cut": [
-        { "out": "Icons/exit", "square": 96 },
-        { "out": "Icons/display", "square": 96 },
-        { "out": "Icons/graphics", "square": 96 },
-        { "out": "Icons/lighting", "square": 96 }
+        {
+          "out": "Icons/exit",
+          "square": 96
+        },
+        {
+          "out": "Icons/display",
+          "square": 96
+        },
+        {
+          "out": "Icons/graphics",
+          "square": 96
+        },
+        {
+          "out": "Icons/lighting",
+          "square": 96
+        }
       ]
     },
     "icons_settings": {
       "prompt": "A row of exactly 4 separate square game menu ICONS, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) a golden war horn with sound waves (audio), 2) an unrolled parchment scroll (interface), 3) an hourglass with glowing blue sand and lightning (performance), 4) a magnifying lens over a glowing purple rune (debug/advanced).",
       "split": 4,
       "cut": [
-        { "out": "Icons/audio", "square": 96 },
-        { "out": "Icons/interface", "square": 96 },
-        { "out": "Icons/performance", "square": 96 },
-        { "out": "Icons/advanced", "square": 96 }
+        {
+          "out": "Icons/audio",
+          "square": 96
+        },
+        {
+          "out": "Icons/interface",
+          "square": 96
+        },
+        {
+          "out": "Icons/performance",
+          "square": 96
+        },
+        {
+          "out": "Icons/advanced",
+          "square": 96
+        }
       ]
     }
   }

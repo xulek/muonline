@@ -484,6 +484,16 @@ namespace Client.Main.Controls.Terrain
             return SupportsProceduralTerrainUv(GraphicsManager.Instance.DynamicLightingEffect);
         }
 
+        /// <summary>
+        /// Grass pass, drawn after the opaque objects and their ground shadows (WorldControl) so that shadows lie
+        /// on the grass. The original Atlans terrain pass does not render standard grass.
+        /// </summary>
+        public void DrawGrassAfterShadows()
+        {
+            if (!IsAnimatedWaterWorld)
+                _grassRenderer.Draw();
+        }
+
         public void Draw()
         {
             if (_graphicsDevice == null) return;
@@ -623,9 +633,7 @@ namespace Client.Main.Controls.Terrain
                     Snow.Draw(snowEffect);
                 }
 
-                // The original Atlans terrain pass does not render standard grass.
-                if (!IsAnimatedWaterWorld)
-                    _grassRenderer.Draw();
+                // Grass is drawn later, after the ground shadows (DrawGrassAfterShadows), so shadows lie on it.
             }
             finally
             {

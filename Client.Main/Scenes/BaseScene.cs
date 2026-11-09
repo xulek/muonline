@@ -410,6 +410,29 @@ namespace Client.Main.Scenes
             }
         }
 
+        /// <summary>
+        /// True while the player types: a focused text field, or a visible window capturing keys for its own input
+        /// (<see cref="IKeyboardCapture"/>). Hotkeys, hotbar keys (Q/W/E, 1-0) and other key shortcuts must ignore the
+        /// keyboard then.
+        /// </summary>
+        public bool IsTextInputActive
+        {
+            get
+            {
+                if (FocusControl is TextFieldControl { Visible: true, IsFocused: true } ||
+                    FocusControl is Controls.UI.Common.TextBoxControl { Visible: true })
+                    return true;
+
+                var controls = Controls.GetSnapshotArray();
+                for (int i = 0; i < controls.Length; i++)
+                {
+                    if (controls[i] is IKeyboardCapture { IsCapturingKeyboard: true } capture && controls[i].Visible)
+                        return true;
+                }
+                return false;
+            }
+        }
+
         public void SetMouseInputConsumed()
         {
             IsMouseInputConsumedThisFrame = true;

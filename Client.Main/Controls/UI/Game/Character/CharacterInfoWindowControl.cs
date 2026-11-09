@@ -19,10 +19,10 @@ using Client.Main.Helpers;
 
 namespace Client.Main.Controls.UI.Game.Character
 {
-    public class CharacterInfoWindowControl : UIControl, IUiTexturePreloadable
+    public partial class CharacterInfoWindowControl : UIControl, IUiTexturePreloadable
     {
         private static int WINDOW_WIDTH => UiThemeManager.CurrentId == UiThemeId.Season6
-            ? UiThemeManager.Current.Metrics.CharacterWindowSize.X : 280;
+            ? UiThemeManager.Current.Metrics.CharacterWindowSize.X : OrnateWidth;
         private static int WINDOW_HEIGHT => UiThemeManager.CurrentId == UiThemeId.Season6
             ? UiThemeManager.Current.Metrics.CharacterWindowSize.Y : 520;
         private const int STAT_BOX_WIDTH = 170;
@@ -687,6 +687,12 @@ namespace Client.Main.Controls.UI.Game.Character
 
         private void HandleButtonInput()
         {
+            if (!IsSeason6)
+            {
+                HandleOrnateInput();
+                return;
+            }
+
             var mouseState = MuGame.Instance.UiMouseState;
             var prevMouseState = MuGame.Instance.PrevUiMouseState;
             var mousePosition = mouseState.Position;
@@ -751,7 +757,8 @@ namespace Client.Main.Controls.UI.Game.Character
                 return;
             }
 
-            EnsureStaticSurface();
+            if (IsSeason6)
+                EnsureStaticSurface();
 
             var spriteBatch = GraphicsManager.Instance.Sprite;
             SpriteBatchScope? scope = null;
@@ -762,6 +769,12 @@ namespace Client.Main.Controls.UI.Game.Character
 
             try
             {
+                if (!IsSeason6)
+                {
+                    DrawOrnate(spriteBatch);
+                    return;
+                }
+
                 if (_staticSurface != null && !_staticSurface.IsDisposed)
                 {
                     spriteBatch.Draw(_staticSurface, DisplayRectangle, Color.White * Alpha);
@@ -1126,6 +1139,8 @@ namespace Client.Main.Controls.UI.Game.Character
                 _masterButton.Enabled = masterActive;
             }
 
+            BuildOrnate(snapshot);
+
             _exitButton.Visible = true;
             _exitButton.Enabled = true;
             _questButton.Visible = true;
@@ -1186,6 +1201,8 @@ namespace Client.Main.Controls.UI.Game.Character
 
         public void ShowWindow()
         {
+            if (!IsSeason6 && !_ornateMoved && Y < OrnateMinTop)
+                Y = OrnateMinTop;
             Visible = true;
             _pressedButtonIndex = -1;
             _hoveredButtonIndex = -1;

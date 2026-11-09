@@ -1,0 +1,93 @@
+{
+  "output": "Client.Main/Assets/Interface/Ornate",
+  "style": "Style: classic MU Online (Webzen) fantasy MMORPG interface - dark burnished bronze and antique gold filigree metal, deep red gemstones, gothic angular shapes, rich painterly game-UI rendering, crisp clean edges, orthographic flat front view, no text, no letters, no watermark.",
+  "sources": {
+    "orb_ring": {
+      "prompt": "A single large circular ornate FRAME RING for a health orb of a fantasy MMORPG HUD: a thick round bronze-gold ring with a beveled inner lip, gothic filigree on the ring, a small red gem at the top, a spread metal dragon wing flaring out to the LEFT side only, and a heavy claw-shaped base at the bottom. The inside of the ring is completely EMPTY and transparent (a perfect round hole, nothing inside). Ring occupies most of the canvas, orthographic front view.",
+      "cut": [
+        {
+          "out": "Hud/orb_ring",
+          "hollow": 0.22,
+          "width": 384
+        }
+      ]
+    },
+    "bar": {
+      "prompt": "A single very wide horizontal HUD BASE PANEL for the bottom of a fantasy MMORPG screen (holds a row of skill slots): a long rectangular dark recessed stone channel framed by bronze-gold beveled rails along the top and bottom edges, small gothic filigree ornaments evenly along the top rail, a red gem ornament in the exact center of the top rail, short angular end caps on left and right. The center of the channel is flat, even and dark. Perfectly left-right symmetric. Extremely wide aspect ratio about 8:1, filling the canvas width.",
+      "cut": [
+        {
+          "out": "Hud/bar",
+          "width": 1024,
+          "desaturate_green": true
+        }
+      ]
+    },
+    "slot_frames": {
+      "prompt": "Exactly 2 separate square SKILL SLOT frames in a single horizontal row with a clear empty gap between them, same size and same shape: a square bronze beveled frame with small sharp gothic corner ornaments with a small red gem in each corner, thin straight edges, and a completely empty transparent square hole inside (nothing inside the frame). 1) normal state: dark aged bronze, 2) selected state: identical frame made of bright polished shining gold. Absolutely no glow, no halo, no light, no haze outside or inside the frames; the background around and inside them is completely empty.",
+      "split": 2,
+      "cut": [
+        {
+          "out": "Hud/slot",
+          "hollow": 0.14,
+          "square": 96
+        },
+        {
+          "out": "Hud/slot_active",
+          "hollow": 0.14,
+          "square": 96
+        }
+      ]
+    },
+    "liquid": {
+      "prompt": "A seamless tileable square TEXTURE of soft swirling magical liquid smoke: grayscale only, flowing wispy curls and soft cloudy noise with medium contrast, no hard edges, no objects, evenly distributed detail so it tiles without visible seams.",
+      "opaque": true,
+      "cut": [
+        {
+          "out": "Hud/liquid",
+          "tileable": true,
+          "width": 256,
+          "height": 256
+        }
+      ]
+    },
+    "icons_hud": {
+      "prompt": "A row of exactly 3 separate square game menu ICONS, evenly spaced in a single horizontal row with clear empty gaps between them, each icon same size inside its own round bronze-gold medallion frame with dark interior: 1) three small knight helmets side by side (party), 2) a red heraldic banner flag with a gold crest on a pole (guild), 3) two armored gauntlet hands clasped in a firm handshake (friends).",
+      "split": 3,
+      "cut": [
+        [
+          {
+            "out": "Icons/party",
+            "square": 96
+          },
+          {
+            "out": "Emblems/party",
+            "disk": true,
+            "square": 96
+          }
+        ],
+        [
+          {
+            "out": "Icons/guild",
+            "square": 96
+          },
+          {
+            "out": "Emblems/guild",
+            "disk": true,
+            "square": 96
+          }
+        ],
+        [
+          {
+            "out": "Icons/friends",
+            "square": 96
+          },
+          {
+            "out": "Emblems/friends",
+            "disk": true,
+            "square": 96
+          }
+        ]
+      ]
+    }
+  }
+}

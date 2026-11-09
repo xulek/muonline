@@ -1370,6 +1370,16 @@ namespace Client.Main.Controls
                     {
                         RecordRenderFailure(null, "Draw.GroundShadowBatch", ex);
                     }
+
+                    try
+                    {
+                        // After the shadows: they mark the stencil, grass there is drawn shaded.
+                        Terrain?.DrawGrassAfterShadows();
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRenderFailure(null, "Draw.Grass", ex);
+                    }
                 }
                 RenderDrawCounter.Mark(RenderDrawCounter.Step.Solid);
                 DrawListWithSpriteBatchGrouping(_transparentObjects, DepthStateDepthRead, time);

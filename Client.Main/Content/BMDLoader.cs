@@ -23,6 +23,12 @@ namespace Client.Main.Content
 
         private readonly BMDReader _reader = new();
         private readonly Dictionary<string, Task<BMD>> _bmds = [];
+
+        // A load can fail transiently (a texture decode or file read colliding with map loading). Such a failure must
+        // not stick for the whole session: an existing file is loaded again a few times, spaced out.
+        private const int MaxLoadRetries = 4;
+        private const long LoadRetryDelayMs = 2000;
+        private readonly Dictionary<string, (int Count, long At)> _failedLoads = new();
         private readonly Dictionary<BMD, Dictionary<string, string>> _texturePathMap = [];
         private Dictionary<string, Dictionary<int, string>> _blendingConfig;
 
@@ -444,12 +450,41 @@ namespace Client.Main.Content
 
                 path = GetActualPath(Path.Combine(Constants.DataPath, path));
                 if (_bmds.TryGetValue(path, out Task<BMD> modelTask))
-                    return modelTask;
+                {
+                    if (!ShouldRetryFailedLoad(path, modelTask))
+                        return modelTask;
+                    _bmds.Remove(path);
+                }
 
                 modelTask = LoadAssetAsync(path, textureFolder);
                 _bmds.Add(path, modelTask);
                 return modelTask;
             }
+        }
+
+        /// <summary>
+        /// True when a finished load of an existing file gave no model and may be tried again (called under the
+        /// <c>_bmds</c> lock). Missing files are not retried.
+        /// </summary>
+        private bool ShouldRetryFailedLoad(string path, Task<BMD> task)
+        {
+            if (!task.IsCompleted || (task.IsCompletedSuccessfully && task.Result != null))
+                return false;
+
+            long now = Environment.TickCount64;
+            _failedLoads.TryGetValue(path, out var failure);
+            if (failure.At == 0)
+            {
+                _failedLoads[path] = (0, now);
+                return false;
+            }
+
+            if (failure.Count >= MaxLoadRetries || now - failure.At < LoadRetryDelayMs || !File.Exists(path))
+                return false;
+
+            _failedLoads[path] = (failure.Count + 1, now);
+            _logger?.LogDebug("Retrying model load {Path} (attempt {Attempt})", path, failure.Count + 2);
+            return true;
         }
 
         public Task<bool> AssestExist(string path)
