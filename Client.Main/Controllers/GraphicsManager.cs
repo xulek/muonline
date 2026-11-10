@@ -161,12 +161,47 @@ namespace Client.Main.Controllers
             SmallFont = string.Equals(Constants.FONT_NAME, "Arial", StringComparison.OrdinalIgnoreCase)
                 ? _contentManager.Load<SpriteFont>("ArialSmall")
                 : null;
+            LoadUiFonts();
         }
 
+        // UI fonts rasterised at several pixel sizes (ArialUi*.spritefont): text is drawn from the one closest to its
+        // size on screen, so glyphs are scaled by almost 1 instead of shrinking or stretching one bitmap.
+        private static readonly int[] UiFontSizes = { 9, 10, 11, 13, 15, 17, 19, 22, 26, 30, 35, 42 };
+        private SpriteFont[] _uiFonts;
+
+        private void LoadUiFonts()
+        {
+            if (!string.Equals(Constants.FONT_NAME, "Arial", StringComparison.OrdinalIgnoreCase))
+                return;
+            try
+            {
+                var fonts = new SpriteFont[UiFontSizes.Length];
+                for (int i = 0; i < UiFontSizes.Length; i++)
+                    fonts[i] = _contentManager.Load<SpriteFont>("ArialUi" + UiFontSizes[i]);
+                _uiFonts = fonts;
+            }
+            catch (Exception ex)
+            {
+                MuGame.AppLoggerFactory?.CreateLogger<GraphicsManager>().LogWarning(ex, "UI font sizes unavailable; using the base font.");
+                _uiFonts = null;
+            }
+        }
+
+        /// <summary>
+        /// Font for text of <paramref name="desiredSize"/> (virtual UI units) and the scale to draw it with. The font is
+        /// the rasterised size nearest to the text's size in screen pixels (the UI transform scales virtual units).
+        /// </summary>
         public static SpriteFont GetUiFont(float desiredSize, out float scale)
         {
             const float smallFontSize = 14f;
             GraphicsManager manager = Instance;
+
+            if (manager?._uiFonts != null)
+            {
+                SpriteFont font = GetScreenFont(desiredSize * MathF.Max(0.01f, UiScaler.Scale), out float pixelScale);
+                scale = pixelScale / MathF.Max(0.01f, UiScaler.Scale);
+                return font;
+            }
 
             if (desiredSize <= smallFontSize && manager?.SmallFont != null)
             {
@@ -175,6 +210,36 @@ namespace Client.Main.Controllers
             }
 
             scale = desiredSize / Constants.BASE_FONT_SIZE;
+            return manager?.Font;
+        }
+
+        /// <summary>
+        /// Font for text <paramref name="pixels"/> high on screen, drawn without a UI transform (world nameplates,
+        /// labels over characters), and the scale to draw it with.
+        /// </summary>
+        public static SpriteFont GetScreenFont(float pixels, out float scale)
+        {
+            GraphicsManager manager = Instance;
+            if (manager?._uiFonts is { } fonts)
+            {
+                int best = 0;
+                float bestError = float.MaxValue;
+                for (int i = 0; i < UiFontSizes.Length; i++)
+                {
+                    // Prefer shrinking slightly over enlarging (enlarged glyphs go soft).
+                    float ratio = pixels / UiFontSizes[i];
+                    float error = ratio > 1f ? (ratio - 1f) * 1.6f : 1f - ratio;
+                    if (error < bestError)
+                    {
+                        bestError = error;
+                        best = i;
+                    }
+                }
+                scale = pixels / UiFontSizes[best];
+                return fonts[best];
+            }
+
+            scale = pixels / Constants.BASE_FONT_SIZE;
             return manager?.Font;
         }
 
@@ -190,9 +255,10 @@ namespace Client.Main.Controllers
 
             // Targets are recreated lazily on the next frame if required.
 
-            // Update UiScaler with new render scale
+            // Update UiScaler with new render scale (not yet when settings are restored before the device exists:
+            // the scale is picked up when the targets are first created).
             var settings = MuGame.AppSettings?.Graphics;
-            if (settings != null)
+            if (settings != null && _graphicsDevice != null)
             {
                 int actualWidth = Math.Max(1, _graphicsDevice.PresentationParameters.BackBufferWidth);
                 int actualHeight = Math.Max(1, _graphicsDevice.PresentationParameters.BackBufferHeight);

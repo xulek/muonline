@@ -1466,7 +1466,9 @@ namespace Client.Main.Controls
 
             try
             {
-                OverheadNameplateRenderer.FlushQueuedNameplates(GraphicsManager.Instance.Sprite);
+                // With the interface drawn at the window's resolution the nameplates go with it (sharp text).
+                if (!Client.Main.Scenes.BaseScene.DeferInterface)
+                    OverheadNameplateRenderer.FlushQueuedNameplates(GraphicsManager.Instance.Sprite);
             }
             catch (Exception ex)
             {

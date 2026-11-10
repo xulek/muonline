@@ -33,12 +33,14 @@ namespace Client.Main.Controls.UI.Ornate
             if (font == null)
                 return;
 
-            position = new Vector2(MathF.Round(position.X), MathF.Round(position.Y));
+            // Whole screen pixels (the UI transform scales virtual units): text between pixels is filtered soft.
+            position = UiScaler.SnapToPixel(position);
+            float pixel = UiScaler.InverseScale;
             if (shadow)
-                sb.DrawString(font, text, position + new Vector2(1f, 1.5f), Color.Black * (0.85f * alpha), 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                sb.DrawString(font, text, position + new Vector2(pixel, pixel), Color.Black * (0.85f * alpha), 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             sb.DrawString(font, text, position, color * alpha, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             if (bold)
-                sb.DrawString(font, text, position + new Vector2(0.6f, 0f), color * alpha, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                sb.DrawString(font, text, position + new Vector2(pixel, 0f), color * (0.85f * alpha), 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
         /// <summary>

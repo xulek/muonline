@@ -1062,7 +1062,7 @@ namespace Client.Main.Scenes
                     _loadingView.Progress = initialLoading?.Progress ?? _loadingView.Progress;
                     _loadingView.StatusText = initialLoading?.Message ?? "Preparing game interface...";
                     _loadingView.Visible = true;
-                    _loadingView.Draw(gameTime);
+                    DrawLoadingView(_loadingView, gameTime);
                 }
                 return;
             }
@@ -1074,7 +1074,7 @@ namespace Client.Main.Scenes
                 _loadingView.Progress = loading?.Progress ?? 0f;
                 _loadingView.StatusText = loading?.Message ?? "Loading...";
                 _loadingView.Visible = true;
-                _loadingView.Draw(gameTime);
+                DrawLoadingView(_loadingView, gameTime);
                 SchedulePendingWorldActivation();
                 if (_initialWorldActivationCooldown && _pendingWorldActivation == null)
                 {
@@ -1089,6 +1089,11 @@ namespace Client.Main.Scenes
             // BaseScene draws the world and then the UI. A preliminary UI pass is
             // overwritten by the world and repeats all inventory/HUD rendering work.
             base.Draw(gameTime);
+        }
+
+        protected override void DrawInterface(GameTime gameTime)
+        {
+            base.DrawInterface(gameTime);
 
             // Final top-most pass: draw dragged item previews above all UI windows
             using (new SpriteBatchScope(

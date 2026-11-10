@@ -261,7 +261,7 @@ namespace Client.Main.Objects.Effects
 
         public override void DrawAfter(GameTime gameTime)
         {
-            if (_samples.Count < 2 || Hidden || !HasVisibleContribution())
+            if (!Constants.ENABLE_WEAPON_TRAIL || _samples.Count < 2 || Hidden || !HasVisibleContribution())
             {
                 base.DrawAfter(gameTime);
                 return;

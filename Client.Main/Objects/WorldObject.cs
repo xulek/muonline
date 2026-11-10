@@ -417,11 +417,11 @@ namespace Client.Main.Objects
 
             // Apply render scale to font scale to maintain consistent size
             const float baseScale = 0.4f; // 2x smaller than default
-            float scale = baseScale * Constants.RENDER_SCALE;
-            Vector2 size = _font.MeasureString(name) * scale;
+            var font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * baseScale * Constants.RENDER_SCALE, out float scale);
+            Vector2 size = font.MeasureString(name) * scale;
             var sb = GraphicsManager.Instance.Sprite;
 
-            Vector2 textPos = new Vector2(screen.X - size.X * 0.5f, screen.Y - size.Y);
+            Vector2 textPos = new Vector2(MathF.Round(screen.X - size.X * 0.5f), MathF.Round(screen.Y - size.Y));
             Color bgColor = new Color(30, 50, 70, 150); // Semi-transparent dark blue background
             Color textColor = new Color(176, 224, 230, 255); // Pale sky blue text
 
@@ -440,7 +440,7 @@ namespace Client.Main.Objects
                 sb.Draw(whiteTexture, bgRect, bgColor);
 
                 // Draw text on top
-                sb.DrawString(_font, name, textPos, textColor, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                sb.DrawString(font, name, textPos, textColor, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
 
             // Use SpriteBatchScope for proper nested batch handling, NonPremultiplied to avoid color darkening

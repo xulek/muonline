@@ -1134,13 +1134,17 @@ namespace Client.Main.Scenes
                 _loadingView.Progress = _loadingScreen.Progress;
                 _loadingView.StatusText = _loadingScreen.Message;
                 _loadingView.Visible = true;
-                _loadingView.Draw(gameTime);
+                DrawLoadingView(_loadingView, gameTime);
                 return;
             }
 
             // Draw 3D world first
             base.Draw(gameTime);
+        }
 
+        protected override void DrawInterface(GameTime gameTime)
+        {
+            base.DrawInterface(gameTime);
             // Cursor and debug panel on top of the 3D world and the interface
             DrawCursorOverlay(gameTime);
         }

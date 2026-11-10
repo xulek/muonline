@@ -137,7 +137,7 @@ namespace Client.Main.Controls.UI
             var sb = GraphicsManager.Instance.Sprite;
             var font = _renderFont;
 
-            Vector2 textPosition = DisplayRectangle.Location.ToVector2();
+            Vector2 textPosition = UiScaler.SnapToPixel(DisplayRectangle.Location.ToVector2());
 
             var totalTextWidth = (int)Math.Ceiling(_baseTextSize.X);
             var totalTextHeight = (int)Math.Ceiling(_baseTextSize.Y);

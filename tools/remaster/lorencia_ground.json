@@ -1,0 +1,41 @@
+{
+  "data": "C:/Games/MU_Red_1_20_61_Full/Data",
+  "folder": "World1",
+  "scale": 4,
+  "style": "Hand-painted dark fantasy MMORPG texture in the style of MU Online, rich detail, crisp material definition, deep shadows in cracks and joints, worn highlights, subtle ambient occlusion, sunlit medieval town.",
+  "textures": {
+    "TileGround01": {
+      "prompt": "Cobblestone pavement of irregular flat grey-beige stones with dirt in the joints, top-down view.",
+      "tileable": true,
+      "flatten": 0.6
+    },
+    "TileGround02": {
+      "prompt": "Packed beige earth and plaster ground with small pits and stains, top-down view.",
+      "tileable": true,
+      "flatten": 0.85
+    },
+    "TileGround03": {
+      "prompt": "Ornate carved stone floor tile with interlocking circular arcs and leaf ornaments, dark bronze-brown stone, top-down view.",
+      "tileable": true
+    },
+    "TileRock01": {
+      "prompt": "Rocky ground with small pebbles, grey-violet gravel and earth, top-down view.",
+      "tileable": true,
+      "flatten": 0.7
+    },
+    "TileRock02": {
+      "prompt": "Dry earth with patches of yellowed grass and moss, top-down view.",
+      "tileable": true,
+      "flatten": 0.75
+    },
+    "TileWood01": {
+      "prompt": "Horizontal weathered beige wooden planks of a pier, cracked old wood, top-down view.",
+      "tileable": true
+    },
+    "TileWater01": {
+      "prompt": "Deep teal sea water surface seen from above with soft light ripples and caustic highlights, top-down view.",
+      "tileable": true,
+      "keep_colour": 0.7
+    }
+  }
+}

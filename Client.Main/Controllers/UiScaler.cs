@@ -59,7 +59,27 @@ namespace Client.Main.Controllers
         public static float InverseScale { get; private set; } = 1f;
 
         public static Vector2 Offset { get; private set; } = Vector2.Zero;
-        public static Matrix SpriteTransform { get; private set; } = Matrix.Identity;
+        /// <summary>
+        /// Transform for UI sprite batches: virtual units to the pixels of the target being drawn. The interface is
+        /// normally drawn after post-processing at the window's own resolution (<see cref="NativeResolutionPass"/>);
+        /// otherwise it lands in the scene target, which is <see cref="Constants.RENDER_SCALE"/> times the window.
+        /// </summary>
+        public static Matrix SpriteTransform
+        {
+            get => NativeResolutionPass ? _nativeTransform : _sceneTransform;
+            private set => _sceneTransform = value;
+        }
+
+        private static Matrix _sceneTransform = Matrix.Identity;
+        private static Matrix _nativeTransform = Matrix.Identity;
+
+        /// <summary>True while the interface is drawn straight to the window (not into the render-scaled scene).</summary>
+        public static bool NativeResolutionPass { get; set; }
+
+        /// <summary>Virtual position moved to the nearest whole screen pixel under <see cref="SpriteTransform"/>.</summary>
+        public static Vector2 SnapToPixel(Vector2 virtualPosition) => new(
+            (MathF.Round(virtualPosition.X * ScaleX + Offset.X) - Offset.X) * InverseScaleX,
+            (MathF.Round(virtualPosition.Y * ScaleY + Offset.Y) - Offset.Y) * InverseScaleY);
         public static ScaleMode Mode { get; private set; } = ScaleMode.Uniform;
 
         /// <summary>
@@ -118,6 +138,8 @@ namespace Client.Main.Controllers
             var transform = Matrix.CreateScale(finalScale, finalScale, 1f);
             transform.Translation = new Vector3(Offset * Constants.RENDER_SCALE, 0f);
             SpriteTransform = transform;
+            _nativeTransform = Matrix.CreateScale(Scale, Scale, 1f);
+            _nativeTransform.Translation = new Vector3(Offset, 0f);
         }
 
         private static void ConfigureStretch()
@@ -136,6 +158,7 @@ namespace Client.Main.Controllers
             float finalScaleX = ScaleX * Constants.RENDER_SCALE;
             float finalScaleY = ScaleY * Constants.RENDER_SCALE;
             SpriteTransform = Matrix.CreateScale(finalScaleX, finalScaleY, 1f);
+            _nativeTransform = Matrix.CreateScale(ScaleX, ScaleY, 1f);
         }
 
         /// <summary>

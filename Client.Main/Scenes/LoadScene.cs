@@ -872,7 +872,7 @@ namespace Client.Main.Scenes
             _loadingView.SpeedText = FormatSpeed(progress.SpeedBytesPerSecond);
             _loadingView.EtaText = FormatEta(progress.EstimatedTimeRemaining);
             _loadingView.Visible = true;
-            _loadingView.Draw(gameTime);
+            DrawLoadingView(_loadingView, gameTime);
         }
 
 

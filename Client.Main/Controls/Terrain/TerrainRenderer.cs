@@ -263,14 +263,42 @@ namespace Client.Main.Controls.Terrain
             PrecomputeUVScales();
         }
 
+        // Texture slots with a regular pattern that a rotated second sample would break (Ground03 ornamental floors,
+        // Water, Wood planks); everything else gets its repetition broken up.
+        private static float AntiTilingFor(int textureIndex) =>
+            !Constants.TERRAIN_ANTI_TILING || textureIndex is 4 or 5 or 6 ? 0f : 1f;
+
+        private static void ApplyAntiTiling(Effect effect, int textureIndex) =>
+            effect.Parameters["TerrainAntiTiling"]?.SetValue(AntiTilingFor(textureIndex));
+
+        /// <summary>Takes the current textures from the loader again (after remastered textures were switched).</summary>
+        public void RefreshTextures()
+        {
+            var paths = _data.TexturePaths;
+            if (paths == null || _data.Textures == null)
+                return;
+            for (int t = 0; t < paths.Length && t < _data.Textures.Length; t++)
+            {
+                if (string.IsNullOrEmpty(paths[t]))
+                    continue;
+                var texture = Client.Main.Content.TextureLoader.Instance.GetTexture2D(paths[t]);
+                if (texture != null && !texture.IsDisposed)
+                    _data.Textures[t] = texture;
+            }
+            _lastBoundTexture = null;
+            PrecomputeUVScales();
+        }
+
         private void PrecomputeUVScales()
         {
             for (int t = 0; t < _data.Textures.Length; t++)
             {
                 if (_data.Textures[t] != null)
                 {
-                    float invW = 64f / _data.Textures[t].Width;
-                    float invH = 64f / _data.Textures[t].Height;
+                    // Tiling follows the original texture size (a remastered texture is larger, not a bigger area).
+                    Point size = Client.Main.Content.TextureLoader.LogicalSize(_data.Textures[t]);
+                    float invW = 64f / size.X;
+                    float invH = 64f / size.Y;
                     _tileUvScale[t] = new Vector2(invW, invH);
                     _tileUvScaleWorld[t] = new Vector2(invW / Constants.TERRAIN_SCALE, invH / Constants.TERRAIN_SCALE);
                 }
@@ -1963,6 +1991,7 @@ namespace Client.Main.Controls.Terrain
                     if (effect == null) return;
 
                     effect.Parameters["DiffuseTexture"]?.SetValue(texture);
+                    ApplyAntiTiling(effect, textureIndex);
                     foreach (var pass in effect.CurrentTechnique.Passes)
                     {
                         pass.Apply();
@@ -2453,6 +2482,7 @@ namespace Client.Main.Controls.Terrain
             }
 
             effect.Parameters["TerrainUvScale"]?.SetValue(_tileUvScaleWorld[textureIndex]);
+            ApplyAntiTiling(effect, textureIndex);
             bool noFlow = WaterSpeed == 0f && DistortionAmplitude == 0f;
             float isWater = textureIndex == 5 && !noFlow ? 1.0f : 0.0f;
             effect.Parameters["IsWaterTexture"]?.SetValue(isWater);
@@ -2590,6 +2620,7 @@ namespace Client.Main.Controls.Terrain
                         effect.Parameters["DiffuseTexture"]?.SetValue(texture);
                         _lastBoundTexture = texture;
                     }
+                    ApplyAntiTiling(effect, texIndex);
 
                     var vertexBuffer = EnsureTerrainStreamBuffer(alphaLayer, vertCount);
                     vertexBuffer.SetData(batch, 0, vertCount, SetDataOptions.Discard);

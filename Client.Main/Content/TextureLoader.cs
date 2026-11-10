@@ -28,6 +28,39 @@ namespace Client.Main.Content
                 .Where(name => name.StartsWith("BundledUi/", StringComparison.Ordinal))
                 .ToDictionary(name => NormalizePathKey(name["BundledUi/".Length..]), name => name));
 
+        // Remastered world textures (tools/texture_remaster.py, WebP, Assets/Remaster/<folder>/<name>.webp), used
+        // instead of the Data file of the same name.
+        private static readonly Lazy<Dictionary<string, string>> _remasterResources = new(() =>
+            typeof(TextureLoader).Assembly.GetManifestResourceNames()
+                .Where(name => name.StartsWith("Remaster/", StringComparison.Ordinal))
+                .ToDictionary(name => RemasterKey(name["Remaster/".Length..]), name => name));
+
+        // "<folder>/<name>" without extension: Data-relative paths ("Object1/x.jpg") and the absolute paths the terrain
+        // uses (".../Data/World1/TileGround01.OZJ") both map to the same key.
+        private static string RemasterKey(string path)
+        {
+            path = path.Replace('\\', '/');
+            string name = Path.GetFileNameWithoutExtension(path);
+            string folder = Path.GetFileName(Path.GetDirectoryName(path)?.Replace('\\', '/') ?? string.Empty);
+            return NormalizePathKey(string.IsNullOrEmpty(folder) ? name : folder + "/" + name);
+        }
+
+        private static readonly StraightWebPReader _remasterReader = new();
+
+        // Original sizes of the remastered textures (written by tools/texture_remaster.py).
+        private static readonly Lazy<Dictionary<string, int[]>> _remasterSizes = new(() =>
+        {
+            using var stream = typeof(TextureLoader).Assembly.GetManifestResourceStream("Remaster/sizes.json");
+            if (stream == null)
+                return new Dictionary<string, int[]>();
+            var sizes = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int[]>>(stream) ?? new();
+            return sizes.ToDictionary(pair => NormalizePathKey(pair.Key), pair => pair.Value);
+        });
+
+        /// <summary>Size a texture is laid out at: the original's for a remastered texture, else its own.</summary>
+        public static Point LogicalSize(Texture2D texture) =>
+            texture?.Tag is Point size ? size : new Point(texture?.Width ?? 0, texture?.Height ?? 0);
+
         // Cache: Key -> Resolved Full Path (or empty if not found)
         private readonly ConcurrentDictionary<string, string> _pathResolutionCache = new();
 
@@ -69,6 +102,26 @@ namespace Client.Main.Content
         {
             _graphicsDevice = graphicsDevice;
             _logger = MuGame.AppLoggerFactory?.CreateLogger<TextureLoader>();
+        }
+
+        /// <summary>
+        /// Loads again every loaded texture that has a remastered version, so a change of
+        /// <see cref="Constants.REMASTERED_TEXTURES"/> takes effect at once. Returns the replaced GPU textures: callers
+        /// make the world pick up the new ones first and dispose these afterwards.
+        /// </summary>
+        public async Task<List<Texture2D>> ReloadRemasteredAsync()
+        {
+            var replaced = new List<Texture2D>();
+            var keys = _textures.Keys.Where(key => _remasterResources.Value.ContainsKey(RemasterKey(key))).ToList();
+            foreach (string key in keys)
+            {
+                _textureTasks.TryRemove(key, out _);
+                if (_textures.TryRemove(key, out ClientTexture old) && old.Texture != null)
+                    replaced.Add(old.Texture);
+            }
+
+            await Task.WhenAll(keys.Select(Prepare)).ConfigureAwait(false);
+            return replaced;
         }
 
         public Task<TextureData> Prepare(string path)
@@ -161,7 +214,19 @@ namespace Client.Main.Content
 
                 string fullPath = FindTexturePath(dataPath, ext);
                 TextureData data;
-                if (fullPath != null)
+                if (Constants.REMASTERED_TEXTURES &&
+                    _remasterResources.Value.TryGetValue(RemasterKey(path), out string remaster))
+                {
+                    using var stream = typeof(TextureLoader).Assembly.GetManifestResourceStream(remaster);
+                    data = await _remasterReader.Load(stream).ConfigureAwait(false);
+                    if (data != null && _remasterSizes.Value.TryGetValue(RemasterKey(path), out int[] logical) && logical.Length == 2)
+                    {
+                        data.LogicalWidth = logical[0];
+                        data.LogicalHeight = logical[1];
+                    }
+                    fullPath = remaster;
+                }
+                else if (fullPath != null)
                 {
                     data = await reader.Load(fullPath).ConfigureAwait(false);
                 }
@@ -449,6 +514,8 @@ namespace Client.Main.Content
                             return null;
                     }
 
+                    if (textureInfo.LogicalWidth > 0 && textureInfo.LogicalHeight > 0)
+                        texture.Tag = new Point(textureInfo.LogicalWidth, textureInfo.LogicalHeight);
                     clientTexture.Texture = texture;
                     clientTexture.PreparedRgba = null;
 

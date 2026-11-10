@@ -78,6 +78,9 @@
     <EmbeddedResource Include="Assets\Interface\**\*">
       <LogicalName>BundledUi/Interface/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Remaster\**\*">
+      <LogicalName>Remaster/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

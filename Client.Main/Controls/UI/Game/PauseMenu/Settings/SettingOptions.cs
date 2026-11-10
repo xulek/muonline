@@ -15,6 +15,9 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
         /// <summary>Optional: the option is shown greyed out and ignores input while this returns false.</summary>
         public Func<bool> IsAvailable { get; init; }
 
+        /// <summary>Saved and restored at start by <see cref="SettingsPersistence"/>; off for options saved elsewhere.</summary>
+        public bool Persist { get; init; } = true;
+
         public bool Available => IsAvailable?.Invoke() ?? true;
     }
 

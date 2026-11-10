@@ -165,6 +165,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
             {
                 if (_dragSlider.ApplyOnRelease)
                     _dragSlider.Set(_dragValue);
+                if (_dragSlider.Persist)
+                    SettingsPersistence.Save();
                 _dragSlider = null;
             }
             return true;
@@ -214,6 +216,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 case SettingToggle toggle:
                     toggle.Set(!toggle.Get());
                     PlayClickSound();
+                    if (toggle.Persist)
+                        SettingsPersistence.Save();
                     break;
                 case SettingChoice choice when choice.Choices.Count > 0:
                     int current = choice.GetIndex();
@@ -228,6 +232,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                     {
                         choice.SetIndex(next);
                         PlayClickSound();
+                        // A preset changes many other options: their new values are saved too.
+                        SettingsPersistence.Save();
                     }
                     break;
             }

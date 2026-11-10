@@ -1,0 +1,166 @@
+{
+ "Object1/badge_03": [
+  64,
+  64
+ ],
+ "Object1/bookshelf": [
+  128,
+  128
+ ],
+ "Object1/bottle": [
+  32,
+  32
+ ],
+ "Object1/bridge_01": [
+  256,
+  128
+ ],
+ "Object1/c_wall04": [
+  128,
+  128
+ ],
+ "Object1/c_wall05": [
+  128,
+  128
+ ],
+ "Object1/c_wall06": [
+  128,
+  128
+ ],
+ "Object1/candle": [
+  32,
+  32
+ ],
+ "Object1/chair2": [
+  32,
+  32
+ ],
+ "Object1/desk_big": [
+  128,
+  128
+ ],
+ "Object1/jar_01": [
+  128,
+  128
+ ],
+ "Object1/joint": [
+  32,
+  32
+ ],
+ "Object1/plate": [
+  32,
+  32
+ ],
+ "Object1/plate2": [
+  32,
+  32
+ ],
+ "Object1/pot": [
+  32,
+  32
+ ],
+ "Object1/pot2": [
+  32,
+  32
+ ],
+ "Object1/pot3": [
+  32,
+  32
+ ],
+ "Object1/reagon_waterspout": [
+  128,
+  128
+ ],
+ "Object1/steel_barred_a": [
+  64,
+  128
+ ],
+ "Object1/steel_barred_b": [
+  32,
+  32
+ ],
+ "Object1/steel_barred_door": [
+  64,
+  128
+ ],
+ "Object1/ston01": [
+  128,
+  128
+ ],
+ "Object1/ston02": [
+  128,
+  128
+ ],
+ "Object1/stone_statue02": [
+  64,
+  128
+ ],
+ "Object1/tile_01": [
+  64,
+  64
+ ],
+ "Object1/tile_02": [
+  64,
+  64
+ ],
+ "Object1/tile_03": [
+  64,
+  64
+ ],
+ "Object1/tile_ston04": [
+  128,
+  128
+ ],
+ "Object1/tile_ston06": [
+  128,
+  128
+ ],
+ "Object1/tile_wood01": [
+  128,
+  128
+ ],
+ "Object1/tile_wood02": [
+  128,
+  128
+ ],
+ "Object1/tile_wood03": [
+  128,
+  128
+ ],
+ "Object1/well": [
+  128,
+  128
+ ],
+ "Object1/winecup": [
+  32,
+  32
+ ],
+ "World1/TileGround01": [
+  256,
+  256
+ ],
+ "World1/TileGround02": [
+  128,
+  128
+ ],
+ "World1/TileGround03": [
+  128,
+  128
+ ],
+ "World1/TileRock01": [
+  256,
+  256
+ ],
+ "World1/TileRock02": [
+  128,
+  128
+ ],
+ "World1/TileWater01": [
+  256,
+  256
+ ],
+ "World1/TileWood01": [
+  128,
+  128
+ ]
+}

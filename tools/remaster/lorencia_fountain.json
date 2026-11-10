@@ -1,0 +1,29 @@
+{
+  "data": "C:/Games/MU_Red_1_20_61_Full/Data",
+  "folder": "Object1",
+  "scale": 4,
+  "style": "Hand-painted dark fantasy MMORPG texture in the style of MU Online, rich detail, crisp material definition, deep shadows in cracks and joints, worn highlights, subtle ambient occlusion, sunlit medieval town.",
+  "textures": {
+    "reagon_waterspout": {
+      "prompt": "Grey stone texture atlas: a carved stone dragon relief spouting water across the middle, weathered grey marble with cracks, a few small square stone panels."
+    },
+    "stone_statue02": {
+      "prompt": "Weathered beige stone carving of a robed figure in a niche, carved ornamental border along the bottom, sandstone."
+    },
+    "ston01": {
+      "prompt": "Rough grey rock surface with deep cracks and ledges, natural weathered stone.",
+      "tileable": true
+    },
+    "ston02": {
+      "prompt": "Sparkling water spray on a pure black background: bright white-blue foam and droplets, glowing highlights, everything else stays deep black.",
+      "tileable": true,
+      "keep_colour": 0.65
+    },
+    "well": {
+      "prompt": "Texture atlas: weathered horizontal wooden planks with a dark red wooden post on the right in the upper half; a wall of stacked rough fieldstones with mortar in the lower half."
+    },
+    "jar_01": {
+      "prompt": "Horizontal bands of a ceramic jar: beige glazed clay, grey metal band, dark ribbed bands, ochre rim at the bottom, smooth glazed pottery."
+    }
+  }
+}

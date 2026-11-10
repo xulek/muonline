@@ -125,6 +125,10 @@ namespace Client.Main
         public static bool ENABLE_ITEM_MATERIAL_ANIMATION;
         /// <summary>Login and character selection extras: glow and grading, animated water, spray and mist, fireflies, sparkles, stars.</summary>
         public static bool ENABLE_MENU_SCENE_EFFECTS = true;
+        /// <summary>Use remastered world textures bundled with the client (Assets/Remaster) instead of the Data files.</summary>
+        public static bool REMASTERED_TEXTURES = true;
+        /// <summary>Terrain textures are sampled twice (rotated, through a noise mask) to hide their repeating grid.</summary>
+        public static bool TERRAIN_ANTI_TILING = true;
         /// <summary>Walkers carry the rest of a frame's step on to the next path tile (no stop at every tile).</summary>
         public static bool CONTINUOUS_PATH_WALK = true;
         /// <summary>Walkers cut the corners of their tile path instead of zigzagging from tile centre to tile centre.</summary>

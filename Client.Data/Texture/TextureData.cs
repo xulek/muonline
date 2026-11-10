@@ -1,4 +1,4 @@
-﻿namespace Client.Data.Texture
+namespace Client.Data.Texture
 {
     public class TextureData
     {
@@ -20,5 +20,12 @@
         /// True when the mip chain was generated at runtime rather than read from the source asset.
         /// </summary>
         public bool MipDataGenerated { get; set; }
+
+        /// <summary>
+        /// Size of the texture this one replaces (a remastered texture is drawn at the scale of the original, e.g. by
+        /// the terrain, whose tiling depends on the texture size); 0 = same as Width/Height.
+        /// </summary>
+        public int LogicalWidth { get; set; }
+        public int LogicalHeight { get; set; }
     }
 }

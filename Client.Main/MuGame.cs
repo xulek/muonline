@@ -399,6 +399,7 @@ namespace Client.Main
             Constants.DYNAMIC_LIGHT_UPDATE_FPS = dynamicLightUpdateFps;
             Constants.ANIMATION_UPDATE_FPS = animationUpdateFps;
             Constants.ENABLE_CROWD_SPATIAL_CULLING = graphics.EnableCrowdSpatialCulling;
+            Constants.REMASTERED_TEXTURES = graphics.RemasteredTextures;
             Constants.ENABLE_WALKER_CROWD_INSTANCING = graphics.EnableWalkerCrowdInstancing;
             Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = graphics.EnableWalkerCrowdInstancingWithChildren;
             Constants.ENABLE_ANIMATION_THROTTLING = graphics.EnableAnimationThrottling;
@@ -594,6 +595,9 @@ namespace Client.Main
             ApplyGraphicsConfiguration(AppSettings.Graphics);
             GraphicsQualityManager.ApplyFromSettings(AppSettings.Graphics, GraphicsDevice?.Adapter ?? GraphicsAdapter.DefaultAdapter, _logger);
             ApplyPerformanceCapsFromSettings(AppSettings.Graphics);
+            // Values chosen in the settings window (sound, frame rate, quality toggles, lighting...).
+            if (!Client.Main.Diagnostics.StressHarness.Enabled || Environment.GetEnvironmentVariable("MU_STRESS_RESTORE") == "1")
+                Client.Main.Controls.UI.Game.PauseMenu.Settings.SettingsPersistence.Restore();
             ApplyGraphicsOptions();
 
             // Configure screen size for mobile platforms AFTER graphics device is ready
@@ -657,6 +661,7 @@ namespace Client.Main
 
         protected override void UnloadContent()
         {
+            _interfaceTarget?.Dispose();
             BmdPreviewRenderer.ClearCache(releaseGpuResources: true);
             UiRenderTargetPool.Clear();
             base.UnloadContent();
@@ -866,8 +871,19 @@ namespace Client.Main
                         requireTempTarget1: postProcessPasses >= 1,
                         requireTempTarget2: postProcessPasses >= 2,
                         requireRecoveryTarget: gameSceneRecovery);
+                    EnsureInterfaceTarget();
 
-                    bool containedRenderFailure = DrawSceneToMainRenderTarget(gameTime);
+                    // The interface is held back and drawn after post-processing at the window's resolution.
+                    Client.Main.Scenes.BaseScene.DeferInterface = true;
+                    bool containedRenderFailure;
+                    try
+                    {
+                        containedRenderFailure = DrawSceneToMainRenderTarget(gameTime);
+                    }
+                    finally
+                    {
+                        Client.Main.Scenes.BaseScene.DeferInterface = false;
+                    }
                     LogBlackFrameDiagnostics(containedRenderFailure);
                     if (gameSceneRecovery &&
                         containedRenderFailure &&
@@ -877,7 +893,7 @@ namespace Client.Main
                         // loaded object does not terminate the client. Do not treat that partial
                         // render as a complete frame or replace the last known-good scene with it.
                         _currentDrawPhase = "Frame.RecoverContainedRenderFailure";
-                        DrawEmergencyFallbackFrame();
+                        DrawEmergencyFallbackFrame(_interfaceTarget);
                         recoveredFrame = true;
                     }
                     else
@@ -887,6 +903,9 @@ namespace Client.Main
                         ApplyPostProcessingEffects();
                         RenderPassProfiler.AddPostProcess(postProcessStarted);
                     }
+
+                    DrawDeferredInterface(gameTime);
+                    DrawFinalImageToScreen(_interfaceTarget);
                 }
                 else
                 {
@@ -1009,11 +1028,11 @@ namespace Client.Main
                 });
         }
 
-        private void DrawEmergencyFallbackFrame()
+        private void DrawEmergencyFallbackFrame(RenderTarget2D destination = null)
         {
             try
             {
-                GraphicsDevice.SetRenderTarget(null);
+                GraphicsDevice.SetRenderTarget(destination);
                 Helpers.SpriteBatchScope.ForceReset();
 
                 SpriteBatch sprite = GraphicsManager.Instance?.Sprite;
@@ -1769,6 +1788,39 @@ namespace Client.Main
             return alphaRgb || fxaa;
         }
 
+        private RenderTarget2D _interfaceTarget;
+
+        private void EnsureInterfaceTarget()
+        {
+            var pp = GraphicsDevice.PresentationParameters;
+            if (_interfaceTarget != null && !_interfaceTarget.IsDisposed &&
+                _interfaceTarget.Width == pp.BackBufferWidth && _interfaceTarget.Height == pp.BackBufferHeight)
+                return;
+
+            _interfaceTarget?.Dispose();
+            _interfaceTarget = new RenderTarget2D(GraphicsDevice, pp.BackBufferWidth, pp.BackBufferHeight,
+                false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.PreserveContents);
+        }
+
+        /// <summary>Draws the deferred interface at full resolution over the processed scene.</summary>
+        private void DrawDeferredInterface(GameTime gameTime)
+        {
+            if (ActiveScene is not Client.Main.Scenes.BaseScene scene)
+                return;
+
+            _currentDrawPhase = "Scene.Interface";
+            GraphicsDevice.SetRenderTarget(_interfaceTarget);
+            UiScaler.NativeResolutionPass = true;
+            try
+            {
+                scene.DrawDeferredInterface(gameTime);
+            }
+            finally
+            {
+                UiScaler.NativeResolutionPass = false;
+            }
+        }
+
         private void ApplyPostProcessingEffects()
         {
             RenderTarget2D sourceTarget = GraphicsManager.Instance.MainRenderTarget;
@@ -1789,7 +1841,7 @@ namespace Client.Main
                 sourceTarget = destination;
             }
 
-            DrawFinalImageToScreen(sourceTarget);
+            DrawFinalImageToScreen(sourceTarget, _interfaceTarget);
         }
 
         private void ApplyEffect(Effect effect, RenderTarget2D source, RenderTarget2D destination)
@@ -1815,12 +1867,12 @@ namespace Client.Main
             GraphicsManager.Instance.Sprite.End();
         }
 
-        private void DrawFinalImageToScreen(RenderTarget2D sourceTarget)
+        private void DrawFinalImageToScreen(RenderTarget2D sourceTarget, RenderTarget2D destination = null)
         {
-            GraphicsDevice.SetRenderTarget(null);
+            GraphicsDevice.SetRenderTarget(destination);
             // Opaque presentation covers every pixel, including when render scale differs.
 
-            Effect gammaEffect = Constants.MSAA_ENABLED ? GraphicsManager.Instance.GammaCorrectionEffect : null;
+            Effect gammaEffect = Constants.MSAA_ENABLED && destination != null ? GraphicsManager.Instance.GammaCorrectionEffect : null;
 
             GraphicsManager.Instance.Sprite.Begin(
                 SpriteSortMode.Deferred,
@@ -2298,6 +2350,57 @@ namespace Client.Main
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Failed to persist graphics performance caps to disk.");
+            }
+        }
+
+        /// <summary>Writes a section under MuOnlineSettings in the local settings file (replacing it).</summary>
+        internal static void PersistSettingsSection(string name, JsonObject values)
+        {
+            var logger = AppLoggerFactory?.CreateLogger<MuGame>();
+            Directory.CreateDirectory(ConfigDirectory ?? AppContext.BaseDirectory);
+            JsonObject root = LoadLocalSettings(logger);
+            if (root["MuOnlineSettings"] is not JsonObject muSettings)
+            {
+                muSettings = new JsonObject();
+                root["MuOnlineSettings"] = muSettings;
+            }
+            muSettings[name] = values;
+            File.WriteAllText(LocalSettingsPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        /// <summary>A section under MuOnlineSettings in the local settings file, or null.</summary>
+        internal static JsonObject ReadSettingsSection(string name)
+        {
+            JsonObject root = LoadLocalSettings(AppLoggerFactory?.CreateLogger<MuGame>());
+            return (root["MuOnlineSettings"] as JsonObject)?[name]?.DeepClone() as JsonObject;
+        }
+
+        public static void PersistRemasteredTextures(bool enabled) =>
+            PersistGraphicsValue("RemasteredTextures", enabled);
+
+        private static void PersistGraphicsValue(string name, bool value)
+        {
+            var logger = AppLoggerFactory?.CreateLogger<MuGame>();
+            try
+            {
+                Directory.CreateDirectory(ConfigDirectory ?? AppContext.BaseDirectory);
+                JsonObject root = LoadLocalSettings(logger);
+                if (root["MuOnlineSettings"] is not JsonObject muSettings)
+                {
+                    muSettings = new JsonObject();
+                    root["MuOnlineSettings"] = muSettings;
+                }
+                if (muSettings["Graphics"] is not JsonObject graphics)
+                {
+                    graphics = new JsonObject();
+                    muSettings["Graphics"] = graphics;
+                }
+                graphics[name] = value;
+                File.WriteAllText(LocalSettingsPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Failed to save graphics setting {Name}", name);
             }
         }
 

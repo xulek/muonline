@@ -1,0 +1,26 @@
+{
+  "data": "C:/Games/MU_Red_1_20_61_Full/Data",
+  "folder": "Object1",
+  "scale": 4,
+  "style": "Hand-painted dark fantasy MMORPG texture in the style of MU Online, rich detail, crisp material definition, deep shadows in grooves and cracks, worn highlights on edges, subtle ambient occlusion, warm tavern palette.",
+  "textures": {
+    "tile_wood01": { "prompt": "Dark wooden panelling with square boards and nails, weathered old wood with deep grain, gaps between boards in shadow.", "tileable": true },
+    "tile_wood02": { "prompt": "Horizontal weathered wooden planks, cracked old timber with strong grain, dark gaps between planks, iron nails.", "tileable": true },
+    "tile_wood03": { "prompt": "Wooden roof shingles in overlapping rows, aged grey-green wood, shadows under each shingle.", "tileable": true },
+    "tile_ston04": { "prompt": "Rough sandstone wall plaster with small pits and chips, sun-bleached beige stone surface.", "tileable": true },
+    "tile_ston06": { "prompt": "Texture atlas: on the left a cracked vertical wooden beam with deep grain; top right a carved ornamental gold-brown wooden panel; bottom right weathered stone.", "tileable": false },
+    "c_wall04": { "prompt": "Beige plastered stone wall with fine cracks, a band of carved ornamental stone trim along the bottom edge.", "tileable": false },
+    "c_wall06": { "prompt": "Carved stone relief of a fierce ornamental face mask with leafy horns, mossy green-gold weathered stone on a beige stone background.", "tileable": false },
+    "desk_big": { "prompt": "Carved dark wooden furniture panel with symmetrical swirling ornament and diamond motif, polished worn wood with deep carved grooves.", "tileable": false },
+    "bookshelf": { "prompt": "Carved wooden furniture panel: ornate swirling carvings on the left and a vertical carved border strip on the right, old polished wood.", "tileable": false },
+    "chair2": { "prompt": "Carved wooden chair back with swirling heart-shaped ornament, old polished wood with deep carved grooves.", "tileable": false },
+    "bottle": { "prompt": "Brown glass bottle label texture: dark brown glass with a pale cream paper label band in the middle and a white cork at the top right.", "tileable": false },
+    "pot": { "prompt": "Ceramic jug pattern: horizontal bands of blue, cream and orange painted geometric pottery decoration.", "tileable": false },
+    "pot2": { "prompt": "Ceramic pot pattern: an orange and cream decorated band at the top, brown glazed clay below with embossed round motifs.", "tileable": false },
+    "pot3": { "prompt": "Dark green glass with soft reflections, a deep green bottle surface.", "tileable": false },
+    "plate": { "prompt": "Top view of a cream ceramic plate with a dark round centre and a ring of small green dots near the rim.", "tileable": false },
+    "plate2": { "prompt": "Texture atlas: top view of a pink ceramic plate with a dark centre on the left, and a small square of purple grapes in the top right corner.", "tileable": false },
+    "winecup": { "prompt": "Pewter metal goblet surface with engraved vertical ornament, a bright rim band at the top and a dark band at the bottom.", "tileable": false },
+    "candle": { "prompt": "Texture atlas: ornate brass candlestick metalwork in dark gold and brown, a cream wax candle strip on the left edge.", "tileable": false }
+  }
+}

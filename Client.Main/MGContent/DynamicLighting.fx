@@ -252,6 +252,8 @@ UNIFORM_DEFAULT(float, GlobalLightMultiplier, 1.0);
 UNIFORM_DEFAULT(float2, TerrainUvScale, float2(0.0, 0.0));
 UNIFORM_DEFAULT(float, UseProceduralTerrainUV, 0.0);
 UNIFORM_DEFAULT(float, IsWaterTexture, 0.0);
+// 0..1: how much a terrain texture's repetition is broken up (0 for regular patterns: planks, ornamental floors, water).
+UNIFORM_DEFAULT(float, TerrainAntiTiling, 0.0);
 UNIFORM_DEFAULT(float2, WaterFlowDirection, float2(1.0, 0.0));
 UNIFORM_DEFAULT(float, WaterTotal, 0.0);
 UNIFORM_DEFAULT(float, DistortionAmplitude, 0.0);
@@ -801,9 +803,52 @@ float3 PrepareNormal(float3 rawNormal)
     return normalize(rawNormal + float3(0.0, 0.0, 0.00001));
 }
 
+float TerrainHash(float2 p)
+{
+    return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float TerrainNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return lerp(lerp(TerrainHash(i), TerrainHash(i + float2(1.0, 0.0)), f.x),
+                lerp(TerrainHash(i + float2(0.0, 1.0)), TerrainHash(i + float2(1.0, 1.0)), f.x), f.y);
+}
+
+// Breaks up the visible grid of a repeating ground texture (Inigo Quilez, "texture repetition", technique 3): a
+// world-space noise splits the ground into irregular patches, each patch reads the texture at its own random offset,
+// and neighbouring patches cross-fade where their texels differ least. The offsets never line up into a grid; the
+// samples keep the gradients of the regular UVs, so the jumps between offsets do not break mip selection. The
+// brightness also drifts slightly over larger areas. Alpha (layer edges) comes from the regular sample.
+float4 SampleTerrainVaried(float2 uv, float2 worldXY)
+{
+    float4 regular = tex2D(SamplerState0, uv);
+    [branch] if (TerrainAntiTiling <= 0.0)
+        return regular;
+
+    float2 dx = ddx(uv), dy = ddy(uv);
+    float k = TerrainNoise(worldXY * 0.0042) * 0.7 + TerrainNoise(worldXY * 0.011 + 7.3) * 0.3;
+    float l = k * 8.0;
+    float i = floor(l);
+    float f = frac(l);
+    float2 offA = sin(float2(3.0, 7.0) * i);
+    float2 offB = sin(float2(3.0, 7.0) * (i + 1.0));
+    float4 a = tex2Dgrad(SamplerState0, uv + offA, dx, dy);
+    float4 b = tex2Dgrad(SamplerState0, uv + offB, dx, dy);
+    float3 d = a.rgb - b.rgb;
+    float blend = smoothstep(0.2, 0.8, f - 0.1 * (d.x + d.y + d.z));
+    float3 varied = lerp(a.rgb, b.rgb, blend);
+
+    float tone = TerrainNoise(worldXY * 0.0009 + 41.3);
+    varied *= 0.9 + tone * 0.18;
+    return float4(lerp(regular.rgb, varied, TerrainAntiTiling), regular.a);
+}
+
 float4 PS_Terrain(PixelInput input) : SV_Target
 {
-    float4 texColor = tex2D(SamplerState0, input.TexCoord);
+    float4 texColor = SampleTerrainVaried(input.TexCoord, input.WorldPos.xy);
     float finalAlpha = texColor.a * Alpha * input.Color.a;
 
     // Early clip: transparent pixels skip all lighting math below.

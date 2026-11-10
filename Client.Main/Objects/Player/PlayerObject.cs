@@ -185,7 +185,7 @@ namespace Client.Main.Objects.Player
             string roleName = GuildManager.GetRoleName(role);
             string guildLine = roleName.Length > 0 ? $"[{guild.Name}] {roleName}" : $"[{guild.Name}]";
 
-            float scale = 0.4f * Constants.RENDER_SCALE;
+            font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * 0.4f * Constants.RENDER_SCALE, out float scale);
             Vector2 nameSize = font.MeasureString(Name) * scale;
             Vector2 guildSize = font.MeasureString(guildLine) * scale;
             int lineHeight = (int)MathF.Ceiling(MathF.Max(nameSize.Y, guildSize.Y));
@@ -207,7 +207,7 @@ namespace Client.Main.Objects.Player
 
             var markRect = new Rectangle(box.X + 4, box.Y + 2 + (lineHeight - markSize) / 2, markSize, markSize);
             var guildPos = new Vector2(markRect.Right + 4, box.Y + 2);
-            var namePos = new Vector2(screen.X - nameSize.X * 0.5f, box.Y + 2 + lineHeight);
+            var namePos = new Vector2(MathF.Round(screen.X - nameSize.X * 0.5f), MathF.Round(box.Y + 2 + lineHeight));
 
             using (new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone))
             {
@@ -248,14 +248,14 @@ namespace Client.Main.Objects.Player
             if (screen.Z < 0f || screen.Z > 1f)
                 return;
 
-            float scale = 0.42f * Constants.RENDER_SCALE;
+            font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * 0.42f * Constants.RENDER_SCALE, out float scale);
             Vector2 size = font.MeasureString(title) * scale;
             // Sit above the (hover) name plate so both stay readable.
             float lift = size.Y + 14f * Constants.RENDER_SCALE;
             // The hover plate of guild members has an extra "[Guild] Role" line.
             if (IsMouseHover && _networkManager?.GetGuildManager()?.TryGetPlayerGuild(id, out var hoverGuild, out _) == true && hoverGuild != null)
                 lift += size.Y + 4f;
-            var pos = new Vector2(screen.X - size.X * 0.5f, screen.Y - size.Y - lift);
+            var pos = new Vector2(MathF.Round(screen.X - size.X * 0.5f), MathF.Round(screen.Y - size.Y - lift));
 
             var box = new Rectangle((int)(pos.X - 6), (int)(pos.Y - 3), (int)(size.X + 12), (int)(size.Y + 6));
             var viewport = GraphicsDevice.Viewport;

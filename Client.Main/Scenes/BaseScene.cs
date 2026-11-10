@@ -627,6 +627,36 @@ namespace Client.Main.Scenes
                 }
             }
 
+            // The interface is drawn now, or - when the scene goes through post-processing - after it, straight to
+            // the window at full resolution (render scale and FXAA would blur and stair-step text).
+            if (DeferInterface)
+            {
+                _interfacePending = true;
+                return;
+            }
+
+            DrawInterface(gameTime);
+        }
+
+        /// <summary>Set by the game while scenes render into the post-processed scene target.</summary>
+        public static bool DeferInterface { get; set; }
+
+        private bool _interfacePending;
+        private Client.Main.Controls.UI.Loading.LoadingScreenView _deferredLoadingView;
+
+        protected void DrawLoadingView(Client.Main.Controls.UI.Loading.LoadingScreenView view, GameTime gameTime)
+        {
+            if (view == null)
+                return;
+            if (DeferInterface)
+                _deferredLoadingView = view;
+            else
+                view.Draw(gameTime);
+        }
+
+        /// <summary>The 2D interface over the world; scenes add their top-most layers (cursor, drag previews).</summary>
+        protected virtual void DrawInterface(GameTime gameTime)
+        {
             // --- Pass 3: Render standard 2D UI (HUD overlays) ---
             // This batch ignores the depth buffer and draws on top of everything.
             using (new SpriteBatchScope(
@@ -651,6 +681,50 @@ namespace Client.Main.Scenes
                     ctrl.Draw(gameTime);
                 }
             }
+        }
+
+        /// <summary>Draws the interface held back by <see cref="DeferInterface"/>, then the controls' after-pass.</summary>
+        public void DrawDeferredInterface(GameTime gameTime)
+        {
+            if (_deferredLoadingView != null)
+            {
+                var view = _deferredLoadingView;
+                _deferredLoadingView = null;
+                bool visible = view.Visible;
+                view.Visible = true;
+                try { view.Draw(gameTime); }
+                finally { view.Visible = visible; }
+                return;
+            }
+            if (!_interfacePending)
+                return;
+            _interfacePending = false;
+
+            // Monster nameplates were projected in the render-scaled scene target.
+            Client.Main.Helpers.OverheadNameplateRenderer.FlushQueuedNameplates(
+                GraphicsManager.Instance.Sprite, 1f / MathF.Max(0.05f, Constants.RENDER_SCALE));
+            DrawInterface(gameTime);
+
+            var controls = Controls.GetSnapshotArray();
+            for (int i = 0; i < controls.Length; i++)
+            {
+                var child = controls[i];
+                if (child != World && ReferenceEquals(child.Parent, this))
+                    child.DrawAfter(gameTime);
+            }
+        }
+
+        public override void DrawAfter(GameTime gameTime)
+        {
+            if (!DeferInterface)
+            {
+                base.DrawAfter(gameTime);
+                return;
+            }
+
+            // Only the world's after-pass belongs to the scene target; the controls' runs with the interface.
+            if (Status == GameControlStatus.Ready && Visible && World != null && ReferenceEquals(World.Parent, this))
+                World.DrawAfter(gameTime);
         }
     }
 }

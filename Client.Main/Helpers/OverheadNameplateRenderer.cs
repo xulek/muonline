@@ -105,7 +105,9 @@ namespace Client.Main.Helpers
             s_queue.Add(new QueuedNameplate(font, screen, name, healthFraction, renderScale));
         }
 
-        public static void FlushQueuedNameplates(SpriteBatch spriteBatch)
+        /// <param name="targetScale">Size of the target drawn into relative to the scene target the positions were
+        /// projected in (1 / render scale when drawn on the window).</param>
+        public static void FlushQueuedNameplates(SpriteBatch spriteBatch, float targetScale = 1f)
         {
             if (spriteBatch == null || s_queue.Count == 0)
                 return;
@@ -128,13 +130,16 @@ namespace Client.Main.Helpers
                 for (int i = 0; i < s_queue.Count; i++)
                 {
                     var entry = s_queue[i];
+                    var screen = entry.Screen;
+                    screen.X *= targetScale;
+                    screen.Y *= targetScale;
                     DrawNameplate(
                         spriteBatch,
                         entry.Font,
-                        entry.Screen,
+                        screen,
                         entry.Name,
                         entry.HealthFraction,
-                        entry.RenderScale);
+                        entry.RenderScale * targetScale);
                 }
             }
             finally
@@ -158,7 +163,8 @@ namespace Client.Main.Helpers
                 return;
 
             float scale = MathF.Max(renderScale, 0.1f);
-            float nameScale = BaseNameScale * scale;
+            // Small text: a font rasterised near its size on screen instead of the base font shrunk to ~40%.
+            font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * BaseNameScale * scale, out float nameScale);
             Vector2 nameSize = font.MeasureString(name) * nameScale;
 
             float padX = MathF.Max(1f, BaseNamePaddingX * scale);
@@ -211,7 +217,7 @@ namespace Client.Main.Helpers
                 innerHeight);
 
             float depth = MathHelper.Clamp(screen.Z, 0f, 1f);
-            Vector2 textPos = new(nameRect.X + padX, nameRect.Y + padY);
+            Vector2 textPos = new(MathF.Round(nameRect.X + padX), MathF.Round(nameRect.Y + padY));
 
             spriteBatch.Draw(pixel, nameRect, null, Theme.BgDarkest * 0.85f, 0f, Vector2.Zero, SpriteEffects.None, depth);
             DrawBorder(spriteBatch, pixel, nameRect, Theme.BorderOuter * 0.9f, depth);

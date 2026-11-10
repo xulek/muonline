@@ -20,6 +20,8 @@ namespace Client.Main.Configuration
         public int UiVirtualHeight { get; set; } = 720;
         public string QualityPreset { get; set; } = "Auto";
         public bool ForceMonsterMeshShadows { get; set; }
+        /// <summary>Remastered world textures bundled with the client instead of the original ones.</summary>
+        public bool RemasteredTextures { get; set; } = true;
         public int DynamicLightUpdateFps { get; set; } = 23;
         public int AnimationUpdateFps { get; set; } = 23;
         public bool EnableCrowdSpatialCulling { get; set; } = true;

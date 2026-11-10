@@ -77,6 +77,8 @@ namespace Client.Main.Controls
             }
         }
 
+        public void RefreshTextures() => _renderer?.RefreshTextures();
+
         public float WaterSpeed { get => _renderer.WaterSpeed; set => _renderer.WaterSpeed = value; }
         public float DistortionAmplitude { get => _renderer.DistortionAmplitude; set => _renderer.DistortionAmplitude = value; }
         public float DistortionFrequency { get => _renderer.DistortionFrequency; set => _renderer.DistortionFrequency = value; }

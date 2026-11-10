@@ -533,6 +533,29 @@ namespace Client.Main.Objects
         public int AnimationUpdateStride { get; private set; } = 1;
         protected virtual bool RequiresPerFrameAnimation => false;
 
+        /// <summary>Forgets the resolved textures of every mesh (and child), so they are taken from the loader again.</summary>
+        public void RefreshTextures()
+        {
+            if (_meshes != null)
+            {
+                for (int i = 0; i < _meshes.Length; i++)
+                {
+                    if (_meshes[i] == null)
+                        continue;
+                    _meshes[i].Texture = null;
+                    _meshes[i].Data = null;
+                    _meshes[i].TextureKey = null;
+                    _meshes[i].TexturePrepareRequestFrame = 0;
+                }
+                InvalidateMeshRenderPlan();
+                InvalidateBuffers(MeshDirtyFlags.All);
+                _dynamicBuffersFrozen = false;
+            }
+
+            foreach (var child in Children.GetSnapshotArray())
+                (child as ModelObject)?.RefreshTextures();
+        }
+
         private static readonly HashSet<Client.Data.BMD.BMDTextureMesh> s_insetMeshes = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>

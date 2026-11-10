@@ -1,0 +1,42 @@
+{
+  "data": "C:/Games/MU_Red_1_20_61_Full/Data",
+  "folder": "Object1",
+  "scale": 4,
+  "style": "Hand-painted dark fantasy MMORPG texture in the style of MU Online, rich detail, crisp material definition, deep shadows in grooves and cracks, worn highlights on edges, subtle ambient occlusion, weathered medieval town stonework.",
+  "textures": {
+    "badge_03": {
+      "prompt": "Golden-yellow heraldic banner cloth with a black silhouette of a knight on a rearing horse holding a lance, cloth with folds and fabric weave, a column of thin magenta stripes on the right edge."
+    },
+    "bridge_01": {
+      "prompt": "Texture atlas of a stone bridge: weathered sandstone blocks and a carved stone arch with keystone, a small carved stone lion head bottom left, a small dark square with a soft white light spot bottom right."
+    },
+    "c_wall05": {
+      "prompt": "Carved stone relief of a bearded horned guardian face surrounded by leafy ornaments, mossy green weathered stone."
+    },
+    "joint": {
+      "prompt": "Weathered beige sandstone surface with a band of carved stone ornament along the bottom.",
+      "tileable": true
+    },
+    "steel_barred_a": {
+      "prompt": "Three vertical wrought iron fence bars with spear tips at the top and decorative rings, dark rusty iron."
+    },
+    "steel_barred_b": {
+      "prompt": "Dark iron metal surface with vertical rods and a cross bar, rusty forged iron, deep shadows."
+    },
+    "steel_barred_door": {
+      "prompt": "Ornate wrought iron gate: an arch of curling scrollwork and vertical bars, dark rusty forged iron."
+    },
+    "tile_01": {
+      "prompt": "Rough grey granite stone blocks with mortar joints, large stone wall masonry.",
+      "tileable": true
+    },
+    "tile_02": {
+      "prompt": "Grey wooden planks with iron rivets, a horizontal dark metal band, weathered grey wood.",
+      "tileable": true
+    },
+    "tile_03": {
+      "prompt": "Rough dark grey stone blocks with mortar joints, castle wall masonry.",
+      "tileable": true
+    }
+  }
+}

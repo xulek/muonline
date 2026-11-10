@@ -108,6 +108,42 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
             MuGame.PersistGraphicsPreset(preset);
         }
 
+        /// <summary>
+        /// Switches the remastered world textures at once: the affected textures are loaded again, the terrain and
+        /// every model take the new ones, and the old GPU textures are released a frame later.
+        /// </summary>
+        public static void SetRemasteredTextures(bool enabled)
+        {
+            if (Constants.REMASTERED_TEXTURES == enabled)
+                return;
+            Constants.REMASTERED_TEXTURES = enabled;
+            if (MuGame.AppSettings?.Graphics is { } graphics)
+                graphics.RemasteredTextures = enabled;
+            MuGame.PersistRemasteredTextures(enabled);
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                var replaced = await Client.Main.Content.TextureLoader.Instance.ReloadRemasteredAsync();
+                MuGame.ScheduleOnMainThread(() =>
+                {
+                    var world = (MuGame.Instance?.ActiveScene as BaseScene)?.World;
+                    if (world != null)
+                    {
+                        world.Terrain?.RefreshTextures();
+                        foreach (var obj in world.Objects.GetSnapshotArray())
+                            (obj as Client.Main.Objects.ModelObject)?.RefreshTextures();
+                    }
+
+                    // Released only after everything has switched to the new textures.
+                    MuGame.ScheduleOnMainThread(() =>
+                    {
+                        foreach (var texture in replaced)
+                            texture?.Dispose();
+                    });
+                });
+            });
+        }
+
         public static void SetVSync(bool enabled)
         {
             Constants.DISABLE_VSYNC = !enabled;

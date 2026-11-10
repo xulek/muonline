@@ -343,3 +343,4 @@ graphify*/
 *.db
 # UI art originals produced by tools/ui_assets.py (large, regenerable)
 tools/ui_assets/.work/
+tools/remaster/.work/

@@ -14,6 +14,19 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
     /// </summary>
     internal static class SettingsCatalog
     {
+        /// <summary>Every option of every category, with its "Category/Label" key.</summary>
+        public static IEnumerable<(string Key, SettingOption Option)> AllOptions()
+        {
+            foreach (var category in Create(() => { }))
+            {
+                if (category.Name == "Advanced")
+                    continue;   // debug views: never restored
+                foreach (var option in category.Build())
+                    if (option is not SettingHeader && option.Persist)
+                        yield return ($"{category.Name}/{option.Label}", option);
+            }
+        }
+
         public static List<SettingsCategory> Create(Action rebuild) => new()
         {
             new SettingsCategory { Name = "Display", Icon = "display", Subtitle = "Resolution, window mode and frame rate", Build = () => BuildDisplay(rebuild) },
@@ -39,6 +52,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 list.Add(new SettingChoice
                 {
                     Label = "Resolution",
+                    Persist = false,
                     Description = "Window or screen size. 16:9 modes keep the interface proportions intact.",
                     Choices = labels,
                     GetIndex = () => resolutions.FindIndex(r => r.X == settings.Width && r.Y == settings.Height),
@@ -47,6 +61,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 list.Add(new SettingToggle
                 {
                     Label = "Fullscreen",
+                    Persist = false,
                     Description = "Run the game in exclusive fullscreen instead of a window.",
                     Get = () => settings.IsFullScreen,
                     Set = value =>
@@ -100,6 +115,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 new SettingChoice
                 {
                     Label = "Quality Preset",
+                    Persist = false,
                     Description = "Auto detects your GPU. Low 0.75x, Medium 0.90x and High 1.00x render scale.",
                     Choices = new[] { "Auto", "Low", "Medium", "High" },
                     GetIndex = () => Array.IndexOf(presets, GraphicsQualityManager.UserPreset),
@@ -114,6 +130,14 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 },
                 new SettingToggle
                 {
+                    Label = "Remastered Textures",
+                    Persist = false,
+                    Description = "Detailed high resolution textures for buildings, walls, ground and water. Off shows the original ones.",
+                    Get = () => Constants.REMASTERED_TEXTURES,
+                    Set = SettingsActions.SetRemasteredTextures
+                },
+                new SettingToggle
+                {
                     Label = "Anti-Aliasing (FXAA)",
                     Description = "Smooth jagged edges with a fast post-process filter.",
                     Get = () => GraphicsManager.Instance.IsFXAAEnabled,
@@ -125,6 +149,35 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                     Description = "Draw grass on the terrain.",
                     Get = () => Constants.DRAW_GRASS,
                     Set = SettingsActions.SetGrass
+                },
+                new SettingToggle
+                {
+                    Label = "Shadows on Grass",
+                    Description = "Shadows of characters and objects fall on the grass blades, not only on the ground under them.",
+                    Get = () => GroundShadowMask.Enabled,
+                    Set = v => GroundShadowMask.Enabled = v,
+                    IsAvailable = () => Constants.DRAW_GRASS
+                },
+                new SettingToggle
+                {
+                    Label = "Ground Variation",
+                    Description = "Breaks up the repeating pattern of ground textures.",
+                    Get = () => Constants.TERRAIN_ANTI_TILING,
+                    Set = v => Constants.TERRAIN_ANTI_TILING = v
+                },
+                new SettingToggle
+                {
+                    Label = "Weapon Trails",
+                    Description = "Glowing trails behind swung weapons.",
+                    Get = () => Constants.ENABLE_WEAPON_TRAIL,
+                    Set = v => Constants.ENABLE_WEAPON_TRAIL = v
+                },
+                new SettingToggle
+                {
+                    Label = "Menu Scene Effects",
+                    Description = "Glow, animated water, mist, fireflies and stars on the login and character selection scenes.",
+                    Get = () => Constants.ENABLE_MENU_SCENE_EFFECTS,
+                    Set = v => Constants.ENABLE_MENU_SCENE_EFFECTS = v
                 },
                 new SettingHeader { Label = "Shadows" },
                 new SettingChoice
@@ -155,6 +208,7 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 new SettingToggle
                 {
                     Label = "Monster Mesh Shadows",
+                    Persist = false,
                     Description = "Always give monsters full mesh shadows instead of simple blob shadows.",
                     Get = () => MuGame.AppSettings?.Graphics?.ForceMonsterMeshShadows == true,
                     Set = v =>
@@ -329,10 +383,30 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
             new SettingChoice
             {
                 Label = "Interface Style",
+                    Persist = false,
                 Description = "Modern is the original interface. Classic uses the alternate HUD, windows and assets.",
                 Choices = new[] { "Modern", "Classic" },
                 GetIndex = () => UiThemeManager.CurrentId == UiThemeId.Classic ? 1 : 0,
                 SetIndex = i => UiThemeManager.SetTheme(i == 1 ? UiThemeId.Classic : UiThemeId.Modern)
+            },
+            new SettingHeader { Label = "Movement & Camera" },
+            new SettingToggle
+            {
+                Label = "Smooth Movement",
+                Description = "Characters walk paths in smooth curves without stopping at every tile. Off: original tile-by-tile walk.",
+                Get = () => Constants.SMOOTH_PATH_CORNERS,
+                Set = v =>
+                {
+                    Constants.SMOOTH_PATH_CORNERS = v;
+                    Constants.CONTINUOUS_PATH_WALK = v;
+                }
+            },
+            new SettingToggle
+            {
+                Label = "Smooth Camera Height",
+                Description = "The camera follows the ground height smoothly instead of every bump.",
+                Get = () => Constants.SMOOTH_CAMERA_HEIGHT,
+                Set = v => Constants.SMOOTH_CAMERA_HEIGHT = v
             },
             new SettingHeader { Label = "Information" },
             new SettingToggle
@@ -449,7 +523,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
             Max = Constants.MAX_PERFORMANCE_FPS_CAP,
             Step = 1f,
             Suffix = " FPS",
-            ApplyOnRelease = true
+            ApplyOnRelease = true,
+            Persist = false
         };
     }
 }

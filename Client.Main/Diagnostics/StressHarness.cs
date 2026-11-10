@@ -401,10 +401,46 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Shot:
+                    // MU_STRESS_SHOT_TOGGLE_REMASTER=1: a shot, the remastered textures switched off in game, a shot 2 s later.
+                    if (Environment.GetEnvironmentVariable("MU_STRESS_SHOT_TOGGLE_REMASTER") == "1" && !_remasterToggled && elapsed >= 4)
+                    {
+                        SaveScreenshot(game, $"{_label}_before");
+                        Controls.UI.Game.PauseMenu.Settings.SettingsActions.SetRemasteredTextures(!Constants.REMASTERED_TEXTURES);
+                        _remasterToggled = true;
+                        PhaseClock.Restart();
+                        break;
+                    }
+                    // MU_STRESS_SHOT_MONSTERS=N: N monsters around the hero, with health bars (their nameplates show).
+                    int shotMonsters = ParseInt("MU_STRESS_SHOT_MONSTERS", 0);
+                    if (shotMonsters > 0 && !_shotMonstersSpawned && elapsed >= 1)
+                    {
+                        _shotMonstersSpawned = true;
+                        Inject(BuildSpawnPacket(Types[0], shotMonsters));
+                    }
+                    if (shotMonsters > 0 && elapsed >= 3.5 && game.ActiveScene is GameScene { World: { } monsterWorld })
+                        foreach (var monster in monsterWorld.Objects.GetSnapshotArray().OfType<MonsterObject>())
+                            monster.UpdateHealthFractions(0.65f, null);
                     // MU_STRESS_SHOT=1: one screenshot at MU_STRESS_MAP / MU_STRESS_POS once the scene has settled.
-                    if (elapsed >= 4)
+                    if (_remasterToggled ? elapsed >= 2 : elapsed >= 4)
                     {
                         SaveScreenshot(game, $"{_label}_shot");
+                        Console.WriteLine($"[stress] shot fps={FPSCounter.Instance.FPS_AVG:F1}");
+                        // MU_STRESS_SETTINGS_DUMP=1: saves the settings window values and prints them back.
+                        if (Environment.GetEnvironmentVariable("MU_STRESS_SETTINGS_DUMP") == "1")
+                        {
+                            Controls.UI.Game.PauseMenu.Settings.SettingsPersistence.Save();
+                            Console.WriteLine($"[stress] options {MuGame.ReadSettingsSection("Options")?.ToJsonString()}");
+                            Console.WriteLine($"[stress] state music={Constants.BACKGROUND_MUSIC} vol={Constants.BACKGROUND_MUSIC_VOLUME} grass={Constants.DRAW_GRASS} trail={Constants.ENABLE_WEAPON_TRAIL} smooth={Constants.SMOOTH_PATH_CORNERS} scale={Constants.RENDER_SCALE}");
+                        }
+                        // MU_STRESS_DUMP_TYPES=121-153: every object of these types on the map, with its textures.
+                        var dumpTypes = (Environment.GetEnvironmentVariable("MU_STRESS_DUMP_TYPES") ?? "").Split('-');
+                        if (dumpTypes.Length == 2 && int.TryParse(dumpTypes[0], out int firstType) && int.TryParse(dumpTypes[1], out int lastType) &&
+                            game.ActiveScene is GameScene { World: { } typeWorld })
+                        {
+                            foreach (var o in typeWorld.Objects.GetSnapshotArray().OfType<ModelObject>())
+                                if (o.Type >= firstType && o.Type <= lastType)
+                                    Console.WriteLine($"[stress] obj type={o.Type} tile=({o.Position.X / 100f:F0},{o.Position.Y / 100f:F0}) model={System.IO.Path.GetFileName(o.Model?.Name ?? "")} :: {o.DescribeMeshesForDiagnostics()}");
+                        }
                         // MU_STRESS_SHOT_DUMP=1: what stands around the hero (type, model, transparency, blend state).
                         if (Environment.GetEnvironmentVariable("MU_STRESS_SHOT_DUMP") == "1" && game.ActiveScene is GameScene { Hero: { } dumpHero, World: { } dumpWorld })
                         {
@@ -1008,6 +1044,8 @@ namespace Client.Main.Diagnostics
         // MU_STRESS_HUD=1: fills the character's resources and screenshots the Modern HUD: resting, two frames of the
         // liquid animation, the drain band right after a hit, low health, and hover hints of an orb and a menu button.
         private static readonly bool ShotScene = Environment.GetEnvironmentVariable("MU_STRESS_SHOT") == "1";
+        private static bool _remasterToggled;
+        private static bool _shotMonstersSpawned;
 
         // MU_STRESS_HEROWALK=1: the hero walks back and forth for 12 s; reports frames where it stood still while it
         // should be walking (hitches), how even its speed on screen is, and how much the camera height jerks.
@@ -1223,6 +1261,15 @@ namespace Client.Main.Diagnostics
                 case 0:
                     inventory.ZenAmount = 1_234_567_890; // longest realistic amount must fit the Zen field
                     Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(20, 700);
+                    if (Environment.GetEnvironmentVariable("MU_STRESS_PICK_ITEM") == "1" &&
+                        typeof(InventoryControl).GetField("_items", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(inventory)
+                            is System.Collections.Generic.List<InventoryItem> items && items.Count > 0)
+                    {
+                        var item = items[0];
+                        items.RemoveAt(0);
+                        inventory._pickedItemRenderer.PickUpItem(item);
+                        Console.WriteLine("[stress] picked inventory item");
+                    }
                     break;
                 case 1: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(198, 106); break;   // helm
                 case 2: Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = At(72, 106); break;    // empty pet slot
