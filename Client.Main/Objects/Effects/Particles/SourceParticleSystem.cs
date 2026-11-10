@@ -110,6 +110,13 @@ namespace Client.Main.Objects.Effects.Particles
         public float MinDistanceScale { get; set; } = 0.5f;
         public float ScaleGrowth { get; set; } = 0.4f;
 
+        /// <summary>
+        /// World units the depth test uses closer to the camera than the particle. A sprite has one depth, so a large
+        /// one (a mist bank) is cut in a hard line where it passes through the ground or water; testing it as if it
+        /// stood its own radius closer avoids the cut.
+        /// </summary>
+        public float DepthTowardCamera { get; set; }
+
         protected abstract Texture2D? ParticleTexture { get; }
         protected abstract Vector2 ParticleTextureCenter { get; }
 
@@ -304,6 +311,8 @@ namespace Client.Main.Objects.Effects.Particles
             float inverseMaxDistanceSq = maxDistanceSq > 0.0001f ? 1f / maxDistanceSq : 0f;
             float referenceDistance = ReferenceDistance;
             float renderScale = Constants.RENDER_SCALE;
+            // Farthest a texel can be from the sprite's origin (rotated sprites reach their corners).
+            float textureRadius = Vector2.Distance(Vector2.Zero, Vector2.Max(textureCenter, new Vector2(texture.Width, texture.Height) - textureCenter));
             int drawn = 0;
 
             for (int i = 0; i < ActiveCount; i++)
@@ -325,12 +334,15 @@ namespace Client.Main.Objects.Effects.Particles
                 float screenX = (clipPosition.X * invW * 0.5f + 0.5f) * viewport.Width;
                 float screenY = (0.5f - clipPosition.Y * invW * 0.5f) * viewport.Height;
                 float depth = clipPosition.Z * invW;
-
-                if (depth < 0f || depth > 1f ||
-                    screenX < -100f || screenX > viewport.Width + 100f ||
-                    screenY < -100f || screenY > viewport.Height + 100f)
-                {
+                if (depth < 0f || depth > 1f)
                     continue;
+                if (DepthTowardCamera > 0f)
+                {
+                    float distance = MathF.Sqrt(distanceSq);
+                    Vector3 nearer = particle.Position - toParticle * (MathF.Min(DepthTowardCamera, distance * 0.9f) / distance);
+                    Vector4 nearClip = Vector4.Transform(nearer, viewProjection);
+                    if (nearClip.W > 0.001f)
+                        depth = MathHelper.Clamp(nearClip.Z / nearClip.W, 0f, 1f);
                 }
 
                 float lifeRatio = particle.MaxLifeTime > 0f
@@ -338,6 +350,16 @@ namespace Client.Main.Objects.Effects.Particles
                     : 1f;
                 float distanceScale = MathHelper.Lerp(1f, MinDistanceScale, distanceSq * inverseMaxDistanceSq);
                 float perspectiveScale = MathF.Max(0.1f, referenceDistance * invW) * renderScale;
+                float scale = GetParticleScale(particle, lifeRatio, distanceScale, perspectiveScale);
+
+                // Skip only when the whole sprite is off screen: a fixed margin made big sprites (mist banks)
+                // pop in and out at the screen edges.
+                float margin = MathF.Max(100f, textureRadius * scale);
+                if (screenX < -margin || screenX > viewport.Width + margin ||
+                    screenY < -margin || screenY > viewport.Height + margin)
+                {
+                    continue;
+                }
 
                 GraphicsManager.Instance.Sprite.Draw(
                     texture,
@@ -346,7 +368,7 @@ namespace Client.Main.Objects.Effects.Particles
                     GetParticleColor(particle, lifeRatio),
                     GetParticleRotation(particle),
                     textureCenter,
-                    GetParticleScale(particle, lifeRatio, distanceScale, perspectiveScale),
+                    scale,
                     SpriteEffects.None,
                     depth);
                 drawn++;

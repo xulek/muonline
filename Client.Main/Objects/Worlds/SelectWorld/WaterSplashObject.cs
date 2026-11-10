@@ -1,6 +1,7 @@
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Objects.Effects.Particles;
+using Client.Main.Objects.Effects.Scene;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -15,10 +16,25 @@ namespace Client.Main.Objects.Worlds.SelectWrold
         public override WorldObjectRenderPolicy RenderPolicy => base.RenderPolicy.With(alwaysUpdate: true);
         protected override bool RequiresPerFrameAnimation => true;
 
+        private WorldObject[] _sceneSplash;
+
         public override async Task Load()
         {
             // Types 54-56 are invisible effect markers in Object94.
             HiddenMesh = -2;
+
+            if (Constants.ENABLE_MENU_SCENE_EFFECTS)
+            {
+                _sceneSplash = CreateSceneSplash();
+                foreach (var effect in _sceneSplash)
+                {
+                    effect.World = World;
+                    World.Objects.Add(effect);
+                    await effect.Load();
+                }
+                await base.Load();
+                return;
+            }
 
             _particleSystem = new LegacyWaterfallParticleSystem(Type)
             {
@@ -33,6 +49,40 @@ namespace Client.Main.Objects.Worlds.SelectWrold
             await base.Load();
         }
 
+        /// <summary>
+        /// Splash in place of the original sprite columns: drops on ballistic arcs and a soft spray cloud.
+        /// 55 marks where falling water lands, 54 the falling curtain, 56 small trickles.
+        /// </summary>
+        private WorldObject[] CreateSceneSplash()
+        {
+            float s = Math.Clamp(Scale, 0.5f, 2f);
+            Vector3 at = Position;
+            return Type switch
+            {
+                55 => new WorldObject[]
+                {
+                    new WaterDroplets(at, at, new DropletSpec(
+                        Rate: 55f * s, Jitter: 18f * s, OutSpeed: new Vector2(30f, 120f) * s, UpSpeed: new Vector2(110f, 260f) * s,
+                        Gravity: 700f, Life: new Vector2(0.5f, 1.0f), Size: new Vector2(0.35f, 0.7f), FallDepth: 40f)),
+                    new SplashMist(at, rate: 7f, radius: 30f * s, alpha: 0.38f, size: 1.3f * s, rise: 25f),
+                },
+                54 => new WorldObject[]
+                {
+                    new WaterDroplets(at, at, new DropletSpec(
+                        Rate: 20f * s, Jitter: 25f * s, OutSpeed: new Vector2(20f, 70f), UpSpeed: new Vector2(-40f, 50f),
+                        Gravity: 600f, Life: new Vector2(0.5f, 0.9f), Size: new Vector2(0.3f, 0.55f), FallDepth: 250f)),
+                    new SplashMist(at, rate: 5f, radius: 40f * s, alpha: 0.3f, size: 1.5f * s, rise: -20f),
+                },
+                _ => new WorldObject[]
+                {
+                    new WaterDroplets(at, at, new DropletSpec(
+                        Rate: 14f * s, Jitter: 10f, OutSpeed: new Vector2(15f, 50f), UpSpeed: new Vector2(40f, 120f),
+                        Gravity: 650f, Life: new Vector2(0.4f, 0.8f), Size: new Vector2(0.28f, 0.5f), FallDepth: 30f)),
+                    new SplashMist(at, rate: 3f, radius: 15f, alpha: 0.25f, size: 0.9f, rise: 15f),
+                },
+            };
+        }
+
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
@@ -43,6 +93,20 @@ namespace Client.Main.Objects.Worlds.SelectWrold
             _particleSystem.Position = Position;
             _particleSystem.Angle = Angle;
             _particleSystem.SourceScale = Scale;
+        }
+
+        public override void Dispose()
+        {
+            if (_sceneSplash != null)
+            {
+                foreach (var effect in _sceneSplash)
+                {
+                    World?.Objects.Remove(effect);
+                    effect.Dispose();
+                }
+                _sceneSplash = null;
+            }
+            base.Dispose();
         }
 
         private sealed class LegacyWaterfallParticleSystem : SourceParticleSystem

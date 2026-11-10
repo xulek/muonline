@@ -3,6 +3,8 @@ using Client.Main.Controls.UI;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
 using Client.Main.Models;
+using Client.Main.Objects;
+using Client.Main.Objects.Effects.Scene;
 using Client.Main.Objects.Worlds.SelectWrold;
 using Client.Main.Scenes.SelectCharacter;
 using Microsoft.Extensions.Logging;
@@ -15,7 +17,7 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Worlds
 {
-    public class SelectWorld : WorldControl
+    public class SelectWorld : CinematicWorld
     {
         private readonly Vector3 _characterDisplayPosition = new(14000, 12295, 250);
         private readonly Vector3 _characterDisplayAngle = new(0, 0, MathHelper.ToRadians(90));
@@ -33,6 +35,14 @@ namespace Client.Main.Worlds
         {
             EnableShadows = false;
             Terrain.PreferIndexBatching = true;
+            Glow.Threshold = 0.55f;
+            Glow.Knee = 0.3f;
+            Glow.Intensity = 1.0f;
+            Glow.Tint = new Vector3(1f, 0.92f, 1.05f);
+            Glow.Saturation = 1.12f;
+            Glow.Contrast = 1.06f;
+            Glow.Lift = new Vector3(0.012f, 0.004f, 0.03f);
+            Glow.Vignette = 0.55f;
             _logger = MuGame.AppLoggerFactory?.CreateLogger<SelectWorld>() ?? throw new System.InvalidOperationException("LoggerFactory not initialized in MuGame");
         }
 
@@ -162,7 +172,7 @@ namespace Client.Main.Worlds
             MapTileObjects[11] = typeof(SkyObject);
             MapTileObjects[12] = typeof(SkyObject);
             MapTileObjects[36] = typeof(LightObject);
-            MapTileObjects[25] = typeof(BlendedObjects);
+            MapTileObjects[25] = typeof(WaterFallObject);
             MapTileObjects[33] = typeof(BlendedObjects);
             MapTileObjects[30] = typeof(LightObject);
             MapTileObjects[31] = typeof(FlowersObject2);
@@ -177,6 +187,7 @@ namespace Client.Main.Worlds
         public override void AfterLoad()
         {
             base.AfterLoad();
+            AddSceneEffects();
 
             // water animation parameters
             Terrain.WaterSpeed = 0.05f;
@@ -253,6 +264,37 @@ namespace Client.Main.Worlds
                 Camera.Instance.ViewFar -= 10;
             }
         }
+
+        /// <summary>
+        /// Effects beyond the original map data: magic circle on the pedestal, fireflies and rising sparks, falling
+        /// petals, glinting and shooting stars, caustics on the pools (waterfalls add their own mist and spray).
+        /// </summary>
+        private void AddSceneEffects()
+        {
+            if (_sceneEffectsAdded || !Constants.ENABLE_MENU_SCENE_EFFECTS)
+                return;
+            _sceneEffectsAdded = true;
+
+            Vector3 pedestal = _characterDisplayPosition + new Vector3(0f, 0f, 1f);
+            var effects = new WorldObject[]
+            {
+                new PedestalGlow(pedestal),
+                new SceneAtmosphere(pedestal, new Vector3(13100f, 12300f, 550f), new Vector3(1300f, 1100f, 420f)),
+                new FallingPetals(new Vector3(13200f, 12300f, 600f), new Vector3(1000f, 950f, 620f)),
+                new SkyGlints(new Vector3(8900f, 10900f, 700f), new Vector3(9300f, 13800f, 2300f)),
+                new ShootingStars(new Vector3(8900f, 11200f, 1400f), new Vector3(9300f, 13400f, 2300f)),
+                new PoolSurface(new Rectangle(85, 100, 75, 45)),
+            };
+
+            foreach (var effect in effects)
+            {
+                effect.World = this;
+                Objects.Add(effect);
+                _ = effect.Load();
+            }
+        }
+
+        private bool _sceneEffectsAdded;
 
         public override void Draw(GameTime gameTime)
         {

@@ -1,6 +1,7 @@
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Objects.Effects.Particles;
+using Client.Main.Objects.Effects.Scene;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -15,10 +16,33 @@ namespace Client.Main.Objects.Worlds.Login
         public override WorldObjectRenderPolicy RenderPolicy => base.RenderPolicy.With(alwaysUpdate: true);
         protected override bool RequiresPerFrameAnimation => true;
 
+        private WorldObject[] _sceneSplash;
+
         public override async Task Load()
         {
             // Type 54 is the invisible Object73 type 82 effect marker.
             HiddenMesh = -2;
+
+            if (Constants.ENABLE_MENU_SCENE_EFFECTS)
+            {
+                // Where the sea hits a hull: drops thrown up on arcs and a cloud of spray.
+                float s = Math.Clamp(Scale, 0.5f, 2f);
+                _sceneSplash = new WorldObject[]
+                {
+                    new WaterDroplets(Position, Position, new DropletSpec(
+                        Rate: 45f * s, Jitter: 55f * s, OutSpeed: new Vector2(50f, 190f) * s, UpSpeed: new Vector2(120f, 340f) * s,
+                        Gravity: 720f, Life: new Vector2(0.7f, 1.3f), Size: new Vector2(0.6f, 1.25f), FallDepth: 260f)) { MaxDistance = 40000f },
+                    new SplashMist(Position, rate: 3f, radius: 80f * s, alpha: 0.5f, size: 1.8f * s, rise: 30f) { MaxDistance = 40000f },
+                };
+                foreach (var effect in _sceneSplash)
+                {
+                    effect.World = World;
+                    World.Objects.Add(effect);
+                    await effect.Load();
+                }
+                await base.Load();
+                return;
+            }
 
             _particleSystem = new LegacyWaterfallParticleSystem
             {
@@ -31,6 +55,20 @@ namespace Client.Main.Objects.Worlds.Login
             World.Objects.Add(_particleSystem);
             await _particleSystem.Load();
             await base.Load();
+        }
+
+        public override void Dispose()
+        {
+            if (_sceneSplash != null)
+            {
+                foreach (var effect in _sceneSplash)
+                {
+                    World?.Objects.Remove(effect);
+                    effect.Dispose();
+                }
+                _sceneSplash = null;
+            }
+            base.Dispose();
         }
 
         public override void Update(GameTime gameTime)

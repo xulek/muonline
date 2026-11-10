@@ -123,6 +123,8 @@ namespace Client.Main
         public static bool ENABLE_EFFECT_POOLING;
         public static bool ENABLE_STATIC_CHUNK_CACHING;
         public static bool ENABLE_ITEM_MATERIAL_ANIMATION;
+        /// <summary>Login and character selection extras: glow and grading, animated water, spray and mist, fireflies, sparkles, stars.</summary>
+        public static bool ENABLE_MENU_SCENE_EFFECTS = true;
         public static bool ENABLE_DYNAMIC_BUFFER_POOL;
         /// <summary>Opaque per-mesh draws of player/NPC parts are submitted grouped by effect (fewer shader switches).</summary>
         public static bool ENABLE_DEFERRED_ACTOR_MESH_DRAWS;

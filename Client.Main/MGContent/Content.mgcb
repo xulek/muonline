@@ -31,6 +31,18 @@
 /processorParam:DebugMode=Optimize
 /build:HudOrb.fx
 
+#begin SceneBloom.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:SceneBloom.fx
+
+#begin SceneWater.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:SceneWater.fx
+
 #begin GammaCorrection.fx
 /importer:EffectImporter
 /processor:EffectProcessor

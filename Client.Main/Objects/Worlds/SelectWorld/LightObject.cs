@@ -1,6 +1,7 @@
 using Client.Main.Content;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using System;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Worlds.SelectWrold
@@ -18,11 +19,18 @@ namespace Client.Main.Objects.Worlds.SelectWrold
             IsTransparent = true;
             Scale = 1.1f;
             Alpha = 0.5f;
+            _phase = (Position.X + Position.Y) * 0.013f;
             await base.Load();
         }
 
+        // Light shafts breathe slowly, each with its own phase.
+        private float _phase;
+
         public override void Draw(GameTime gameTime)
         {
+            float t = (float)(gameTime.TotalGameTime.TotalSeconds % 3600.0);
+            Alpha = 0.5f * (0.7f + 0.3f * MathF.Sin(t * 0.7f + _phase) + 0.08f * MathF.Sin(t * 2.3f + _phase * 3f));
+
             // Save the current DepthStencilState
             DepthStencilState previousDepthState = MuGame.Instance.GraphicsDevice.DepthStencilState;
             // Set DepthStencilState to disable depth buffer writes for transparent objects
