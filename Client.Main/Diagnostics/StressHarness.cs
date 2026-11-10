@@ -35,7 +35,7 @@ namespace Client.Main.Diagnostics
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, HeroWalk, Done }
 
         // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
         private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
@@ -212,7 +212,9 @@ namespace Client.Main.Diagnostics
                 {
                     try
                     {
-                        if (SelectScene)
+                        if (LoginSceneShots)
+                            game.ChangeScene(new LoginScene());
+                        else if (SelectScene)
                             game.ChangeScene(new SelectCharacterScene(SelectSceneCharacters(), MuGame.Network));
                         else
                             game.ChangeScene(new GameScene(("Stress", CharacterClassNumber.DarkKnight, (ushort)400, appearance)));
@@ -243,6 +245,11 @@ namespace Client.Main.Diagnostics
         public static void OnFrame(MuGame game, FrameProfiler.Snapshot frame)
         {
             if (!Enabled || _phase == Phase.Done) return;
+            if (LoginSceneShots)
+            {
+                UpdateLoginSceneShots(game);
+                return;
+            }
             if (SelectScene)
             {
                 UpdateSelectSceneShots(game);
@@ -320,6 +327,11 @@ namespace Client.Main.Diagnostics
                             FillInventory(game);
                             Next(Phase.Inventory);
                         }
+                        else if (HeroWalkScene)
+                        {
+                            _walkStats = default;
+                            Next(Phase.HeroWalk);
+                        }
                         else if (ShotScene)
                         {
                             // Offline the worlds spawn the hero at their default point: put it at MU_STRESS_POS directly.
@@ -382,6 +394,10 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Inventory:
                     UpdateInventoryShots(game, elapsed);
+                    break;
+
+                case Phase.HeroWalk:
+                    UpdateHeroWalk(game, elapsed);
                     break;
 
                 case Phase.Shot:
@@ -682,9 +698,68 @@ namespace Client.Main.Diagnostics
             }
         }
 
+        // MU_STRESS_LOGIN=1: the login scene's world alone (UI hidden), one shot after MU_STRESS_WAIT seconds (default 6),
+        // a second one half a second later with MU_STRESS_SELECT_SCENE_TWICE=1, then the effect objects and the frame rate.
+        private static readonly bool LoginSceneShots = Environment.GetEnvironmentVariable("MU_STRESS_LOGIN") == "1";
+        private static int _loginShot;
+
+        private static void UpdateLoginSceneShots(MuGame game)
+        {
+            if (game.ActiveScene is not LoginScene { Status: Models.GameControlStatus.Ready } scene || scene.World?.Visible != true ||
+                scene.World.Status != Models.GameControlStatus.Ready)
+            {
+                if (PhaseClock.Elapsed.TotalSeconds > 90)
+                    Finish(game, "login scene did not load");
+                return;
+            }
+
+            foreach (var control in scene.Controls.GetSnapshotArray())
+                if (control != scene.World)
+                    control.Visible = false;
+
+            double wait = _loginShot == 0 ? ParseInt("MU_STRESS_WAIT", 6) : 0.5;
+            if (_loginShot == 0 && PhaseClock.Elapsed.TotalSeconds < 1)
+                return;
+            if (PhaseClock.Elapsed.TotalSeconds < wait + (_loginShot == 0 ? 1 : 0))
+                return;
+
+            SaveScreenshot(game, $"{_label}_login_{_loginShot}");
+            PhaseClock.Restart();
+            if (++_loginShot < 2 && Environment.GetEnvironmentVariable("MU_STRESS_SELECT_SCENE_TWICE") == "1")
+                return;
+
+            Console.WriteLine($"[stress] login fps={FPSCounter.Instance.FPS_AVG:F1}");
+            // MU_STRESS_PROBE=x1,y1,x2,y2: terrain heights along a line (e.g. under a water effect).
+            var probe = (Environment.GetEnvironmentVariable("MU_STRESS_PROBE") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(float.Parse).ToArray();
+            if (probe.Length == 4)
+                for (int i = 0; i <= 10; i++)
+                {
+                    float x = probe[0] + (probe[2] - probe[0]) * i / 10f, y = probe[1] + (probe[3] - probe[1]) * i / 10f;
+                    Console.WriteLine($"[stress] probe ({x:F0},{y:F0}) h={scene.World.Terrain.RequestTerrainHeight(x, y):F1}");
+                }
+            Console.WriteLine($"[stress] camera pos={Camera.Instance.Position} target={Camera.Instance.Target} far={Camera.Instance.ViewFar}");
+            var frustum = Camera.Instance.Frustum;
+            foreach (var o in scene.World.Objects.GetSnapshotArray())
+            {
+                if (o is ModelObject m)
+                {
+                    if (frustum.Contains(m.BoundingBoxWorld) == ContainmentType.Disjoint)
+                        continue;
+                    Console.WriteLine($"[stress] view {m.GetType().Name} type={m.Type} model={System.IO.Path.GetFileName(m.Model?.Name ?? "")} " +
+                        $"pos=({m.Position.X:F0},{m.Position.Y:F0},{m.Position.Z:F0}) box={m.BoundingBoxWorld.Min}-{m.BoundingBoxWorld.Max} transparent={m.IsTransparent} blendMesh={m.BlendMesh} :: {m.DescribeMeshesForDiagnostics()}");
+                }
+                else
+                {
+                    Console.WriteLine($"[stress] fx {o.GetType().Name} pos=({o.Position.X:F0},{o.Position.Y:F0},{o.Position.Z:F0})");
+                }
+            }
+            Finish(game, null);
+        }
+
         // MU_STRESS_SELECT=1: character selection with fake characters, screenshots with hover states.
         private static readonly bool SelectScene = Environment.GetEnvironmentVariable("MU_STRESS_SELECT") == "1";
         private static int _selectShot = -1;
+        private static bool _selectSecondShot;
 
         private static List<(string Name, CharacterClassNumber Class, ushort Level, byte[] Appearance)> SelectSceneCharacters()
         {
@@ -755,11 +830,24 @@ namespace Client.Main.Diagnostics
             if (PhaseClock.Elapsed.TotalSeconds < shot.Wait)
                 return;
 
-            SaveScreenshot(game, $"{_label}_select_{_selectShot}");
+            SaveScreenshot(game, $"{_label}_select_{_selectShot}{(_selectSecondShot ? "b" : "")}");
+            // MU_STRESS_SELECT_SCENE_TWICE=1: a second shot half a second later, to see what moves.
+            if (sceneOnly && Environment.GetEnvironmentVariable("MU_STRESS_SELECT_SCENE_TWICE") == "1" && !_selectSecondShot)
+            {
+                _selectSecondShot = true;
+                PhaseClock.Restart();
+                SelectShots[_selectShot] = (null, shot.Pointer, 0.5);
+                return;
+            }
             if (sceneOnly)
             {
                 var frustum = Camera.Instance.Frustum;
+                Console.WriteLine($"[stress] select fps={FPSCounter.Instance.FPS_AVG:F1}");
                 Console.WriteLine($"[stress] camera pos={Camera.Instance.Position} target={Camera.Instance.Target} far={Camera.Instance.ViewFar}");
+                foreach (var o in scene.World.Objects.GetSnapshotArray())
+                    if (o is not ModelObject)
+                        Console.WriteLine($"[stress] fx {o.GetType().Name} pos=({o.Position.X:F0},{o.Position.Y:F0},{o.Position.Z:F0}) status={o.Status} visible={scene.World.IsObjectVisibleInSnapshot(o)}" +
+                            (o is Client.Main.Objects.Effects.Particles.SourceParticleSystem ps ? $" particles={ps.HasActiveParticles}" : ""));
                 foreach (var o in scene.World.Objects.GetSnapshotArray().OfType<ModelObject>())
                 {
                     if (frustum.Contains(o.BoundingBoxWorld) == ContainmentType.Disjoint)
@@ -920,6 +1008,76 @@ namespace Client.Main.Diagnostics
         // MU_STRESS_HUD=1: fills the character's resources and screenshots the Modern HUD: resting, two frames of the
         // liquid animation, the drain band right after a hit, low health, and hover hints of an orb and a menu button.
         private static readonly bool ShotScene = Environment.GetEnvironmentVariable("MU_STRESS_SHOT") == "1";
+
+        // MU_STRESS_HEROWALK=1: the hero walks back and forth for 12 s; reports frames where it stood still while it
+        // should be walking (hitches), how even its speed on screen is, and how much the camera height jerks.
+        private static readonly bool HeroWalkScene = Environment.GetEnvironmentVariable("MU_STRESS_HEROWALK") == "1";
+
+        private struct WalkStats
+        {
+            public int Frames, Hitches, Legs, Idle;
+            public double SpeedSum, SpeedSqSum, JerkSqSum;
+            public Vector3 LastHero, LastCamera;
+            public float LastCameraVelocityZ;
+            public bool HasLast;
+        }
+
+        private static WalkStats _walkStats;
+
+        private static void UpdateHeroWalk(MuGame game, double elapsed)
+        {
+            if (game.ActiveScene is not GameScene { Hero: { } hero })
+            {
+                Finish(game, "no hero");
+                return;
+            }
+
+            _walkStats.Idle = hero.IsMoving ? 0 : _walkStats.Idle + 1;
+            if (_walkStats.Idle >= 10 && elapsed < 12)
+            {
+                _walkStats.Idle = 0;
+                // Next leg: 12 tiles away and back, diagonal and straight in turn.
+                _walkStats.Legs++;
+                int dx = _walkStats.Legs % 2 == 0 ? 0 : 12;
+                int dy = _walkStats.Legs % 4 < 2 ? 12 : 5;
+                var to = _walkStats.Legs % 2 == 0 ? new Vector2(HeroX, HeroY) : new Vector2(HeroX + dx, HeroY + dy);
+                hero.MoveTo(to, sendToServer: false, usePathfinding: true);
+                _walkStats.HasLast = false;
+                return;
+            }
+
+            float dt = (float)game.GameTime.ElapsedGameTime.TotalSeconds;
+            Vector3 heroPosition = hero.Position;
+            Vector3 camera = Camera.Instance.Target;
+            if (_walkStats.HasLast && dt > 0f && hero.IsMoving)
+            {
+                float moved = Vector2.Distance(new Vector2(heroPosition.X, heroPosition.Y), new Vector2(_walkStats.LastHero.X, _walkStats.LastHero.Y));
+                if (moved < 0.01f)
+                    _walkStats.Hitches++;
+                double speed = moved / dt;
+                _walkStats.SpeedSum += speed;
+                _walkStats.SpeedSqSum += speed * speed;
+                float velocityZ = (camera.Z - _walkStats.LastCamera.Z) / dt;
+                float jerk = (velocityZ - _walkStats.LastCameraVelocityZ) / dt;
+                _walkStats.JerkSqSum += jerk * (double)jerk;
+                _walkStats.LastCameraVelocityZ = velocityZ;
+                _walkStats.Frames++;
+            }
+
+            _walkStats.LastHero = heroPosition;
+            _walkStats.LastCamera = camera;
+            _walkStats.HasLast = true;
+
+            if (elapsed >= 12)
+            {
+                int n = Math.Max(1, _walkStats.Frames);
+                double mean = _walkStats.SpeedSum / n;
+                double sd = Math.Sqrt(Math.Max(0, _walkStats.SpeedSqSum / n - mean * mean));
+                Console.WriteLine($"[stress] herowalk frames={_walkStats.Frames} legs={_walkStats.Legs} hitches={_walkStats.Hitches} " +
+                    $"speed={mean:F0}±{sd:F0} (cv {sd / Math.Max(1, mean):P1}) cameraZJerkRms={Math.Sqrt(_walkStats.JerkSqSum / n):F0} fps={FPSCounter.Instance.FPS_AVG:F0}");
+                Finish(game, null);
+            }
+        }
         private static readonly bool HudScene = Environment.GetEnvironmentVariable("MU_STRESS_HUD") == "1";
         private static int _hudShot;
 
