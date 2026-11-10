@@ -125,6 +125,12 @@ namespace Client.Main
         public static bool ENABLE_ITEM_MATERIAL_ANIMATION;
         /// <summary>Login and character selection extras: glow and grading, animated water, spray and mist, fireflies, sparkles, stars.</summary>
         public static bool ENABLE_MENU_SCENE_EFFECTS = true;
+        /// <summary>Walkers carry the rest of a frame's step on to the next path tile (no stop at every tile).</summary>
+        public static bool CONTINUOUS_PATH_WALK = true;
+        /// <summary>Walkers cut the corners of their tile path instead of zigzagging from tile centre to tile centre.</summary>
+        public static bool SMOOTH_PATH_CORNERS = true;
+        /// <summary>The camera follows the hero's height smoothly instead of every terrain step.</summary>
+        public static bool SMOOTH_CAMERA_HEIGHT = true;
         public static bool ENABLE_DYNAMIC_BUFFER_POOL;
         /// <summary>Opaque per-mesh draws of player/NPC parts are submitted grouped by effect (fewer shader switches).</summary>
         public static bool ENABLE_DEFERRED_ACTOR_MESH_DRAWS;
@@ -309,8 +315,9 @@ namespace Client.Main
             RENDER_METRICS_LEVEL = 1;
             RENDER_SCALE = 1.0f;
             HIGH_QUALITY_TEXTURES = true;
-            DISABLE_VSYNC = true;
-            UNLIMITED_FPS = true;
+            // Frames in step with the screen: uncapped frames tear and arrive unevenly, which reads as stutter.
+            DISABLE_VSYNC = false;
+            UNLIMITED_FPS = false;
             ENABLE_SHADOW_MAPPING = false;
             ENABLE_DAY_NIGHT_CYCLE = false;
             DAY_NIGHT_SPEED_MULTIPLIER = 60f;

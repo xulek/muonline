@@ -60,10 +60,11 @@ internal sealed class MainPlayerCameraController
     public void Update(GameTime gameTime)
     {
         float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        // Exponential approach: the same zoom feel at any frame rate (a plain lerp by speed * dt depends on it).
         _currentCameraDistance = MathHelper.Lerp(
             _currentCameraDistance,
             _targetCameraDistance,
-            Constants.ZOOM_SPEED * deltaTime);
+            1f - MathF.Exp(-Constants.ZOOM_SPEED * deltaTime));
 
         float blendTarget = Showcase ? 1f : 0f;
         _showcase = _showcase < blendTarget
@@ -123,8 +124,40 @@ internal sealed class MainPlayerCameraController
         }
     }
 
+    // The followed point comes straight from the terrain height under the hero, which steps from triangle to
+    // triangle; the camera follows its height smoothly (the hero's own height is smoothed the same way), so walking
+    // over uneven ground does not shake the view. Big jumps (teleport, map change) are taken at once.
+    private const float HeightFollowRate = 16f;
+    private const float HeightSnapDistance = 250f;
+    private float _smoothedHeight = float.NaN;
+    private float _heightFrom;
+    private int _heightFrame = int.MinValue;
+
+    private float SmoothHeight(float height)
+    {
+        if (!Constants.SMOOTH_CAMERA_HEIGHT || float.IsNaN(_smoothedHeight) || MathF.Abs(height - _smoothedHeight) > HeightSnapDistance)
+        {
+            _smoothedHeight = _heightFrom = height;
+            _heightFrame = MuGame.FrameIndex;
+            return height;
+        }
+
+        // Apply can run more than once per frame: advance once, from the height the frame started with.
+        if (_heightFrame != MuGame.FrameIndex)
+        {
+            _heightFrame = MuGame.FrameIndex;
+            _heightFrom = _smoothedHeight;
+        }
+
+        float deltaTime = (float)(MuGame.Instance?.GameTime?.ElapsedGameTime.TotalSeconds ?? 0.016);
+        _smoothedHeight = MathHelper.Lerp(_heightFrom, height, 1f - MathF.Exp(-HeightFollowRate * deltaTime));
+        return _smoothedHeight;
+    }
+
     public void Apply(Vector3 target)
     {
+        target.Z = SmoothHeight(target.Z);
+
         // Smoothstep so the move starts and ends gently.
         float blend = _showcase * _showcase * (3f - 2f * _showcase);
         float distance = MathHelper.Lerp(_currentCameraDistance, ShowcaseDistance, blend);

@@ -532,6 +532,13 @@ namespace Client.Main.Objects
 
         public int AnimationUpdateStride { get; private set; } = 1;
         protected virtual bool RequiresPerFrameAnimation => false;
+
+        /// <summary>
+        /// Pose computed every frame instead of at <see cref="Constants.ANIMATION_UPDATE_FPS"/>: the player's own
+        /// character (and what it carries) is always in view and in the middle of the screen, where a pose held for
+        /// several frames reads as stutter on high refresh rate screens.
+        /// </summary>
+        protected internal virtual bool AnimateEveryFrame => Parent is ModelObject parent && parent.AnimateEveryFrame;
         public bool RequiresPerFrameWorldUpdate => RequiresPerFrameAnimation || UsesMutableMeshData;
         protected virtual bool AllowAnimationUpdates => true;
         protected virtual bool AllowLightingUpdates => true;

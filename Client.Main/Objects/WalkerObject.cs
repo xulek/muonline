@@ -53,6 +53,24 @@ namespace Client.Main.Objects
 
 
         private const float RotationSpeed = 10f;
+        private const float RotationEase = 14f;
+        // How far before a tile's centre a walker turns towards the next tile of its path (tiles are 100 wide).
+        private const float PathCornerRadius = 45f;
+        // How fast the walking direction may turn (rad/s): at walking speed this bends corners into ~40 unit arcs.
+        private const float PathTurnRate = 7.5f;
+        private Vector2 _walkDirection;
+
+        private static Vector2 TurnTowards(Vector2 from, Vector2 to, float maxAngle)
+        {
+            float a = MathF.Atan2(from.Y, from.X);
+            float b = MathF.Atan2(to.Y, to.X);
+            float diff = MathHelper.WrapAngle(b - a);
+            // A reversal (new order behind the walker) turns at once instead of circling.
+            if (MathF.Abs(diff) > MathHelper.PiOver2 + 0.3f)
+                return to;
+            float angle = a + MathHelper.Clamp(diff, -maxAngle, maxAngle);
+            return new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+        }
         private int _previousActionForSound = -1;
         private bool _serverControlledAnimation = false;
         private const byte DebuffPoison = 55;
@@ -155,6 +173,7 @@ namespace Client.Main.Objects
             float heightOffset = ExtraHeight + walkableWorld.ExtraHeight;
 
             MoveTargetPosition = terrainTarget;
+            _walkDirection = Vector2.Zero;
             Position = new Vector3(terrainTarget.X, terrainTarget.Y, terrainTarget.Z + heightOffset);
 
             if (updateCamera && IsMainWalker)
@@ -163,6 +182,8 @@ namespace Client.Main.Objects
 
         public float MoveSpeed { get; set; } = Constants.MOVE_SPEED;
         public bool IsMoving => Vector3.DistanceSquared(MoveTargetPosition, TargetPosition) > 0.0001f;
+
+        protected internal override bool AnimateEveryFrame => IsMainWalker || base.AnimateEveryFrame;
         public new ushort NetworkId { get; set; }
 
         public ushort idanim = 0;
@@ -198,6 +219,7 @@ namespace Client.Main.Objects
         public new virtual async Task Load()
         {
             MoveTargetPosition = Vector3.Zero;
+            _walkDirection = Vector2.Zero;
             _targetPositionDirty = true;
             _mainPlayerCameraController.Initialize();
 
@@ -208,6 +230,7 @@ namespace Client.Main.Objects
         {
             _currentPath = null;
             MoveTargetPosition = Vector3.Zero;
+            _walkDirection = Vector2.Zero;
             _movementIntent = false;
             _targetPositionDirty = true;
             _nextDebuffTintCheckMs = 0d;
@@ -230,6 +253,7 @@ namespace Client.Main.Objects
 
             // Freeze the object at its current rendered position
             MoveTargetPosition = Position;
+            _walkDirection = Vector2.Zero;
 
             // Update the logical tile position without invoking OnLocationChanged
             _location = new Vector2(
@@ -244,7 +268,13 @@ namespace Client.Main.Objects
         public void OnDirectionChanged()
         {
             if (World is WalkableWorldControl)
+            {
+                // While walking the facing follows the actual walking direction; the tile direction (one of 8) would
+                // pull it a few degrees aside at every tile.
+                if (_walkDirection != Vector2.Zero && Constants.SMOOTH_PATH_CORNERS)
+                    return;
                 _targetAngle = _direction.ToAngle();
+            }
             else
                 Angle = _direction.ToAngle();
         }
@@ -632,12 +662,15 @@ namespace Client.Main.Objects
                 Vector3 angleDifference = _targetAngle - Angle;
                 angleDifference.Z = MathHelper.WrapAngle(angleDifference.Z);
 
+                // Eases into the new facing (fast at first, gently at the end) instead of turning at a constant speed
+                // and stopping dead; still no faster than RotationSpeed.
                 float maxStep = RotationSpeed * localDeltaTime;
-                float stepZ = MathHelper.Clamp(angleDifference.Z, -maxStep, maxStep);
+                float eased = angleDifference.Z * (1f - MathF.Exp(-RotationEase * localDeltaTime));
+                float stepZ = MathHelper.Clamp(eased, -maxStep, maxStep);
 
                 Angle = new Vector3(Angle.X, Angle.Y, Angle.Z + stepZ);
 
-                if (Math.Abs(angleDifference.Z) <= maxStep)
+                if (Math.Abs(angleDifference.Z) <= 0.002f)
                     Angle = new Vector3(Angle.X, Angle.Y, _targetAngle.Z);
             }
 
@@ -667,28 +700,63 @@ namespace Client.Main.Objects
             float remainingDistanceSq = remaining.LengthSquared();
             if (remainingDistanceSq <= 0.0001f)
             {
+                _walkDirection = Vector2.Zero;
                 MoveTargetPosition = targetPosition;
                 UpdateCameraPosition(MoveTargetPosition);
                 return;
             }
 
-            UpdateFacingFromVector(new Vector2(remaining.X, remaining.Y));
-
+            // Walk the path continuously and smoothly:
+            // - what is left of this frame's step after reaching a tile carries on towards the next one in the same
+            //   frame (taking it only on the following frame stopped the walker for a frame at every tile);
+            // - with more tiles queued the walker heads for the next one a little before the centre of the current one;
+            // - the walking direction turns at a limited rate, so the corners of the tile path become arcs and the
+            //   character's facing (which follows the walking direction) never jumps.
+            // Every tile is still visited in order (Location, gates and the server path are unchanged).
             float deltaTime = (float)time.ElapsedGameTime.TotalSeconds;
-            float maxStep = MoveSpeed * deltaTime;
+            float step = MoveSpeed * deltaTime;
+            Vector3 position = MoveTargetPosition;
+            bool smooth = Constants.SMOOTH_PATH_CORNERS;
+            for (int hop = 0; hop < 4 && step > 0.001f; hop++)
+            {
+                Vector3 target = TargetPosition;
+                Vector3 toTarget = target - position;
+                float distance = MathF.Sqrt(toTarget.LengthSquared());
+                bool hasNext = Constants.CONTINUOUS_PATH_WALK && _currentPath != null && _currentPath.Count > 0;
 
-            if (maxStep * maxStep >= remainingDistanceSq)
-            {
-                UpdateCameraPosition(targetPosition);
-                if (_currentPath == null || _currentPath.Count == 0)
-                    _movementIntent = false;
+                if (hasNext && distance <= (smooth ? PathCornerRadius : 0.001f))
+                {
+                    MoveTowards(_currentPath.Dequeue(), time);
+                    continue;
+                }
+
+                if (!hasNext && distance <= step)
+                {
+                    position = target;
+                    if (_currentPath == null || _currentPath.Count == 0)
+                        _movementIntent = false;
+                    break;
+                }
+
+                Vector2 desired = new Vector2(toTarget.X, toTarget.Y) / MathF.Max(distance, 0.001f);
+                Vector2 direction = desired;
+                // Steer only while there is room to curve: near the end of the path go straight to the tile.
+                if (smooth && _walkDirection != Vector2.Zero && (hasNext || distance > PathCornerRadius * 2f))
+                    direction = TurnTowards(_walkDirection, desired, PathTurnRate * deltaTime);
+
+                // Up to the point where the next tile takes over (or the end): the rest of the step goes on from there.
+                float move = hasNext
+                    ? MathF.Min(step, MathF.Max(distance - (smooth ? PathCornerRadius : 0f) + 0.5f, 0.5f))
+                    : MathF.Min(step, distance);
+                position += new Vector3(direction * move, toTarget.Z / MathF.Max(distance, 0.001f) * move);
+                _walkDirection = direction;
+                step -= move;
             }
-            else
-            {
-                float inverseDistance = 1f / MathF.Sqrt(remainingDistanceSq);
-                Vector3 moveVector = remaining * (inverseDistance * maxStep);
-                UpdateCameraPosition(MoveTargetPosition + moveVector);
-            }
+
+            if (_walkDirection != Vector2.Zero)
+                UpdateFacingFromVector(_walkDirection);
+
+            UpdateCameraPosition(position);
         }
 
         private void UpdateCameraPosition(Vector3 position)
@@ -884,6 +952,7 @@ namespace Client.Main.Objects
                 _targetPositionDirty = true;
                 _pendingTerrainSnap = newWorld is WalkableWorldControl;
                 MoveTargetPosition = Vector3.Zero;
+                _walkDirection = Vector2.Zero;
             }
 
             base.OnWorldChanged(newWorld, prevWorld);

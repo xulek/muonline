@@ -210,7 +210,7 @@ namespace Client.Main.Objects
                 // _blendFromBones is pre-allocated in LoadContent - no need to allocate here
             }
 
-            if (!TryConsumeAnimationDelta(frameDelta, actionChanged, out float delta))
+            if (!TryConsumeAnimationDelta(frameDelta, actionChanged || AnimateEveryFrame, out float delta))
             {
                 _priorActionIndex = currentActionIndex;
                 return;
