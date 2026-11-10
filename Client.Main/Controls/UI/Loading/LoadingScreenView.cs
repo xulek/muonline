@@ -116,7 +116,7 @@ namespace Client.Main.Controls.UI.Loading
             Point screen = UiScaler.VirtualSize;
             float intro = MathHelper.Clamp(_time / FadeSeconds, 0f, 1f);
 
-            DrawBackdrop(sb, screen);
+            DrawBackdrop(sb, screen, dt);
             DrawVignette(sb, screen);
 
             float ui = intro;
@@ -132,7 +132,14 @@ namespace Client.Main.Controls.UI.Loading
 
         // --- Layers -------------------------------------------------------------------------------------
 
-        private void DrawBackdrop(SpriteBatch sb, Point screen)
+        // The slow push-in on an illustration runs on one clock shared by every loading view: the login, character
+        // and game scenes each have their own view, and restarting the zoom at a scene change made the picture jump
+        // by several pixels at the end of loading.
+        private static Texture2D s_zoomTexture;
+        private static float s_zoomTime;
+        private static int s_zoomFrame = int.MinValue;
+
+        private void DrawBackdrop(SpriteBatch sb, Point screen, float dt)
         {
             Texture2D art = string.IsNullOrEmpty(_art) ? null : OrnateAssets.Get("Loading/" + _art);
             Texture2D texture = art ?? (FallbackTexture is { IsDisposed: false } fallback ? fallback : null);
@@ -142,12 +149,24 @@ namespace Client.Main.Controls.UI.Loading
                 return;
             }
 
-            // Cover the screen keeping the aspect, with a slow push-in on illustrations.
-            float zoom = art != null ? 1f + 0.06f * MathHelper.SmoothStep(0f, 1f, Math.Min(_time / 40f, 1f)) : 1f;
+            if (!ReferenceEquals(texture, s_zoomTexture))
+            {
+                s_zoomTexture = texture;
+                s_zoomTime = 0f;
+            }
+            else if (s_zoomFrame != MuGame.FrameIndex)
+            {
+                s_zoomTime += Math.Min(dt, 0.1f);   // a long loading hitch must not jump the zoom either
+            }
+            s_zoomFrame = MuGame.FrameIndex;
+
+            // Cover the screen keeping the aspect, with a slow push-in on illustrations; position and size stay
+            // fractional so the picture glides instead of stepping a pixel at a time.
+            float zoom = art != null ? 1f + 0.06f * MathHelper.SmoothStep(0f, 1f, Math.Min(s_zoomTime / 40f, 1f)) : 1f;
             float scale = Math.Max(screen.X / (float)texture.Width, screen.Y / (float)texture.Height) * zoom;
-            int w = (int)MathF.Ceiling(texture.Width * scale);
-            int h = (int)MathF.Ceiling(texture.Height * scale);
-            sb.Draw(texture, new Rectangle((screen.X - w) / 2, (screen.Y - h) / 2, w, h), Color.White);
+            var size = new Vector2(texture.Width, texture.Height) * scale;
+            var position = (new Vector2(screen.X, screen.Y) - size) * 0.5f;
+            sb.Draw(texture, position, null, Color.White, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
         }
 
         private static void DrawVignette(SpriteBatch sb, Point screen)
@@ -173,25 +192,52 @@ namespace Client.Main.Controls.UI.Loading
             OrnateDraw.Divider(sb, new Rectangle(x - 30, y + 54, (int)titleWidth + 120, 22), a);
         }
 
+        // Opening in the middle of the sigil art, as a fraction of its size (measured on loading_sigil.webp).
+        private const float SigilHole = 0.41f;
+        private const int ProgressDots = 40;
+
         private void DrawSigil(SpriteBatch sb, Point screen, int barY, float a)
         {
-            const int size = 96;
-            var center = new Vector2(screen.X - 64 - size / 2f, barY - 62);
+            const int size = 112;
+            var center = new Vector2(screen.X - 64 - size / 2f, barY - 66);
+            float hole = size * SigilHole * 0.5f;   // radius of the opening
             Texture2D sigil = OrnateAssets.LoadingSigil;
             if (sigil != null)
             {
-                float rotation = _time * 0.55f;
                 float pulse = 0.85f + 0.15f * MathF.Sin(_time * 2.4f);
                 var origin = new Vector2(sigil.Width / 2f, sigil.Height / 2f);
-                float scale = size / (float)sigil.Width;
-                sb.Draw(sigil, center, null, Color.White * (a * pulse), rotation, origin, scale, SpriteEffects.None, 0f);
-                // A smaller counter-rotating copy behind the numbers gives the rune circle some depth.
-                sb.Draw(sigil, center, null, new Color(255, 190, 110) * (a * 0.35f), -rotation * 1.6f, origin, scale * 0.62f, SpriteEffects.None, 0f);
+                sb.Draw(sigil, center, null, Color.White * (a * pulse), _time * 0.55f, origin, size / (float)sigil.Width, SpriteEffects.None, 0f);
             }
 
-            string percent = $"{MathF.Round(_shownProgress * 100f)}%";
-            var box = new Rectangle((int)center.X - 30, (int)center.Y - 14, 60, 28);
-            OrnateDraw.TextCentered(sb, percent, box, 16f, Color.White, a, bold: true);
+            // Dark well in the opening so the number reads on any background.
+            Texture2D glow = Client.Main.Objects.Effects.Scene.SceneFxTextures.Glow;
+            float wellScale = hole * 2.6f / glow.Width;
+            sb.Draw(glow, center, null, Color.Black * (0.85f * a), 0f, new Vector2(glow.Width, glow.Height) * 0.5f, wellScale, SpriteEffects.None, 0f);
+
+            // Progress around the inside of the ring: dots light up clockwise from the top.
+            float dotRadius = hole - 3.5f;
+            int lit = (int)MathF.Round(_shownProgress * ProgressDots);
+            var dotOrigin = new Vector2(glow.Width, glow.Height) * 0.5f;
+            for (int i = 0; i < ProgressDots; i++)
+            {
+                float angle = i / (float)ProgressDots * MathHelper.TwoPi - MathHelper.PiOver2;
+                var at = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * dotRadius;
+                bool on = i < lit;
+                // The newest lit dot glows a little brighter.
+                float head = on && i == lit - 1 ? 1.4f : 1f;
+                Color color = on ? new Color(255, 214, 130) * (a * head) : new Color(150, 100, 60) * (0.45f * a);
+                sb.Draw(glow, at, null, color, 0f, dotOrigin, (on ? 7.5f : 4.5f) * head / glow.Width, SpriteEffects.None, 0f);
+            }
+
+            // Number with a small percent sign beside it, centred together inside the opening.
+            string number = MathF.Round(_shownProgress * 100f).ToString();
+            const float numberSize = 15f, signSize = 9f;
+            Vector2 numberMeasure = OrnateDraw.Measure(number, numberSize) * new Vector2(1.06f, 1f);   // bold is a little wider
+            Vector2 signMeasure = OrnateDraw.Measure("%", signSize);
+            float width = numberMeasure.X + 1f + signMeasure.X;
+            var numberAt = new Vector2(center.X - width / 2f, center.Y - numberMeasure.Y / 2f);
+            OrnateDraw.Text(sb, number, numberAt, numberSize, new Color(255, 238, 205), a, bold: true);
+            OrnateDraw.Text(sb, "%", new Vector2(numberAt.X + numberMeasure.X + 1f, numberAt.Y + numberMeasure.Y * 0.12f), signSize, OrnateStyle.Gold, a);
         }
 
         private void DrawBar(SpriteBatch sb, Point screen, int barY, float a)
