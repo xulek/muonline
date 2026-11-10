@@ -533,6 +533,44 @@ namespace Client.Main.Objects
         public int AnimationUpdateStride { get; private set; } = 1;
         protected virtual bool RequiresPerFrameAnimation => false;
 
+        private static readonly HashSet<Client.Data.BMD.BMDTextureMesh> s_insetMeshes = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>
+        /// Cut-out textures (fences, gates, ropes) are sampled with wrapping, so at the very edge of a mesh whose UVs
+        /// span exactly 0..1 the filter mixes in the opposite border of the texture: a transparent top row picks up the
+        /// solid bottom bar and draws a thin dark line along the quad. For such meshes the UVs are moved half a texel
+        /// inwards (once per model mesh, the model is shared), so filtering never reaches across the border. Meshes
+        /// whose UVs repeat the texture are left alone.
+        /// </summary>
+        private static void InsetCutoutTexCoords(Client.Data.BMD.BMDTextureMesh mesh, MeshRuntimeState state)
+        {
+            var texture = state.Data;
+            var coords = mesh?.TexCoords;
+            if (texture == null || !state.IsRgba || state.BlendByScript || coords == null || coords.Length == 0 ||
+                texture.Width < 4 || texture.Height < 4)
+                return;
+
+            lock (s_insetMeshes)
+            {
+                if (!s_insetMeshes.Add(mesh))
+                    return;
+
+                const float Epsilon = 0.002f;
+                for (int i = 0; i < coords.Length; i++)
+                {
+                    if (coords[i].U < -Epsilon || coords[i].U > 1f + Epsilon || coords[i].V < -Epsilon || coords[i].V > 1f + Epsilon)
+                        return;   // tiling mesh
+                }
+
+                float halfU = 0.5f / texture.Width, halfV = 0.5f / texture.Height;
+                for (int i = 0; i < coords.Length; i++)
+                {
+                    coords[i].U = halfU + Math.Clamp(coords[i].U, 0f, 1f) * (1f - 2f * halfU);
+                    coords[i].V = halfV + Math.Clamp(coords[i].V, 0f, 1f) * (1f - 2f * halfV);
+                }
+            }
+        }
+
         /// <summary>
         /// Pose computed every frame instead of at <see cref="Constants.ANIMATION_UPDATE_FPS"/>: the player's own
         /// character (and what it carries) is always in view and in the middle of the screen, where a pose held for
@@ -624,6 +662,7 @@ namespace Client.Main.Objects
                 _meshes[meshIndex].IsRgba = _meshes[meshIndex].Data?.Components == 4;
                 _meshes[meshIndex].HiddenByScript = _meshes[meshIndex].Script?.HiddenMesh ?? false;
                 _meshes[meshIndex].BlendByScript = _meshes[meshIndex].Script?.Bright ?? false;
+                InsetCutoutTexCoords(Model.Meshes[meshIndex], _meshes[meshIndex]);
             }
 
             InvalidateMeshRenderPlan();

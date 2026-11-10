@@ -192,6 +192,7 @@ namespace Client.Main.Content
                         throw new InvalidDataException($"Invalid decompressed texture: {path}");
                 }
 
+                BleedTransparentColor(data, path);
                 PrepareMipData(data, path);
 
                 var clientTexture = new ClientTexture
@@ -591,6 +592,94 @@ namespace Client.Main.Content
             return new[] { textureInfo.Data };
         }
 
+        /// <summary>
+        /// Alpha bleeding for cut-out textures (ropes, leaves, fences): transparent pixels keep whatever colour the
+        /// artist left in them - often white or black - and texture filtering mixes it into the visible edge, which
+        /// shows as a light or dark outline. Their colour is replaced, ring by ring from the visible edge, with the
+        /// average of the visible neighbours; alpha is unchanged, so the shape is the same.
+        /// </summary>
+        private static void BleedTransparentColor(TextureData textureInfo, string path)
+        {
+            if (textureInfo == null || textureInfo.IsCompressed || textureInfo.Components != 4 ||
+                textureInfo.Data == null || textureInfo.Width < 2 || textureInfo.Height < 2)
+                return;
+
+            string normalized = NormalizePathKey(path);
+            if (string.IsNullOrEmpty(normalized) || ContainsPathSegment(normalized, "interface"))
+                return;   // UI art is drawn unfiltered or already premultiplied
+
+            byte[] px = textureInfo.Data;
+            int w = textureInfo.Width, h = textureInfo.Height, count = w * h;
+            if (px.Length < count * 4)
+                return;
+
+            const byte VisibleAlpha = 32;
+            var known = new bool[count];
+            int unknown = 0;
+            for (int i = 0; i < count; i++)
+            {
+                known[i] = px[i * 4 + 3] >= VisibleAlpha;
+                if (!known[i])
+                    unknown++;
+            }
+
+            if (unknown == 0 || unknown == count)
+                return;
+
+            var frontier = new System.Collections.Generic.List<int>();
+            var colors = new System.Collections.Generic.List<int>();
+            for (int ring = 0; ring < 16 && unknown > 0; ring++)
+            {
+                frontier.Clear();
+                colors.Clear();
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = y * w + x;
+                        if (known[i])
+                            continue;
+
+                        int r = 0, g = 0, b = 0, n = 0;
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int ny = y + dy;
+                            if ((uint)ny >= (uint)h)
+                                continue;
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int nx = x + dx;
+                                if ((uint)nx >= (uint)w)
+                                    continue;
+                                int j = ny * w + nx;
+                                if (!known[j])
+                                    continue;
+                                r += px[j * 4]; g += px[j * 4 + 1]; b += px[j * 4 + 2]; n++;
+                            }
+                        }
+
+                        if (n == 0)
+                            continue;
+                        frontier.Add(i);
+                        colors.Add(((r / n) << 16) | ((g / n) << 8) | (b / n));
+                    }
+                }
+
+                if (frontier.Count == 0)
+                    break;
+
+                for (int k = 0; k < frontier.Count; k++)
+                {
+                    int i = frontier[k], c = colors[k];
+                    px[i * 4] = (byte)(c >> 16);
+                    px[i * 4 + 1] = (byte)(c >> 8);
+                    px[i * 4 + 2] = (byte)c;
+                    known[i] = true;
+                }
+                unknown -= frontier.Count;
+            }
+        }
+
         private static bool HasCompleteMipChain(int width, int height, int mipCount)
             => mipCount > 1 && mipCount == GetExpectedMipCount(width, height);
 
@@ -750,9 +839,14 @@ namespace Client.Main.Content
                     target[dst + 3] = (byte)((alphaSum + 2) / 4);
                     if (alphaSum == 0)
                     {
-                        target[dst] = 0;
-                        target[dst + 1] = 0;
-                        target[dst + 2] = 0;
+                        // Fully transparent: keep the (bled) colour instead of black, so a filtered edge at this
+                        // level fades into the surface colour and not into a dark outline.
+                        for (int channel = 0; channel < 3; channel++)
+                        {
+                            int sum = source[i00 + channel] + source[i10 + channel] +
+                                      source[i01 + channel] + source[i11 + channel];
+                            target[dst + channel] = (byte)((sum + 2) / 4);
+                        }
                         continue;
                     }
 

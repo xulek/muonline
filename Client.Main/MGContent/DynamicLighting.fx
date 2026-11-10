@@ -172,6 +172,13 @@ UNIFORM_DEFAULT(float, Alpha, 1.0);
 // Additive RGB/JPG light textures have no alpha channel. Reject their near-black
 // background using source coverage, before lighting or per-object flicker/fading.
 UNIFORM_DEFAULT(float, AdditiveAlphaCutoff, 0.0);
+// Alpha below which a pixel is dropped. The depth-writing pass of a cut-out mesh (ropes, leaves, nets) uses 0.5: its
+// soft edge pixels would otherwise store depth while mostly showing what was behind them at that moment, and hide
+// whatever is drawn behind later (a light outline in the sky's colour around every rope).
+UNIFORM_DEFAULT(float, DepthAlphaCutoff, 0.01);
+// Alpha from which a pixel is dropped: the second pass of such a mesh draws only its soft part (below the cutoff of
+// the first pass) blended without depth writes, so nothing translucent is lost.
+UNIFORM_DEFAULT(float, AlphaCeiling, 2.0);
 UNIFORM_DEFAULT(float2, TextureCoordinateOffset, float2(0.0, 0.0));
 // Per-material tint multiplier for chrome/bright overlay passes
 // (SourceMain5.2 glColor(BodyLight) on RENDER_CHROME/BRIGHT body passes).
@@ -934,7 +941,8 @@ float3 FetchObjectTexel(PixelInput input, out float finalAlpha)
         clip(min(texColor.a, max(texColor.r, max(texColor.g, texColor.b))) - AdditiveAlphaCutoff);
 
     finalAlpha = texColor.a * Alpha * input.Color.a;
-    clip(finalAlpha - 0.01);
+    clip(finalAlpha - max(0.01, DepthAlphaCutoff));
+    clip(AlphaCeiling - finalAlpha);
     return texColor.rgb;
 }
 

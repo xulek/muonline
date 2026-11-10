@@ -34,6 +34,8 @@ namespace Client.Main.Objects
                 ShadowStrength = effect.Parameters["ShadowStrength"];
                 Alpha = effect.Parameters["Alpha"];
                 AdditiveAlphaCutoff = effect.Parameters["AdditiveAlphaCutoff"];
+                DepthAlphaCutoff = effect.Parameters["DepthAlphaCutoff"];
+                AlphaCeiling = effect.Parameters["AlphaCeiling"];
                 TerrainDynamicIntensityScale = effect.Parameters["TerrainDynamicIntensityScale"];
                 AmbientLight = effect.Parameters["AmbientLight"];
                 DebugLightingAreas = effect.Parameters["DebugLightingAreas"];
@@ -93,6 +95,8 @@ namespace Client.Main.Objects
             public EffectParameter ShadowStrength { get; }
             public EffectParameter Alpha { get; }
             public EffectParameter AdditiveAlphaCutoff { get; }
+            public EffectParameter DepthAlphaCutoff { get; }
+            public EffectParameter AlphaCeiling { get; }
             public EffectParameter TerrainDynamicIntensityScale { get; }
             public EffectParameter AmbientLight { get; }
             public EffectParameter DebugLightingAreas { get; }

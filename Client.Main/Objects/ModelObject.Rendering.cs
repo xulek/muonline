@@ -331,6 +331,12 @@ namespace Client.Main.Objects
                 gd.RasterizerState = state;
         }
 
+        /// <summary>Alpha cut for a cut-out (RGBA) mesh drawn with depth writes; see DepthAlphaCutoff in DynamicLighting.fx.</summary>
+        private const float CutoutDepthAlpha = 0.5f;
+
+        private bool IsDepthWritingCutout(int mesh, bool isBlendMesh) =>
+            !isBlendMesh && _meshes != null && (uint)mesh < (uint)_meshes.Length && _meshes[mesh].IsRgba;
+
         private static float GetAdditiveAlphaCutoff(BlendState blend) =>
             blend != null && blend.ColorBlendFunction == BlendFunction.Add &&
             blend.ColorDestinationBlend == Blend.One &&
@@ -1645,6 +1651,9 @@ namespace Client.Main.Objects
                     {
                         alphaEffect.Texture = texture;
                         alphaEffect.Alpha = TotalAlpha;
+                        int previousReference = alphaEffect.ReferenceAlpha;
+                        if (IsDepthWritingCutout(mesh, isBlendMesh))
+                            alphaEffect.ReferenceAlpha = Math.Max(previousReference, (int)(255 * CutoutDepthAlpha));
 
                         var technique = alphaEffect.CurrentTechnique;
                         var passes = technique.Passes;
@@ -1657,7 +1666,24 @@ namespace Client.Main.Objects
                             gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
                         }
 
+                        if (IsDepthWritingCutout(mesh, isBlendMesh))
+                        {
+                            // Soft edges and translucent parts (alpha below the cut), blended without depth writes.
+                            var previousFunction = alphaEffect.AlphaFunction;
+                            var depthBeforeSoftPass = gd.DepthStencilState;
+                            alphaEffect.AlphaFunction = CompareFunction.Less;
+                            gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                            for (int p = 0; p < passCount; p++)
+                            {
+                                passes[p].Apply();
+                                gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
+                            }
+                            gd.DepthStencilState = depthBeforeSoftPass;
+                            alphaEffect.AlphaFunction = previousFunction;
+                        }
+
                         alphaEffect.Alpha = prevAlpha;
+                        alphaEffect.ReferenceAlpha = previousReference;
                     }
                 }
                 finally
@@ -2089,6 +2115,7 @@ namespace Client.Main.Objects
                         : Vector2.Zero;
                     bindings.TextureCoordinateOffset?.SetValue(meshTextureOffset);
                     bindings.AdditiveAlphaCutoff?.SetValue(GetAdditiveAlphaCutoff(blendState));
+                    bindings.DepthAlphaCutoff?.SetValue(IsDepthWritingCutout(mesh, isBlendMesh) ? CutoutDepthAlpha : 0.01f);
 
                     // Set texture
                     bindings.DiffuseTexture?.SetValue(texture);
@@ -2102,12 +2129,25 @@ namespace Client.Main.Objects
                     ApplyQualityModelSampler(gd);
                     gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
 
+                    if (IsDepthWritingCutout(mesh, isBlendMesh))
+                    {
+                        // Soft edges and translucent parts, blended without depth writes.
+                        bindings.DepthAlphaCutoff?.SetValue(0.01f);
+                        bindings.AlphaCeiling?.SetValue(CutoutDepthAlpha);
+                        var depthBeforeSoftPass = gd.DepthStencilState;
+                        gd.DepthStencilState = GraphicsManager.ReadOnlyDepth;
+                        effect.CurrentTechnique.Passes[0].Apply();
+                        gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, primitiveCount);
+                        gd.DepthStencilState = depthBeforeSoftPass;
+                    }
                 }
                 finally
                 {
                     // Never leave a per-mesh UV offset resident in the shared effect.
                     bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
                     bindings.AdditiveAlphaCutoff?.SetValue(0f);
+                    bindings.DepthAlphaCutoff?.SetValue(0.01f);
+                    bindings.AlphaCeiling?.SetValue(2f);
                     if (depthStateChanged)
                         gd.DepthStencilState = prevDepthState;
                 }
