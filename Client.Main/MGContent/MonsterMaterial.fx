@@ -45,6 +45,20 @@ static const float GlowIntensityScale = 0.80; // Tone down glow on DirectX
 float4x4 World;
 float4x4 WorldViewProjection;
 #if !OPENGL
+// The DirectX 12 effect compiler pairs every texture a shader reads with the sampler of the same register and
+// rejects a texture that has none, so there the data textures are read through a point sampler at the texel
+// centre. Every other backend keeps Load.
+#if SM6 && !VULKAN
+float4 LoadTexel(Texture2D tex, SamplerState texSampler, int3 p)
+{
+    float2 size;
+    tex.GetDimensions(size.x, size.y);
+    return tex.SampleLevel(texSampler, (float2(p.xy) + 0.5) / size, 0);
+}
+#define DATA_TEXEL(tex, p) LoadTexel(tex, tex##Sampler, p)
+#else
+#define DATA_TEXEL(tex, p) tex.Load(p)
+#endif
 // GPU skinning bones come from a per-frame palette texture (1024 float4 texels per row, four texels per
 // bone, one matrix row each). BonePaletteBase is the first texel of the drawn palette; a palette never
 // crosses a row. Keeps the 16 KB bone array out of the constant buffer uploaded on every draw.
@@ -53,6 +67,14 @@ Texture2D BonePaletteTexture : register(t2);
 #else
 Texture2D BonePaletteTexture;
 #endif
+#if SM6 && !VULKAN
+SamplerState BonePaletteTextureSampler : register(s2)
+{
+    Filter = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+#endif
 float BonePaletteBase;
 
 float4x4 LoadBone(int boneIndex)
@@ -60,10 +82,10 @@ float4x4 LoadBone(int boneIndex)
     int texel = (int)(BonePaletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
     int3 p = int3(texel & 1023, texel >> 10, 0);
     return float4x4(
-        BonePaletteTexture.Load(p),
-        BonePaletteTexture.Load(p + int3(1, 0, 0)),
-        BonePaletteTexture.Load(p + int3(2, 0, 0)),
-        BonePaletteTexture.Load(p + int3(3, 0, 0)));
+        DATA_TEXEL(BonePaletteTexture, p),
+        DATA_TEXEL(BonePaletteTexture, p + int3(1, 0, 0)),
+        DATA_TEXEL(BonePaletteTexture, p + int3(2, 0, 0)),
+        DATA_TEXEL(BonePaletteTexture, p + int3(3, 0, 0)));
 }
 #endif
 

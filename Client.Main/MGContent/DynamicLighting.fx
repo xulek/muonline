@@ -73,10 +73,32 @@ float4x4 World;
 float4x4 WorldViewProjection; // Includes World * View * Projection
 float4x4 ViewProjection;      // Shared by instanced paths whose World varies per instance
 #if !OPENGL
+// The DirectX 12 effect compiler pairs every texture a shader reads with the sampler of the same register and
+// rejects a texture that has none, so there the data textures are read through a point sampler at the texel
+// centre. Every other backend keeps Load.
+#if SM6 && !VULKAN
+float4 LoadTexel(Texture2D tex, SamplerState texSampler, int3 p)
+{
+    float2 size;
+    tex.GetDimensions(size.x, size.y);
+    return tex.SampleLevel(texSampler, (float2(p.xy) + 0.5) / size, 0);
+}
+#define DATA_TEXEL(tex, p) LoadTexel(tex, tex##Sampler, p)
+#else
+#define DATA_TEXEL(tex, p) tex.Load(p)
+#endif
 // GPU skinning bones come from a per-frame palette texture (1024 float4 texels per row, four texels per
 // bone, one matrix row each). BonePaletteBase is the first texel of the drawn palette; a palette never
 // crosses a row. Keeps the 16 KB bone array out of the constant buffer uploaded on every draw.
 Texture2D BonePaletteTexture SM6_REGISTER(t4);
+#if SM6 && !VULKAN
+SamplerState BonePaletteTextureSampler : register(s4)
+{
+    Filter = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+#endif
 float BonePaletteBase;
 
 float4x4 LoadBone(int boneIndex)
@@ -84,15 +106,23 @@ float4x4 LoadBone(int boneIndex)
     int texel = (int)(BonePaletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
     int3 p = int3(texel & 1023, texel >> 10, 0);
     return float4x4(
-        BonePaletteTexture.Load(p),
-        BonePaletteTexture.Load(p + int3(1, 0, 0)),
-        BonePaletteTexture.Load(p + int3(2, 0, 0)),
-        BonePaletteTexture.Load(p + int3(3, 0, 0)));
+        DATA_TEXEL(BonePaletteTexture, p),
+        DATA_TEXEL(BonePaletteTexture, p + int3(1, 0, 0)),
+        DATA_TEXEL(BonePaletteTexture, p + int3(2, 0, 0)),
+        DATA_TEXEL(BonePaletteTexture, p + int3(3, 0, 0)));
 }
 // Multi-pose crowd skinning stores one palette per texture row.
 // The row width is selected per flush (32/64/128/256 bones), and each bone
 // occupies four consecutive float4 texels (one texel per matrix row).
 Texture2D CrowdBonePaletteTexture SM6_REGISTER(t5);
+#if SM6 && !VULKAN
+SamplerState CrowdBonePaletteTextureSampler : register(s5)
+{
+    Filter = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+#endif
 UNIFORM_DEFAULT(float, CrowdBonePaletteRowCount, 1.0);
 #endif
 
@@ -723,10 +753,10 @@ float4x4 LoadCrowdBoneMatrix(int boneIndex, int paletteRow)
     int texelX = safeBoneIndex * 4;
 
     return float4x4(
-        CrowdBonePaletteTexture.Load(int3(texelX + 0, safePaletteRow, 0)),
-        CrowdBonePaletteTexture.Load(int3(texelX + 1, safePaletteRow, 0)),
-        CrowdBonePaletteTexture.Load(int3(texelX + 2, safePaletteRow, 0)),
-        CrowdBonePaletteTexture.Load(int3(texelX + 3, safePaletteRow, 0)));
+        DATA_TEXEL(CrowdBonePaletteTexture, int3(texelX + 0, safePaletteRow, 0)),
+        DATA_TEXEL(CrowdBonePaletteTexture, int3(texelX + 1, safePaletteRow, 0)),
+        DATA_TEXEL(CrowdBonePaletteTexture, int3(texelX + 2, safePaletteRow, 0)),
+        DATA_TEXEL(CrowdBonePaletteTexture, int3(texelX + 3, safePaletteRow, 0)));
 }
 
 PixelInput SkinnedMultiPoseCore(VertexInputSkinnedMultiPoseInstanced input, bool vertexLit)
@@ -1377,10 +1407,18 @@ float GroundNodeHeight(int x, int y)
 }
 #else
 Texture2D GroundHeightTexture SM6_REGISTER(t6);
+#if SM6 && !VULKAN
+SamplerState GroundHeightTextureSampler : register(s6)
+{
+    Filter = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+#endif
 
 float GroundNodeHeight(int x, int y)
 {
-    return GroundHeightTexture.Load(int3(x & 255, y & 255, 0)).r;
+    return DATA_TEXEL(GroundHeightTexture, int3(x & 255, y & 255, 0)).r;
 }
 #endif
 
