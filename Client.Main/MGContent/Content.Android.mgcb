@@ -1,0 +1,206 @@
+# Content manifest of the Android head (MuAndroid.csproj).
+#
+# Same content as Content.mgcb, except that DynamicLighting, ItemMaterial and MonsterMaterial are built from
+# the simplified OpenGL ES variants in Android/ under their usual asset names. Keep both manifests in sync
+# when adding or removing content.
+
+#----------------------------- Global Properties ----------------------------#
+
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
+/platform:Android
+/config:
+/profile:HiDef
+/compress:False
+
+#-------------------------------- References --------------------------------#
+
+
+#---------------------------------- Content ---------------------------------#
+
+#begin AlphaRGB.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:AlphaRGB.fx
+
+#begin GrassShadow.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:GrassShadow.fx
+
+#begin HudOrb.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:HudOrb.fx
+
+#begin SceneBloom.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:SceneBloom.fx
+
+#begin SceneWater.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:SceneWater.fx
+
+#begin GammaCorrection.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:GammaCorrection.fx
+
+#begin Arial.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Arial.spritefont
+
+#begin ArialSmall.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialSmall.spritefont
+
+#begin NotoKR.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:NotoKR.spritefont
+
+#begin ArialUi9.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi9.spritefont
+
+#begin ArialUi10.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi10.spritefont
+
+#begin ArialUi11.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi11.spritefont
+
+#begin ArialUi13.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi13.spritefont
+
+#begin ArialUi15.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi15.spritefont
+
+#begin ArialUi17.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi17.spritefont
+
+#begin ArialUi19.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi19.spritefont
+
+#begin ArialUi22.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi22.spritefont
+
+#begin ArialUi26.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi26.spritefont
+
+#begin ArialUi30.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi30.spritefont
+
+#begin ArialUi35.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi35.spritefont
+
+#begin ArialUi42.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ArialUi42.spritefont
+
+
+#begin FXAA.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:FXAA.fx
+
+#begin Shadow.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:Shadow.fx
+
+#begin Background.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Background.jpg
+
+#begin Bubbles.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Bubbles.png
+
+#begin WaterSplashParticle.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:WaterSplashParticle.png;WaterSplashParticle
+
+#begin Android/ItemMaterial.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:Android/ItemMaterial.fx;ItemMaterial.fx
+
+#begin Android/MonsterMaterial.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:Android/MonsterMaterial.fx;MonsterMaterial.fx
+
+#begin Android/DynamicLighting.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Optimize
+/build:Android/DynamicLighting.fx;DynamicLighting.fx

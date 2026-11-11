@@ -101,7 +101,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <MonoGameContentReference Include="..\Client.Main\MGContent\Content.mgcb">
+    <!-- Same content as Content.mgcb, with the simplified OpenGL ES shader variants of MGContent\Android. -->
+    <MonoGameContentReference Include="..\Client.Main\MGContent\Content.Android.mgcb">
       <Link>Content\Content.mgcb</Link>
     </MonoGameContentReference>
   </ItemGroup>
