@@ -1173,6 +1173,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 originalViewport = gd.Viewport;
                 originalScissorRectangle = gd.ScissorRectangle;
                 capturedStates = true;
+                Client.Main.Graphics.WorldFog.SetOnSharedEffects(false);
 
                 gd.SetRenderTarget(rt);
                 gd.Clear(Color.Transparent);
@@ -1343,6 +1344,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             {
                 if (capturedStates)
                 {
+                    Client.Main.Graphics.WorldFog.SetOnSharedEffects(true);
                     if (prevTargets != null && prevTargets.Length > 0)
                         gd.SetRenderTargets(prevTargets);
                     else

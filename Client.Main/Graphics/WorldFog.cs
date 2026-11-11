@@ -53,6 +53,35 @@ namespace Client.Main.Graphics
             effect.FogEnd = Enabled ? End : Constants.DISTANCE_FOG_END;
         }
 
+        /// <summary>
+        /// Turns the fog off (<paramref name="enabled"/> = false) or re-applies the current world fog on every shared
+        /// world effect. Off-screen renders that reuse these effects (inventory item previews) must disable it:
+        /// their models sit far from the world camera and would come out fully fogged, i.e. black.
+        /// </summary>
+        public static void SetOnSharedEffects(bool enabled)
+        {
+            var graphics = Controllers.GraphicsManager.Instance;
+            if (graphics == null)
+                return;
+
+            if (enabled)
+            {
+                Vector3 cameraPosition = Camera.Instance.Position;
+                if (graphics.DynamicLightingEffect != null) Apply(graphics.DynamicLightingEffect, cameraPosition);
+                if (graphics.ItemMaterialEffect != null) Apply(graphics.ItemMaterialEffect, cameraPosition);
+                if (graphics.MonsterMaterialEffect != null) Apply(graphics.MonsterMaterialEffect, cameraPosition);
+                if (graphics.AlphaTestEffect3D != null) Apply(graphics.AlphaTestEffect3D);
+                if (graphics.BasicEffect3D != null) Apply(graphics.BasicEffect3D);
+                return;
+            }
+
+            graphics.DynamicLightingEffect?.Parameters["FogEnabled"]?.SetValue(0f);
+            graphics.ItemMaterialEffect?.Parameters["FogEnabled"]?.SetValue(0f);
+            graphics.MonsterMaterialEffect?.Parameters["FogEnabled"]?.SetValue(0f);
+            if (graphics.AlphaTestEffect3D != null) graphics.AlphaTestEffect3D.FogEnabled = false;
+            if (graphics.BasicEffect3D != null) graphics.BasicEffect3D.FogEnabled = false;
+        }
+
         public static void Disable()
         {
             Enabled = false;
