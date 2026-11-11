@@ -16,6 +16,26 @@
     #define UNIFORM_DEFAULT(type, name, value) type name = value
 #endif
 
+// World / distance fog, same uniforms and formula as DynamicLighting.fx (WorldFog.Apply).
+UNIFORM_DEFAULT(float, FogEnabled, 0.0);
+UNIFORM_DEFAULT(float3, FogColor, float3(0.0, 0.0, 0.0));
+UNIFORM_DEFAULT(float, FogStart, 2000.0);
+UNIFORM_DEFAULT(float, FogEnd, 2700.0);
+UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
+
+float WorldFogFactor(float3 worldPos)
+{
+    float f = 0.0;
+    [branch] if (FogEnabled > 0.0)
+        f = saturate((length(worldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0)) * FogEnabled;
+    return f;
+}
+
+float3 ApplyWorldFog(float3 color, float3 worldPos)
+{
+    return lerp(color, FogColor, WorldFogFactor(worldPos));
+}
+
 #if OPENGL
 static const float GlowIntensityScale = 1.0;
 #else
@@ -209,6 +229,7 @@ float4 MainPS_Basic(VertexShaderOutput input) : PS_COLOR
     float shadowTerm = SampleShadow(input.WorldPosition, normal);
     color.rgb *= lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
     color.a *= Alpha;
+    color.rgb = ApplyWorldFog(color.rgb, input.WorldPosition);
     return color;
 }
 
@@ -265,7 +286,7 @@ float4 MainPS(VertexShaderOutput input) : PS_COLOR
     color.rgb *= shadowMix;
 
     color.a *= Alpha;
-    
+    color.rgb = ApplyWorldFog(color.rgb, input.WorldPosition);
     return color;
 }
 

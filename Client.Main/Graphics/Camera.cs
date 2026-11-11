@@ -99,6 +99,29 @@ namespace Client.Main.Graphics
             set { if (_viewFar != value) { _viewFar = value; UpdateProjection(); } }
         }
 
+        private float? _renderDistanceLimit;
+
+        /// <summary>
+        /// Optional hard limit of the rendered distance from the camera (distance fog end). It caps the far
+        /// plane and the terrain / object culling ranges; null renders as far as <see cref="ViewFar"/> allows.
+        /// </summary>
+        public float? RenderDistanceLimit
+        {
+            get => _renderDistanceLimit;
+            set { if (_renderDistanceLimit != value) { _renderDistanceLimit = value; UpdateProjection(); } }
+        }
+
+        /// <summary>Horizontal distance from the camera up to which terrain blocks are considered.</summary>
+        public float TerrainRenderDistance => Limit(_viewFar * 1.7f);
+
+        /// <summary>Horizontal distance from the camera up to which world objects are considered.</summary>
+        public float ObjectCullDistance => _renderDistanceLimit.HasValue
+            ? MathF.Min(_viewFar + Constants.MAX_CAMERA_DISTANCE, _renderDistanceLimit.Value) + 250f
+            : _viewFar + Constants.MAX_CAMERA_DISTANCE + 250f;
+
+        private float Limit(float distance) =>
+            _renderDistanceLimit.HasValue ? MathF.Min(distance, _renderDistanceLimit.Value) : distance;
+
         public Vector3 Position
         {
             get => _position;
@@ -209,7 +232,7 @@ namespace Client.Main.Graphics
                 MathHelper.ToRadians(_fov),
                 _aspectRatio,
                 _viewNear,
-                _viewFar + Constants.MAX_CAMERA_DISTANCE
+                Limit(_viewFar + Constants.MAX_CAMERA_DISTANCE)
             );
             ViewProjection = View * Projection;
 
@@ -283,9 +306,28 @@ namespace Client.Main.Graphics
             return Matrix.CreateLookAt(position, target, up);
         }
 
+        /// <summary>
+        /// Extra half-angle (degrees) of the culling frustum on every side. Visibility is rebuilt only after the
+        /// camera has turned / moved by a threshold (WorldControl, TerrainVisibilityManager), so without an angular
+        /// margin objects at the screen edges appear a little late while turning, more so the farther they are
+        /// (a constant world-space guard band cannot cover that at large distances).
+        /// </summary>
+        private const float CullingAngleMarginDegrees = 3f;
+
         private void UpdateFrustum()
         {
-            _frustum.Matrix = _cullingView * Projection;
+            float halfFovY = MathHelper.ToRadians(_fov) * 0.5f;
+            float halfFovX = MathF.Atan(MathF.Tan(halfFovY) * _aspectRatio);
+            float margin = MathHelper.ToRadians(CullingAngleMarginDegrees);
+            float cullHalfFovY = MathF.Min(halfFovY + margin, MathHelper.ToRadians(85f));
+            float cullHalfFovX = MathF.Min(halfFovX + margin, MathHelper.ToRadians(85f));
+
+            Matrix cullingProjection = Matrix.CreatePerspectiveFieldOfView(
+                cullHalfFovY * 2f,
+                MathF.Tan(cullHalfFovX) / MathF.Tan(cullHalfFovY),
+                _viewNear,
+                Limit(_viewFar + Constants.MAX_CAMERA_DISTANCE));
+            _frustum.Matrix = _cullingView * cullingProjection;
         }
 
         /// <summary>

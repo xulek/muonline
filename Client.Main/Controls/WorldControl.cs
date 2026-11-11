@@ -221,7 +221,9 @@ namespace Client.Main.Controls
         private const int MaxConcurrentObjectInitializations = 4;
         private int _activeObjectInitializations;
         private const float CameraCullMoveThreshold = 32f;
-        private const float CameraCullDirectionDotThreshold = 0.9995f;
+        // cos(2.5 deg): the camera's culling frustum is 3 deg wider on every side, so turning by less than that
+        // cannot bring an unculled object on screen.
+        private const float CameraCullDirectionDotThreshold = 0.99905f;
         private const float WorldCullGuardBand = 64f;
         private const float NearUpdateDistanceSq = 2200f * 2200f;
         private const float MidUpdateDistanceSq = 4200f * 4200f;
@@ -231,7 +233,6 @@ namespace Client.Main.Controls
         private const int SpatialSectorTileSize = 16;
         private const int SpatialSectorsPerAxis = Constants.TERRAIN_SIZE / SpatialSectorTileSize;
         private const int SpatialInvalidSector = -1;
-        private const int SpatialRebuildPaddingSectors = 1;
         private static readonly ParallelOptions VisibleParallelOptions = new()
         {
             MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2)
@@ -345,6 +346,15 @@ namespace Client.Main.Controls
             }
 
             MarkWorldGeometryChanged();
+        }
+
+        private void Object_WorldBoundsChanged(object sender, EventArgs e)
+        {
+            // Rotation, scale and recomputed local bounds change what the frustum test sees without moving the
+            // object; re-test it in the next culling pass. Bounds can be computed while content loads on a worker
+            // thread: that case is covered by the Ready status change, the culling sets are main-thread only.
+            if (sender is WorldObject obj && MuGame.IsMainThread)
+                _positionDirtyObjects.Add(obj);
         }
 
         private int _worldGeometryVersion;
@@ -527,6 +537,12 @@ namespace Client.Main.Controls
 
         private void UpdateWorld(GameTime time)
         {
+            // Distance fog and the matching render cut-off apply to game worlds only (not login / select scenes).
+            bool distanceFog = Constants.DISTANCE_FOG_ENABLED && this is WalkableWorldControl;
+            Camera.Instance.RenderDistanceLimit = distanceFog ? Constants.DISTANCE_FOG_END : null;
+            Graphics.WorldFog.DistanceFogEnabled = distanceFog;
+            Graphics.WorldFog.DistanceColor = ClearColor.ToVector3();
+
             long worldBaseStarted = UpdatePassProfiler.Start();
             base.Update(time);
             UpdatePassProfiler.AddWorldBase(worldBaseStarted);
@@ -885,6 +901,20 @@ namespace Client.Main.Controls
 
         public override void Draw(GameTime time)
         {
+            // World / distance fog parameters for every world shader (terrain, objects, item and monster materials).
+            var graphics = GraphicsManager.Instance;
+            Vector3 fogCameraPosition = Camera.Instance.Position;
+            if (graphics.DynamicLightingEffect != null)
+                Graphics.WorldFog.Apply(graphics.DynamicLightingEffect, fogCameraPosition);
+            if (graphics.ItemMaterialEffect != null)
+                Graphics.WorldFog.Apply(graphics.ItemMaterialEffect, fogCameraPosition);
+            if (graphics.MonsterMaterialEffect != null)
+                Graphics.WorldFog.Apply(graphics.MonsterMaterialEffect, fogCameraPosition);
+            if (graphics.AlphaTestEffect3D != null)
+                Graphics.WorldFog.Apply(graphics.AlphaTestEffect3D);
+            if (graphics.BasicEffect3D != null)
+                Graphics.WorldFog.Apply(graphics.BasicEffect3D);
+
             if (Status != GameControlStatus.Ready) return;
 
             OverheadNameplateRenderer.BeginFrame();
@@ -1004,6 +1034,7 @@ namespace Client.Main.Controls
             worldObject.World = this;
             worldObject.HiddenChanged += Object_HiddenChanged;
             worldObject.PositionChanged += Object_PositionChanged;
+            worldObject.WorldBoundsChanged += Object_WorldBoundsChanged;
             worldObject.StatusChanged += Object_StatusChanged;
 
             TrackObjectType(worldObject);
@@ -1073,6 +1104,7 @@ namespace Client.Main.Controls
 
             worldObject.HiddenChanged -= Object_HiddenChanged;
             worldObject.PositionChanged -= Object_PositionChanged;
+            worldObject.WorldBoundsChanged -= Object_WorldBoundsChanged;
             worldObject.StatusChanged -= Object_StatusChanged;
 
             RemoveVisibleObject(worldObject);
@@ -2254,16 +2286,17 @@ namespace Client.Main.Controls
         // Fast path for loops where camera info is already cached
         private static bool IsObjectInView(WorldObject obj, Vector2 cam2, float maxDistSq, BoundingFrustum frustum)
         {
-            var pos3 = obj.WorldPosition.Translation;
-            float dx = cam2.X - pos3.X;
-            float dy = cam2.Y - pos3.Y;
-            if (dx * dx + dy * dy > maxDistSq)
-                return false;
-
             if (frustum == null)
                 return false;
 
+            // Distance to the nearest point of the bounds, not to the object's origin: long walls and other large
+            // map objects have their origin far away while their near end is already on screen.
             BoundingBox bounds = obj.BoundingBoxWorld;
+            float dx = MathF.Max(MathF.Max(bounds.Min.X - cam2.X, cam2.X - bounds.Max.X), 0f);
+            float dy = MathF.Max(MathF.Max(bounds.Min.Y - cam2.Y, cam2.Y - bounds.Max.Y), 0f);
+            if (dx * dx + dy * dy > maxDistSq)
+                return false;
+
             Vector3 margin = new(WorldCullGuardBand);
             return frustum.Contains(new BoundingBox(bounds.Min - margin, bounds.Max + margin)) != ContainmentType.Disjoint;
         }
@@ -2524,21 +2557,53 @@ namespace Client.Main.Controls
             _spatialDirtyObjects.Clear();
         }
 
-        private void BuildSpatialCandidates(Vector2 center, float maxViewDistance)
+        /// <summary>
+        /// Objects are bucketed by their origin; an object whose origin lies outside the footprint can still reach
+        /// into it with its bounds, so the footprint is widened by this much before selecting sectors.
+        /// </summary>
+        private const float SpatialFootprintPadding = 2000f;
+
+        private readonly Vector3[] _frustumCornersScratch = new Vector3[8];
+
+        /// <summary>
+        /// Candidate sectors cover the ground footprint of the culling frustum (its XY bounding rectangle, capped to
+        /// the cull distance around the camera) instead of a square around the camera target, most of which lies
+        /// behind or beside the camera.
+        /// </summary>
+        private void BuildSpatialCandidates(Camera camera, float maxViewDistance)
         {
             _spatialCandidates.Clear();
 
-            if (!TryGetSpatialSector(new Vector3(center, 0f), out int centerSectorX, out int centerSectorY))
+            Vector3 camPos = camera.Position;
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            camera.Frustum.GetCorners(_frustumCornersScratch);
+            for (int i = 0; i < _frustumCornersScratch.Length; i++)
             {
-                centerSectorX = Math.Clamp((int)MathF.Floor(center.X / Constants.TERRAIN_SCALE) / SpatialSectorTileSize, 0, SpatialSectorsPerAxis - 1);
-                centerSectorY = Math.Clamp((int)MathF.Floor(center.Y / Constants.TERRAIN_SCALE) / SpatialSectorTileSize, 0, SpatialSectorsPerAxis - 1);
+                Vector3 c = _frustumCornersScratch[i];
+                if (!float.IsFinite(c.X) || !float.IsFinite(c.Y))
+                {
+                    // Degenerate frustum: fall back to the whole cull radius.
+                    minX = minY = float.MinValue;
+                    maxX = maxY = float.MaxValue;
+                    break;
+                }
+
+                if (c.X < minX) minX = c.X;
+                if (c.Y < minY) minY = c.Y;
+                if (c.X > maxX) maxX = c.X;
+                if (c.Y > maxY) maxY = c.Y;
             }
 
-            int sectorRadius = (int)MathF.Ceiling(maxViewDistance / (Constants.TERRAIN_SCALE * SpatialSectorTileSize)) + SpatialRebuildPaddingSectors;
-            int minSectorX = Math.Max(0, centerSectorX - sectorRadius);
-            int maxSectorX = Math.Min(SpatialSectorsPerAxis - 1, centerSectorX + sectorRadius);
-            int minSectorY = Math.Max(0, centerSectorY - sectorRadius);
-            int maxSectorY = Math.Min(SpatialSectorsPerAxis - 1, centerSectorY + sectorRadius);
+            minX = MathF.Max(minX, camPos.X - maxViewDistance) - SpatialFootprintPadding;
+            minY = MathF.Max(minY, camPos.Y - maxViewDistance) - SpatialFootprintPadding;
+            maxX = MathF.Min(maxX, camPos.X + maxViewDistance) + SpatialFootprintPadding;
+            maxY = MathF.Min(maxY, camPos.Y + maxViewDistance) + SpatialFootprintPadding;
+
+            const float sectorWorldSize = Constants.TERRAIN_SCALE * SpatialSectorTileSize;
+            int minSectorX = Math.Clamp((int)MathF.Floor(minX / sectorWorldSize), 0, SpatialSectorsPerAxis - 1);
+            int maxSectorX = Math.Clamp((int)MathF.Floor(maxX / sectorWorldSize), 0, SpatialSectorsPerAxis - 1);
+            int minSectorY = Math.Clamp((int)MathF.Floor(minY / sectorWorldSize), 0, SpatialSectorsPerAxis - 1);
+            int maxSectorY = Math.Clamp((int)MathF.Floor(maxY / sectorWorldSize), 0, SpatialSectorsPerAxis - 1);
 
             for (int sectorY = minSectorY; sectorY <= maxSectorY; sectorY++)
             {
@@ -2597,7 +2662,7 @@ namespace Client.Main.Controls
             var camera = Camera.Instance;
             var camPos = camera.Position;
             var cam2 = new Vector2(camPos.X, camPos.Y);
-            float maxViewDistance = camera.ViewFar + Constants.MAX_CAMERA_DISTANCE + 250f;
+            float maxViewDistance = camera.ObjectCullDistance;
             float maxDistSq = maxViewDistance * maxViewDistance;
             var frustum = camera.Frustum;
             IReadOnlyList<WorldObject> snapshot;
@@ -2608,8 +2673,7 @@ namespace Client.Main.Controls
                     RebuildSpatialGridFromSnapshot();
                 }
 
-                var focus = camera.Target;
-                BuildSpatialCandidates(new Vector2(focus.X, focus.Y), maxViewDistance);
+                BuildSpatialCandidates(camera, maxViewDistance);
                 snapshot = _spatialCandidates;
             }
             else
@@ -2681,7 +2745,7 @@ namespace Client.Main.Controls
             var camera = Camera.Instance;
             var camPos = camera.Position;
             var cam2 = new Vector2(camPos.X, camPos.Y);
-            float maxViewDistance = camera.ViewFar + Constants.MAX_CAMERA_DISTANCE + 250f;
+            float maxViewDistance = camera.ObjectCullDistance;
             float maxDistSq = maxViewDistance * maxViewDistance;
             var frustum = camera.Frustum;
 
@@ -2919,7 +2983,7 @@ namespace Client.Main.Controls
             if (Vector3.Dot(direction, _lastCulledCameraDirection) < CameraCullDirectionDotThreshold)
                 return true;
 
-            return MathF.Abs(camera.ViewFar - _lastCulledViewFar) > 0.01f ||
+            return MathF.Abs(camera.ObjectCullDistance - _lastCulledViewFar) > 0.01f ||
                    MathF.Abs(camera.FOV - _lastCulledFov) > 0.001f ||
                    MathF.Abs(camera.AspectRatio - _lastCulledAspectRatio) > 0.0001f;
         }
@@ -2936,7 +3000,7 @@ namespace Client.Main.Controls
                 direction = Vector3.UnitY;
 
             _lastCulledCameraDirection = direction;
-            _lastCulledViewFar = camera.ViewFar;
+            _lastCulledViewFar = camera.ObjectCullDistance;
             _lastCulledFov = camera.FOV;
             _lastCulledAspectRatio = camera.AspectRatio;
         }

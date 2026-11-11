@@ -111,9 +111,11 @@ namespace Client.Main.Controls.Terrain
                     block.MinZ = float.MaxValue;
                     block.MaxZ = float.MinValue;
 
-                    for (int y = 0; y < BlockSize; y++)
+                    // A block of BlockSize tiles spans BlockSize + 1 vertices per axis; the far border row and
+                    // column belong to it as well, otherwise steep edges get a too low / too high box.
+                    for (int y = 0; y <= BlockSize; y++)
                     {
-                        for (int x = 0; x < BlockSize; x++)
+                        for (int x = 0; x <= BlockSize; x++)
                         {
                             int idx = GetTerrainIndexRepeat(block.Xi + x, block.Yi + y);
                             float h = _data.HeightMap[idx].R * 1.5f;
@@ -157,7 +159,7 @@ namespace Client.Main.Controls.Terrain
             bool directionChanged = !_hasVisibilitySnapshot ||
                                     Vector3.Dot(_lastCameraDirection, cameraDirection) < 0.9995f;
             bool projectionChanged = !_hasVisibilitySnapshot ||
-                                     MathF.Abs(_lastViewFar - camera.ViewFar) > 0.01f ||
+                                     MathF.Abs(_lastViewFar - camera.TerrainRenderDistance) > 0.01f ||
                                      MathF.Abs(_lastFov - camera.FOV) > 0.001f ||
                                      MathF.Abs(_lastAspectRatio - camera.AspectRatio) > 0.0001f;
 
@@ -166,13 +168,13 @@ namespace Client.Main.Controls.Terrain
 
             _lastCameraPosition = cameraPosition;
             _lastCameraDirection = cameraDirection;
-            _lastViewFar = camera.ViewFar;
+            _lastViewFar = camera.TerrainRenderDistance;
             _lastFov = camera.FOV;
             _lastAspectRatio = camera.AspectRatio;
             _hasVisibilitySnapshot = true;
             _visibleBlocks.Clear();
 
-            float renderDist = Camera.Instance.ViewFar * 1.7f;
+            float renderDist = camera.TerrainRenderDistance;
             float renderDistSq = renderDist * renderDist;
             int cellWorld = (int)(BlockSize * Constants.TERRAIN_SCALE);
 

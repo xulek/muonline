@@ -220,7 +220,9 @@ namespace Client.Main.Objects
 
                     bool isBlend = IsBlendMesh(meshIndex);
                     bool isRgba = _meshes[meshIndex].IsRgba;
-                    if (LowQuality && isBlend && !preserveBlendMeshes)
+                    // Far actors drop their blend meshes (glows, wing effects). Map scenery keeps them: whole map
+                    // objects can be made of blend meshes (Icarus walls use "_R" textures) and would vanish.
+                    if (LowQuality && isBlend && !preserveBlendMeshes && !IsMapPlacementObject)
                         continue;
 
                     var target = (isRgba || isBlend) ? _transparentMeshPlan : _opaqueMeshPlan;
@@ -477,9 +479,12 @@ namespace Client.Main.Objects
                                       EnableCustomShader &&
                                       GraphicsManager.Instance.MonsterMaterialEffect != null;
 
-            // Dynamic lighting shader (used when no special material is active)
+            // Dynamic lighting shader (used when no special material is active). Bright ("_R") / blend meshes of map
+            // scenery stay unlit like SourceMain5.2 RenderMesh (additive, texture x terrain light x BlendMeshLight);
+            // lit by ambient + sun they turn white (Icarus walls).
             bool useDynamicLighting = AllowDynamicLightingShader &&
                                       !useItemMaterial && !useMonsterMaterial &&
+                                      !(IsMapPlacementObject && IsBlendMesh(mesh)) &&
                                       Constants.ENABLE_DYNAMIC_LIGHTING_SHADER &&
                                       GraphicsManager.Instance.DynamicLightingEffect != null;
 

@@ -82,11 +82,20 @@ namespace Client.Main.Controls
         public float WaterSpeed { get => _renderer.WaterSpeed; set => _renderer.WaterSpeed = value; }
         public float DistortionAmplitude { get => _renderer.DistortionAmplitude; set => _renderer.DistortionAmplitude = value; }
         public float DistortionFrequency { get => _renderer.DistortionFrequency; set => _renderer.DistortionFrequency = value; }
+        // A world may set the ambient in its constructor, before the renderer exists; it is applied on creation.
+        private float? _pendingAmbientLight;
+
         public float AmbientLight
         {
-            get => _renderer.AmbientLight;
+            get => _renderer?.AmbientLight ?? _pendingAmbientLight ?? 0.25f;
             set
             {
+                if (_renderer == null)
+                {
+                    _pendingAmbientLight = value;
+                    return;
+                }
+
                 _renderer.AmbientLight = value;
                 if (_grassRenderer != null)
                 {
@@ -211,6 +220,11 @@ namespace Client.Main.Controls
                 WorldIndex = this.WorldIndex,
                 PreferIndexBatching = _preferIndexBatching
             };
+            if (_pendingAmbientLight.HasValue)
+            {
+                _renderer.AmbientLight = _pendingAmbientLight.Value;
+                _pendingAmbientLight = null;
+            }
 
             // Post-load processing
             _lightManager.CreateTerrainNormals();

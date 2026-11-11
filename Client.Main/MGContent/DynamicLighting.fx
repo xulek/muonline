@@ -410,6 +410,7 @@ struct UnlitPixelInput
     float4 Position : SV_POSITION;
     float2 TexCoord : TEXCOORD0;
     float4 Color    : COLOR0;
+    float3 WorldPos : TEXCOORD1;
 };
 
 struct HighlightPixelInput
@@ -626,6 +627,7 @@ UnlitPixelInput VS_ObjectsUnlit(VertexInput input)
     output.Position = mul(float4(input.Position, 1.0), WorldViewProjection);
     output.TexCoord = input.TexCoord + TextureCoordinateOffset;
     output.Color = input.Color;
+    output.WorldPos = mul(float4(input.Position, 1.0), World).xyz;
     return output;
 }
 
@@ -1072,6 +1074,9 @@ float4 PS_AdditiveAlphaTest(UnlitPixelInput input) : SV_Target
         clip(min(texColor.a, max(texColor.r, max(texColor.g, texColor.b))) - AdditiveAlphaCutoff);
     float4 color = texColor * input.Color * Alpha;
     clip(color.a - 0.01);
+    // Additive: fog fades the contribution out instead of blending towards the fog colour.
+    [branch] if (FogEnabled > 0.0)
+        color.rgb *= 1.0 - saturate((length(input.WorldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0)) * FogEnabled;
     return color;
 }
 

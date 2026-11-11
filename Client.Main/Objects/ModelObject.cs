@@ -1080,6 +1080,10 @@ namespace Client.Main.Objects
 
             bool hasValidVertices = false;
             var meshes = Model.Meshes;
+            // Static models are measured once, so every vertex is used: a box built from a few samples misses the
+            // extremes of large map objects (Atlans ships, Icarus islands) and frustum culling then cuts them before
+            // their edges reach the screen. Animated models are re-measured often and keep a sampled box.
+            bool exactBounds = !RequiresPerFrameAnimation || !_boundingComputed;
             var bones = activeBones;
             int boneCount = bones.Length;
 
@@ -1090,7 +1094,7 @@ namespace Client.Main.Objects
                 var vertices = mesh.Vertices;
                 if (vertices == null) continue;
 
-                int step = Math.Max(1, vertices.Length / 32); // Sample max 32 vertices per mesh
+                int step = exactBounds ? 1 : Math.Max(1, vertices.Length / 128); // Animated: max 128 samples per mesh
                 for (int vertexIndex = 0; vertexIndex < vertices.Length; vertexIndex += step)
                 {
                     var vertex = vertices[vertexIndex];
@@ -1115,6 +1119,14 @@ namespace Client.Main.Objects
 
             if (hasValidVertices)
             {
+                if (!exactBounds)
+                {
+                    // Sampled boxes can miss outer vertices; pad them by 10% of their size.
+                    Vector3 pad = (max - min) * 0.1f;
+                    min -= pad;
+                    max += pad;
+                }
+
                 BoundingBoxLocal = new BoundingBox(min, max);
                 _boundingComputed = true;
             }

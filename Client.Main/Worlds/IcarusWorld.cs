@@ -19,6 +19,9 @@ namespace Client.Main.Worlds
         public IcarusWorld() : base(worldIndex: 11)
         {
             EnableShadows = false;
+            // SourceMain5.2 RequestTerrainLight returns only the terrain light map, without the port's default
+            // 0.25 ambient; with it the whole map (and its additive "_R" walls) was much brighter than the original.
+            Terrain.AmbientLight = 0f;
             // Intentionally load only specified terrain tile textures for Icarus.
             Terrain.TextureMappingFiles = new Dictionary<int, string>
             {

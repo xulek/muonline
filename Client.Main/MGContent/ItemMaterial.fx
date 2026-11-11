@@ -16,6 +16,26 @@
     #define UNIFORM_DEFAULT(type, name, value) type name = value
 #endif
 
+// World / distance fog, same uniforms and formula as DynamicLighting.fx (WorldFog.Apply).
+UNIFORM_DEFAULT(float, FogEnabled, 0.0);
+UNIFORM_DEFAULT(float3, FogColor, float3(0.0, 0.0, 0.0));
+UNIFORM_DEFAULT(float, FogStart, 2000.0);
+UNIFORM_DEFAULT(float, FogEnd, 2700.0);
+UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
+
+float WorldFogFactor(float3 worldPos)
+{
+    float f = 0.0;
+    [branch] if (FogEnabled > 0.0)
+        f = saturate((length(worldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0)) * FogEnabled;
+    return f;
+}
+
+float3 ApplyWorldFog(float3 color, float3 worldPos)
+{
+    return lerp(color, FogColor, WorldFogFactor(worldPos));
+}
+
 #if OPENGL
 static const float GlowIntensityScale = 1.0;
 #else
@@ -493,14 +513,19 @@ float4 ShadeItemCore(float4 diffuse, float3 worldPos, float3 normal, float itemO
         rgb += tex2D(Chrome02Sampler, float2(d, 1.0 - d)).rgb * ancientColor * a;
     }
 
-    return float4(rgb, diffuse.a * Alpha);
+    return float4(ApplyWorldFog(rgb, worldPos), diffuse.a * Alpha);
 }
 
 float4 ShadeItem(float3 worldPos, float3 normal, float2 uv)
 {
     float overlayMode = (float)ChromeOverlayMode;
     if (overlayMode > 0.5)
-        return ShadeOverlay(normal, uv, overlayMode);
+    {
+        // Overlay passes are added on top of the fogged body: fade them out with the fog.
+        float4 overlay = ShadeOverlay(normal, uv, overlayMode);
+        overlay.rgb *= 1.0 - WorldFogFactor(worldPos);
+        return overlay;
+    }
 
     float4 diffuse = tex2D(DiffuseSampler, uv);
     if (diffuse.a < 0.1)

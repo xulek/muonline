@@ -104,7 +104,8 @@ namespace Client.Main.Objects.Worlds.Icarus
                 LightingEnabled = false,
                 FogEnabled = false,
                 World = Matrix.Identity,
-                DiffuseColor = new Vector3(1.55f, 1.65f, 1.85f),
+                // The original clouds are additive BITMAP_CLOUD particles with light 0.1: a dim, grey-blue haze.
+                DiffuseColor = new Vector3(0.8f, 0.86f, 0.98f),
                 Alpha = 1f
             };
 

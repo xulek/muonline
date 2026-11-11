@@ -41,6 +41,12 @@ namespace Client.Main.Objects
 
         public event EventHandler PositionChanged;
 
+        /// <summary>
+        /// Raised when <see cref="BoundingBoxWorld"/> of a root object changes (rotation, scale, new local bounds),
+        /// so the world can re-cull it; a plain position change is reported by <see cref="PositionChanged"/>.
+        /// </summary>
+        public event EventHandler WorldBoundsChanged;
+
         public virtual float Depth
         {
             get => Position.Y + Position.Z;
@@ -710,9 +716,15 @@ namespace Client.Main.Objects
                 MathF.Abs(world.M23) * localExtents.Y +
                 MathF.Abs(world.M33) * localExtents.Z);
 
-            BoundingBoxWorld = new BoundingBox(
+            var bounds = new BoundingBox(
                 worldCenter - worldExtents,
                 worldCenter + worldExtents);
+            if (bounds == BoundingBoxWorld)
+                return;
+
+            BoundingBoxWorld = bounds;
+            if (_parent == null)
+                WorldBoundsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public virtual ushort NetworkId { get; protected set; }
