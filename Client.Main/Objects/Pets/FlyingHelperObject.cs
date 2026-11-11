@@ -78,7 +78,6 @@ namespace Client.Main.Objects.Pets
         private const ushort NoDarkRavenTarget = 0xFFFF;
         private const int MaxLegacyStepsPerFrame = 5;
         private const float FlyRange = 150f;
-        private const int UnresolvedBoneIndex = int.MinValue;
         private const int MaxSparks = 128;
         private const int MaxBillboardQuads = MaxSparks + 1;
 
@@ -102,7 +101,6 @@ namespace Client.Main.Objects.Pets
         private float _localSpeed;
         private float _verticalSpeed;
         private float _legacyAccumulator;
-        private int _impShoulderBoneIndex = UnresolvedBoneIndex;
         private DarkRavenMotion _darkRavenMotion = DarkRavenMotion.Flying;
         private float _darkRavenLandingSpeed;
         private DarkRavenCommandMode _darkRavenCommandMode = DarkRavenCommandMode.Follow;
@@ -112,10 +110,8 @@ namespace Client.Main.Objects.Pets
         private int _darkRavenAttackTime;
         private bool _darkRavenAttackFlashSpawned;
 
-        // Offsets applied in world space: horizontal X/Y pushes the helper outward from the
-        // body axis onto the shoulder, and world Z (height) lifts it onto the shoulder line.
-        private const float ImpShoulderOutwardOffset = 15f;
-        private const float ImpShoulderHeightOffset = 12f;
+        private const int ImpLinkBoneIndex = 34;
+        private static readonly Vector3 ImpLinkOffset = new(20f, 0f, 0f);
 
         private BasicEffect? _billboardEffect;
         private Texture2D? _sparkTexture;
@@ -325,7 +321,6 @@ namespace Client.Main.Objects.Pets
                 CurrentAction = 0;
                 AnimationSpeed = HelperWingAnimationSpeed;
                 Scale = GetWorldScale(requestedKind);
-                _impShoulderBoneIndex = UnresolvedBoneIndex;
                 _darkRavenMotion = DarkRavenMotion.Flying;
                 _darkRavenCommandMode = DarkRavenCommandMode.Follow;
                 _darkRavenCommandTargetId = NoDarkRavenTarget;
@@ -967,7 +962,6 @@ namespace Client.Main.Objects.Pets
 
             _spawnInitialized = false;
             _legacyAccumulator = 0f;
-            _impShoulderBoneIndex = UnresolvedBoneIndex;
             _darkRavenMotion = DarkRavenMotion.Flying;
             ClearDarkRavenAttack();
             Hidden = true;
@@ -1040,101 +1034,13 @@ namespace Client.Main.Objects.Pets
 
         private Vector3 GetImpShoulderPosition(PlayerObject owner)
         {
-            int boneIndex = ResolveImpShoulderBoneIndex(owner);
-            Vector3 ownerCenter = owner.WorldPosition.Translation;
-            Vector3 anchor;
+            // Original client (RenderLinkObject for MODEL_IMP): the imp is linked to player bone 34
+            // with a local offset of (20, 0, 0).
+            if (owner.TryGetBoneWorldMatrix(ImpLinkBoneIndex, out Matrix boneMatrix))
+                return Vector3.Transform(ImpLinkOffset, boneMatrix);
 
-            if (boneIndex >= 0 && owner.TryGetBoneWorldMatrix(boneIndex, out Matrix shoulderMatrix))
-            {
-                anchor = shoulderMatrix.Translation;
-            }
-            else
-            {
-                float shoulderHeight = owner.BodyHeight > 1f ? owner.BodyHeight * 0.72f : 110f;
-                anchor = ownerCenter + new Vector3(0f, 0f, shoulderHeight);
-            }
-
-            // The clavicle pivot sits on the shoulder line, close to the neck. Push the helper
-            // outward along the horizontal (world X/Y) direction from the body center to the
-            // selected shoulder, then lift it slightly (world Z is height). Working in world axes
-            // keeps the helper on the shoulder regardless of the player skeleton variant.
-            Vector2 outward = new(anchor.X - ownerCenter.X, anchor.Y - ownerCenter.Y);
-            if (outward.LengthSquared() < 1f)
-            {
-                outward = GetLocalRightDirection(owner);
-            }
-            else
-            {
-                outward.Normalize();
-            }
-
-            anchor.X += outward.X * ImpShoulderOutwardOffset;
-            anchor.Y += outward.Y * ImpShoulderOutwardOffset;
-            anchor.Z += ImpShoulderHeightOffset;
-            return anchor;
-        }
-
-        /// <summary>
-        /// World-space horizontal direction of the character's right side. Used only when the
-        /// resolved shoulder bone sits on the body axis. Mirrors the cape cloth's convention
-        /// where the owner's local +Y is the backward axis, so local -Z is the right side.
-        /// </summary>
-        private static Vector2 GetLocalRightDirection(PlayerObject owner)
-        {
-            Matrix ownerRotation = Matrix.CreateFromQuaternion(
-                Client.Main.Core.Utilities.MathUtils.AngleQuaternion(owner.Angle));
-            Vector3 right = Vector3.TransformNormal(-Vector3.UnitZ, ownerRotation);
-            return new Vector2(right.X, right.Y);
-        }
-
-        private int ResolveImpShoulderBoneIndex(PlayerObject owner)
-        {
-            if (_impShoulderBoneIndex != UnresolvedBoneIndex)
-                return _impShoulderBoneIndex;
-
-            var bones = owner.Model?.Bones;
-            if (bones == null || bones.Length == 0)
-                return -1;
-
-            for (int i = 0; i < bones.Length; i++)
-            {
-                string name = bones[i].Name ?? string.Empty;
-                bool rightSide = name.Contains("Bip01 R", StringComparison.OrdinalIgnoreCase) ||
-                                 name.Contains("Right", StringComparison.OrdinalIgnoreCase);
-                bool shoulder = name.Contains("Clavicle", StringComparison.OrdinalIgnoreCase) ||
-                                name.Contains("Shoulder", StringComparison.OrdinalIgnoreCase);
-                if (rightSide && shoulder)
-                {
-                    _impShoulderBoneIndex = i;
-                    return i;
-                }
-            }
-
-            // Older Player.bmd variants do not always preserve descriptive bone names. Walk from
-            // the known right-hand anchor towards the torso and use the third valid ancestor,
-            // which corresponds to the upper-arm/clavicle area in the classic player skeleton.
-            int current = PlayerObject.RightHandBoneIndex;
-            int fallback = -1;
-            int depth = 0;
-            while ((uint)current < (uint)bones.Length && depth < 12)
-            {
-                string name = bones[current].Name ?? string.Empty;
-                if (name.Contains("Clavicle", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Shoulder", StringComparison.OrdinalIgnoreCase))
-                {
-                    _impShoulderBoneIndex = current;
-                    return current;
-                }
-
-                if (depth == 3)
-                    fallback = current;
-
-                current = bones[current].Parent;
-                depth++;
-            }
-
-            _impShoulderBoneIndex = fallback;
-            return fallback;
+            float shoulderHeight = owner.BodyHeight > 1f ? owner.BodyHeight * 0.72f : 110f;
+            return owner.WorldPosition.Translation + new Vector3(0f, 0f, shoulderHeight);
         }
 
         private int FindSparkSlot()
