@@ -635,6 +635,8 @@ namespace Client.Main.Scenes
                 return;
             }
 
+            // Hover names queued by pass 2 (the world already flushed its nameplates).
+            Client.Main.Helpers.OverheadNameplateRenderer.FlushQueuedNameplates(GraphicsManager.Instance.Sprite);
             DrawInterface(gameTime);
         }
 

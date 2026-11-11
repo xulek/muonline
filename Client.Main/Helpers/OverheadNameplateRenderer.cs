@@ -11,13 +11,15 @@ namespace Client.Main.Helpers
     {
         private readonly struct QueuedNameplate
         {
-            public QueuedNameplate(SpriteFont font, Vector3 screen, string name, float? healthFraction, float renderScale)
+            public QueuedNameplate(SpriteFont font, Vector3 screen, string name, float? healthFraction, float renderScale,
+                bool hoverLabel = false)
             {
                 Font = font;
                 Screen = screen;
                 Name = name;
                 HealthFraction = healthFraction;
                 RenderScale = renderScale;
+                HoverLabel = hoverLabel;
             }
 
             public SpriteFont Font { get; }
@@ -25,9 +27,12 @@ namespace Client.Main.Helpers
             public string Name { get; }
             public float? HealthFraction { get; }
             public float RenderScale { get; }
+            public bool HoverLabel { get; }
         }
 
-        private const float BaseNameScale = 0.42f;
+        // 13 px: an ArialUi size, so the glyphs are drawn 1:1 (scaled glyphs go soft and uneven).
+        private const float BaseNameScale = 13f / Constants.BASE_FONT_SIZE;
+        private const float BaseHoverNameScale = 13f / Constants.BASE_FONT_SIZE;
         private const float BaseBarWidth = 70f;
         private const float BaseBarHeight = 6f;
         private const float BaseBarOffsetY = 2f;
@@ -105,6 +110,18 @@ namespace Client.Main.Helpers
             s_queue.Add(new QueuedNameplate(font, screen, name, healthFraction, renderScale));
         }
 
+        /// <summary>
+        /// Queues the hover name of an NPC/player. Like the nameplates it is drawn with the interface, at the window's
+        /// resolution, so render scale neither blurs nor resizes the text.
+        /// </summary>
+        public static void EnqueueHoverLabel(Vector3 screen, string name, float renderScale)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            s_queue.Add(new QueuedNameplate(null, screen, name, null, renderScale, hoverLabel: true));
+        }
+
         /// <param name="targetScale">Size of the target drawn into relative to the scene target the positions were
         /// projected in (1 / render scale when drawn on the window).</param>
         public static void FlushQueuedNameplates(SpriteBatch spriteBatch, float targetScale = 1f)
@@ -116,11 +133,13 @@ namespace Client.Main.Helpers
             bool hasScope = false;
             if (!SpriteBatchScope.BatchIsBegun)
             {
+                // The UI fonts are built with premultiplied alpha; NonPremultiplied would apply the glyph
+                // coverage twice and leave thin, ragged edges. Glyphs are drawn 1:1, hence point sampling.
                 scope = new SpriteBatchScope(
                     spriteBatch,
                     SpriteSortMode.Deferred,
-                    BlendState.NonPremultiplied,
-                    SamplerState.LinearClamp,
+                    BlendState.AlphaBlend,
+                    SamplerState.PointClamp,
                     DepthStencilState.None);
                 hasScope = true;
             }
@@ -133,6 +152,12 @@ namespace Client.Main.Helpers
                     var screen = entry.Screen;
                     screen.X *= targetScale;
                     screen.Y *= targetScale;
+                    if (entry.HoverLabel)
+                    {
+                        DrawHoverLabel(spriteBatch, screen, entry.Name, entry.RenderScale * targetScale);
+                        continue;
+                    }
+
                     DrawNameplate(
                         spriteBatch,
                         entry.Font,
@@ -164,7 +189,7 @@ namespace Client.Main.Helpers
 
             float scale = MathF.Max(renderScale, 0.1f);
             // Small text: a font rasterised near its size on screen instead of the base font shrunk to ~40%.
-            font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * BaseNameScale * scale, out float nameScale);
+            font = GetCrispFont(Constants.BASE_FONT_SIZE * BaseNameScale * scale, out float nameScale);
             Vector2 nameSize = font.MeasureString(name) * nameScale;
 
             float padX = MathF.Max(1f, BaseNamePaddingX * scale);
@@ -252,12 +277,52 @@ namespace Client.Main.Helpers
                 spriteBatch.Draw(pixel,
                     new Rectangle(barRect.X + 1, barRect.Y + 1, Math.Max(0, barRect.Width - 2), 1),
                     null,
-                    Theme.BorderHighlight * 0.6f,
+                    new Color(100, 110, 130) * (72f / 255f),
                     0f,
                     Vector2.Zero,
                     SpriteEffects.None,
                     depth);
             }
+        }
+
+        /// <summary>Screen font for <paramref name="pixels"/>; a scale within a few percent of 1 is snapped to 1.</summary>
+        private static SpriteFont GetCrispFont(float pixels, out float scale)
+        {
+            SpriteFont font = GraphicsManager.GetScreenFont(pixels, out scale);
+            if (MathF.Abs(scale - 1f) < 0.06f)
+                scale = 1f;
+            return font;
+        }
+
+        private static void DrawHoverLabel(SpriteBatch spriteBatch, Vector3 screen, string name, float renderScale)
+        {
+            var pixel = GraphicsManager.Instance.Pixel;
+            if (pixel == null || pixel.IsDisposed)
+                return;
+
+            float scale = MathF.Max(renderScale, 0.1f);
+            var font = GetCrispFont(Constants.BASE_FONT_SIZE * BaseHoverNameScale * scale, out float fontScale);
+            Vector2 size = font.MeasureString(name) * fontScale;
+            Vector2 textPos = new(MathF.Round(screen.X - size.X * 0.5f), MathF.Round(screen.Y - size.Y));
+
+            int padX = Math.Max(1, (int)MathF.Round(4f * scale));
+            int padY = Math.Max(1, (int)MathF.Round(2f * scale));
+            var bgRect = new Rectangle(
+                (int)textPos.X - padX,
+                (int)textPos.Y - padY,
+                (int)MathF.Ceiling(size.X) + padX * 2,
+                (int)MathF.Ceiling(size.Y) + padY * 2);
+
+            var viewport = spriteBatch.GraphicsDevice.Viewport;
+            if (bgRect.Right < 0 || bgRect.Left > viewport.Width || bgRect.Bottom < 0 || bgRect.Top > viewport.Height)
+                return;
+
+            // Premultiplied colours (AlphaBlend).
+            spriteBatch.Draw(pixel, bgRect, new Color(30, 50, 70) * (150f / 255f));
+            spriteBatch.DrawString(font, name, textPos + Vector2.One, Color.Black * 0.7f, 0f, Vector2.Zero, fontScale,
+                SpriteEffects.None, 0f);
+            spriteBatch.DrawString(font, name, textPos, new Color(176, 224, 230, 255), 0f, Vector2.Zero, fontScale,
+                SpriteEffects.None, 0f);
         }
 
         private static void DrawBorder(SpriteBatch spriteBatch, Texture2D pixel, Rectangle rect, Color color, float depth)

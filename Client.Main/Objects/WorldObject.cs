@@ -415,40 +415,8 @@ namespace Client.Main.Objects
             if (screen.Z < 0f || screen.Z > 1f)
                 return;
 
-            // Apply render scale to font scale to maintain consistent size
-            const float baseScale = 0.4f; // 2x smaller than default
-            var font = GraphicsManager.GetScreenFont(Constants.BASE_FONT_SIZE * baseScale * Constants.RENDER_SCALE, out float scale);
-            Vector2 size = font.MeasureString(name) * scale;
-            var sb = GraphicsManager.Instance.Sprite;
-
-            Vector2 textPos = new Vector2(MathF.Round(screen.X - size.X * 0.5f), MathF.Round(screen.Y - size.Y));
-            Color bgColor = new Color(30, 50, 70, 150); // Semi-transparent dark blue background
-            Color textColor = new Color(176, 224, 230, 255); // Pale sky blue text
-
-            void draw()
-            {
-                // Draw background rectangle directly (no border for hover names)
-                Texture2D whiteTexture = GraphicsManager.Instance.Pixel;
-                if (whiteTexture == null || whiteTexture.IsDisposed)
-                    return;
-
-                var bgRect = new Rectangle(
-                    (int)(textPos.X - 4),
-                    (int)(textPos.Y - 2),
-                    (int)(size.X + 8),
-                    (int)(size.Y + 4));
-                sb.Draw(whiteTexture, bgRect, bgColor);
-
-                // Draw text on top
-                sb.DrawString(font, name, textPos, textColor, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-            }
-
-            // Use SpriteBatchScope for proper nested batch handling, NonPremultiplied to avoid color darkening
-            // LinearClamp provides smooth text when scaled down (PointClamp causes jagged edges)
-            using (new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone))
-            {
-                draw();
-            }
+            // Drawn with the interface at the window's resolution (sharp, same size at every render scale).
+            OverheadNameplateRenderer.EnqueueHoverLabel(screen, name, Constants.RENDER_SCALE);
         }
 
         public void BringToFront()
