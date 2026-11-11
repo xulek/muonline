@@ -58,6 +58,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
         private const int PANEL_PADDING = 12;
         private const int EQUIP_SECTION_HEIGHT = 270;
 
+        // The window is drawn at this fraction of its layout. Layout, item rects and hit tests stay in layout units
+        // around the window's top-left (LayoutRectangle, ToLayout); UiScaler.PushLocalScale shrinks the drawing.
+        private const float WindowScale = 0.85f;
+
         public const int INVENTORY_SQUARE_WIDTH = 34;
         public const int INVENTORY_SQUARE_HEIGHT = 34;
 
@@ -278,7 +282,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             Interactive = true;
             Visible = false;
             Align = ControlAlign.VerticalCenter | ControlAlign.Right;
-            Scale = 1f;
+            Scale = WindowScale;
 
             _itemGrid = new InventoryItem[Columns, Rows];
             _pickedItemRenderer = new PickedItemRenderer();
@@ -522,7 +526,31 @@ namespace Client.Main.Controls.UI.Game.Inventory
             return false;
         }
 
-        public Point GetSlotAtScreenPositionPublic(Point screenPos) => GetSlotAtScreenPosition(screenPos);
+        public Point GetSlotAtScreenPositionPublic(Point screenPos) => GetSlotAtScreenPosition(ToLayout(screenPos));
+
+        /// <summary>The window in layout units (the drawn window is <see cref="WindowScale"/> of it).</summary>
+        private Rectangle LayoutRectangle => new(DisplayRectangle.Location, ViewSize);
+
+        /// <summary>A screen (virtual UI) position in the window's layout units.</summary>
+        private Point ToLayout(Point screen)
+        {
+            Point origin = DisplayRectangle.Location;
+            float scale = MathF.Max(Scale, 0.01f);
+            return new Point(
+                origin.X + (int)MathF.Floor((screen.X - origin.X) / scale),
+                origin.Y + (int)MathF.Floor((screen.Y - origin.Y) / scale));
+        }
+
+        /// <summary>A rectangle in the window's layout units on screen.</summary>
+        private Rectangle ToScreen(Rectangle layout)
+        {
+            Point origin = DisplayRectangle.Location;
+            return new Rectangle(
+                origin.X + (int)MathF.Round((layout.X - origin.X) * Scale),
+                origin.Y + (int)MathF.Round((layout.Y - origin.Y) * Scale),
+                (int)MathF.Round(layout.Width * Scale),
+                (int)MathF.Round(layout.Height * Scale));
+        }
 
         public bool CanPlaceAt(Point gridSlot, InventoryItem item) => CanPlaceItem(item, gridSlot);
 
@@ -562,7 +590,9 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
             base.Update(gameTime);
 
-            Point mousePos = MuGame.Instance.UiMouseState.Position;
+            // Window dragging works in screen units; hit tests in layout units.
+            Point screenMousePos = MuGame.Instance.UiMouseState.Position;
+            Point mousePos = ToLayout(screenMousePos);
             _hoveredItem = null;
             _hoveredSlot = new Point(-1, -1);
             _hoveredEquipSlot = GetEquipSlotAtScreenPosition(mousePos);
@@ -588,7 +618,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 else
                 {
                     _isDragging = true;
-                    _dragOffset = new Point(mousePos.X - X, mousePos.Y - Y);
+                    _dragOffset = new Point(screenMousePos.X - X, screenMousePos.Y - Y);
                     Align = ControlAlign.None;
                     _lastClickTime = now;
                 }
@@ -599,8 +629,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
             }
             else if (_isDragging && leftPressed)
             {
-                X = mousePos.X - _dragOffset.X;
-                Y = mousePos.Y - _dragOffset.Y;
+                X = screenMousePos.X - _dragOffset.X;
+                Y = screenMousePos.Y - _dragOffset.Y;
             }
 
             if (IsMouseOver && !_isDragging)
@@ -672,18 +702,15 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 EnsureStaticSurface();
 
             var spriteBatch = graphicsManager.Sprite;
-            SpriteBatchScope? scope = null;
-            if (!SpriteBatchScope.BatchIsBegun)
-            {
-                scope = new SpriteBatchScope(
-                    spriteBatch,
-                    SpriteSortMode.Deferred,
-                    BlendState.AlphaBlend,
-                    GraphicsManager.GetQualityLinearSamplerState(),
-                    transform: UiScaler.SpriteTransform);
-            }
 
-            try
+            // The window at WindowScale; the tooltip after it at full size.
+            using (UiScaler.PushLocalScale(DisplayRectangle.Location.ToVector2(), Scale))
+            using (new SpriteBatchScope(
+                       spriteBatch,
+                       SpriteSortMode.Deferred,
+                       BlendState.AlphaBlend,
+                       GraphicsManager.GetQualityLinearSamplerState(),
+                       transform: UiScaler.SpriteTransform))
             {
                 if (!IsSeason6)
                 {
@@ -692,7 +719,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 }
                 else if (_staticSurface != null && !_staticSurface.IsDisposed)
                 {
-                    spriteBatch.Draw(_staticSurface, DisplayRectangle, Color.White * Alpha);
+                    spriteBatch.Draw(_staticSurface, LayoutRectangle, Color.White * Alpha);
                 }
 
                 // Draw overlays beneath items (consistent with vault/NPC shop)
@@ -703,11 +730,16 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 DrawEquippedItems(spriteBatch);
                 DrawChrome(spriteBatch);
                 DrawTexts(spriteBatch);
-                DrawTooltip(spriteBatch);
             }
-            finally
+
+            using (new SpriteBatchScope(
+                       spriteBatch,
+                       SpriteSortMode.Deferred,
+                       BlendState.AlphaBlend,
+                       GraphicsManager.GetQualityLinearSamplerState(),
+                       transform: UiScaler.SpriteTransform))
             {
-                scope?.Dispose();
+                DrawTooltip(spriteBatch);
             }
         }
 
@@ -1282,7 +1314,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
         private void DrawOrnateFrame(SpriteBatch spriteBatch)
         {
             float alpha = Alpha;
-            Rectangle frame = DisplayRectangle;
+            Rectangle frame = LayoutRectangle;
             OrnateDraw.Window(spriteBatch, frame, alpha);
 
             // Equipment: engraved panel behind the slots.
@@ -2549,7 +2581,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 ItemGridRenderHelper.DrawGridOverlays(
                     spriteBatch,
                     pixel,
-                    DisplayRectangle,
+                    LayoutRectangle,
                     _gridRect,
                     _hoveredItem,
                     _hoveredSlot,
@@ -2593,7 +2625,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 return;
             }
 
-            Vector2 basePosition = DisplayRectangle.Location.ToVector2();
+            Vector2 basePosition = LayoutRectangle.Location.ToVector2();
             foreach (var entry in _texts)
             {
                 if (entry == null || !entry.Visible || string.IsNullOrEmpty(entry.Text))
@@ -2907,10 +2939,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
             {
                 lines.Add(("Right-click or drag: add to personal shop", Theme.TextGold));
             }
-            const float scale = 0.44f;
-            const int lineSpacing = 4;
-            const int paddingX = 14;
-            const int paddingY = 12;
+            const float scale = 0.37f;
+            const int lineSpacing = 3;
+            const int paddingX = 10;
+            const int paddingY = 9;
 
             // Calculate tooltip size
             int maxWidth = 0;
@@ -2946,6 +2978,9 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     _hoveredItem.Definition.Width * INVENTORY_SQUARE_WIDTH,
                     _hoveredItem.Definition.Height * INVENTORY_SQUARE_HEIGHT);
             }
+
+            // The tooltip is drawn at full size outside the scaled window.
+            hoveredItemRect = ToScreen(hoveredItemRect);
 
             if (!IsSeason6)
             {
@@ -3053,7 +3088,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private Rectangle Translate(Rectangle rect)
         {
-            return new Rectangle(DisplayRectangle.X + rect.X, DisplayRectangle.Y + rect.Y, rect.Width, rect.Height);
+            return new Rectangle(LayoutRectangle.X + rect.X, LayoutRectangle.Y + rect.Y, rect.Width, rect.Height);
         }
 
         private void ReleasePickedItem()
@@ -3071,7 +3106,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private bool IsMouseOverGrid()
         {
-            Point mousePos = MuGame.Instance.UiMouseState.Position;
+            Point mousePos = ToLayout(MuGame.Instance.UiMouseState.Position);
             Rectangle gridScreenRect = Translate(_gridRect);
 
             return gridScreenRect.Contains(PointerForHitTest(mousePos));
@@ -3079,13 +3114,13 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
         private bool IsMouseOverDragArea()
         {
-            Point mousePos = MuGame.Instance.UiMouseState.Position;
+            Point mousePos = ToLayout(MuGame.Instance.UiMouseState.Position);
             return Translate(_headerRect).Contains(PointerForHitTest(mousePos));
         }
 
         private Point GetSlotAtScreenPosition(Point screenPos)
         {
-            return ItemGridRenderHelper.GetSlotAtScreenPosition(DisplayRectangle, _gridRect, Columns, Rows, INVENTORY_SQUARE_WIDTH, INVENTORY_SQUARE_HEIGHT, screenPos);
+            return ItemGridRenderHelper.GetSlotAtScreenPosition(LayoutRectangle, _gridRect, Columns, Rows, INVENTORY_SQUARE_WIDTH, INVENTORY_SQUARE_HEIGHT, screenPos);
         }
 
         private int GetEquipSlotAtScreenPosition(Point screenPos)

@@ -1020,8 +1020,10 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
             // Only refreshes of an animation count against the animated budget: an item that has no texture yet must
             // not wait behind items that already show one, or it stays blank while others keep animating.
-            bool animatedRefresh = requiresAnimation && entry != null;
-            if (!TryReserveRenderBudget(animatedRefresh))
+            // The smooth rotation is the hovered item (one at a time) and redraws every frame: it bypasses the budget,
+            // otherwise the material animations of the items drawn before it use the budget up and it stutters or stops.
+            bool animatedRefresh = requiresAnimation && entry != null && !smoothAnimation;
+            if (!smoothAnimation && !TryReserveRenderBudget(animatedRefresh))
             {
                 RenderPassProfiler.RecordPreviewBudgetSkip();
                 return entry?.Texture;
@@ -1052,7 +1054,8 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
                 if (!didRender)
                 {
-                    ReleaseRenderBudget(animatedRefresh);
+                    if (!smoothAnimation)
+                        ReleaseRenderBudget(animatedRefresh);
                     return entry?.Texture;
                 }
 

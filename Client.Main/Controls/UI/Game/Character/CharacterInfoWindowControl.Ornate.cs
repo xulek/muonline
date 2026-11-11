@@ -142,6 +142,16 @@ namespace Client.Main.Controls.UI.Game.Character
 
         private Rectangle OrnateAt(Rectangle local) => new(DisplayRectangle.X + local.X, DisplayRectangle.Y + local.Y, local.Width, local.Height);
 
+        /// <summary>A screen (virtual UI) position in layout units: the window is drawn at <see cref="GameControl.Scale"/>.</summary>
+        private Point OrnateToLayout(Point screen)
+        {
+            Point origin = DisplayRectangle.Location;
+            float scale = MathF.Max(Scale, 0.01f);
+            return new Point(
+                origin.X + (int)MathF.Floor((screen.X - origin.X) / scale),
+                origin.Y + (int)MathF.Floor((screen.Y - origin.Y) / scale));
+        }
+
         private Rectangle OrnateCloseRect => OrnateAt(new Rectangle(OrnateWidth - 42, 11, 26, 26));
 
         private void HandleOrnateInput()
@@ -151,7 +161,7 @@ namespace Client.Main.Controls.UI.Game.Character
             bool pressed = mouse.LeftButton == ButtonState.Pressed && previous.LeftButton == ButtonState.Released;
             bool released = mouse.LeftButton == ButtonState.Released && previous.LeftButton == ButtonState.Pressed;
 
-            Point hit = PointerForHitTest(mouse.Position); // only when no window lies on top of this one
+            Point hit = OrnateToLayout(PointerForHitTest(mouse.Position)); // only when no window lies on top of this one
             _closeHovered = OrnateCloseRect.Contains(hit);
             if (released && _closeHovered)
             {
@@ -178,8 +188,8 @@ namespace Client.Main.Controls.UI.Game.Character
                 else
                 {
                     Point screen = UiScaler.VirtualSize;
-                    X = Math.Clamp(mouse.X - _ornateDragOffset.X, 0, Math.Max(0, screen.X - ViewSize.X));
-                    Y = Math.Clamp(mouse.Y - _ornateDragOffset.Y, 36, Math.Max(36, screen.Y - ViewSize.Y));
+                    X = Math.Clamp(mouse.X - _ornateDragOffset.X, 0, Math.Max(0, screen.X - DisplaySize.X));
+                    Y = Math.Clamp(mouse.Y - _ornateDragOffset.Y, 36, Math.Max(36, screen.Y - DisplaySize.Y));
                     return;
                 }
             }
@@ -204,7 +214,7 @@ namespace Client.Main.Controls.UI.Game.Character
         private void DrawOrnate(SpriteBatch sb)
         {
             float alpha = Alpha;
-            Rectangle frame = DisplayRectangle;
+            Rectangle frame = new(DisplayRectangle.Location, ViewSize); // layout units (drawn scaled)
             OrnateDraw.Window(sb, frame, alpha);
 
             DrawOrnateHeader(sb, OrnateAt(new Rectangle(OrnatePad, HeaderTop, OrnateWidth - OrnatePad * 2, HeaderHeight)), alpha);

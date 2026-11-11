@@ -181,6 +181,9 @@ namespace Client.Main.Controls.UI.Game.Character
             ControlSize = new Point(WINDOW_WIDTH, WINDOW_HEIGHT);
             ViewSize = ControlSize;
             AutoViewSize = false;
+            // Drawn at this fraction of the layout: the Season 6 layout scales its own rects by Scale, the ornate
+            // one is drawn under UiScaler.PushLocalScale and hit-tests in layout units (OrnateToLayout).
+            Scale = 0.85f;
             Interactive = true;
             Visible = false;
 
@@ -771,7 +774,12 @@ namespace Client.Main.Controls.UI.Game.Character
             {
                 if (!IsSeason6)
                 {
-                    DrawOrnate(spriteBatch);
+                    using (UiScaler.PushLocalScale(DisplayRectangle.Location.ToVector2(), Scale))
+                    using (new SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.LinearClamp,
+                               transform: UiScaler.SpriteTransform))
+                    {
+                        DrawOrnate(spriteBatch);
+                    }
                     return;
                 }
 
@@ -914,10 +922,7 @@ namespace Client.Main.Controls.UI.Game.Character
         {
             if (IsSeason6 && IsUsableTexture(_s6Close))
             {
-                Rectangle closeRect = new(DisplayRectangle.X + CharacterLayout.CloseX,
-                    DisplayRectangle.Y + CharacterLayout.CloseY,
-                    CharacterLayout.CloseW, CharacterLayout.CloseH);
-                spriteBatch.Draw(_s6Close, closeRect, Color.White * Alpha);
+                spriteBatch.Draw(_s6Close, GetHeaderCloseRectangle(Scale), Color.White * Alpha);
                 return;
             }
 

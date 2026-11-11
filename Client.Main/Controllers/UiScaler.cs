@@ -66,12 +66,53 @@ namespace Client.Main.Controllers
         /// </summary>
         public static Matrix SpriteTransform
         {
-            get => NativeResolutionPass ? _nativeTransform : _sceneTransform;
+            get
+            {
+                Matrix transform = NativeResolutionPass ? _nativeTransform : _sceneTransform;
+                return _localScaleDepth > 0 ? _localTransform * transform : transform;
+            }
             private set => _sceneTransform = value;
         }
 
         private static Matrix _sceneTransform = Matrix.Identity;
         private static Matrix _nativeTransform = Matrix.Identity;
+        private static Matrix _localTransform = Matrix.Identity;
+        private static int _localScaleDepth;
+
+        /// <summary>
+        /// Draws a window smaller or larger than its layout: until the returned scope is disposed every UI batch
+        /// (each takes <see cref="SpriteTransform"/>) scales virtual positions by <paramref name="scale"/> around
+        /// <paramref name="origin"/>. The window lays itself out and hit-tests in unscaled units around the same origin.
+        /// </summary>
+        public static LocalScaleScope PushLocalScale(Vector2 origin, float scale)
+        {
+            Matrix previous = _localTransform;
+            int previousDepth = _localScaleDepth;
+            Matrix local = Matrix.CreateTranslation(-origin.X, -origin.Y, 0f) *
+                           Matrix.CreateScale(scale, scale, 1f) *
+                           Matrix.CreateTranslation(origin.X, origin.Y, 0f);
+            _localTransform = previousDepth > 0 ? local * previous : local;
+            _localScaleDepth = previousDepth + 1;
+            return new LocalScaleScope(previous, previousDepth);
+        }
+
+        public readonly struct LocalScaleScope : IDisposable
+        {
+            private readonly Matrix _previous;
+            private readonly int _previousDepth;
+
+            internal LocalScaleScope(Matrix previous, int previousDepth)
+            {
+                _previous = previous;
+                _previousDepth = previousDepth;
+            }
+
+            public void Dispose()
+            {
+                _localTransform = _previous;
+                _localScaleDepth = _previousDepth;
+            }
+        }
 
         /// <summary>True while the interface is drawn straight to the window (not into the render-scaled scene).</summary>
         public static bool NativeResolutionPass { get; set; }
