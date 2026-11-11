@@ -37,6 +37,7 @@ namespace Client.Main.Objects.Monsters
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
+            UpdateShatter(gameTime);
 
             // SourceMain5.2 MoveCharacterVisual MODEL_ICE_MONSTER: V-scroll on mesh 0.
             TextureCoordinateOffsetMeshIndex = BlendMesh;
@@ -76,16 +77,34 @@ namespace Client.Main.Objects.Monsters
             base.OnDeathAnimationStart();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mIceMonsterDie.wav", Position, listenerPosition);
-
-            if (World != null)
-            {
-                // SourceMain5.2 CreateBlood: o->Live = false + 10x MODEL_ICE_SMALL —
-                // the corpse is replaced immediately by ice shards.
-                var shatter = new Effects.IceShatterEffect(Position, Angle);
-                World.Objects.Add(shatter);
-                _ = shatter.Load();
-                Hidden = true;
-            }
         }
+
+        /// <summary>
+        /// SourceMain5.2 CreateBlood runs once the die animation has stopped (EtcStopAnimationSetting):
+        /// the corpse is then replaced immediately by ice shards (Live = false + 10x MODEL_ICE_SMALL).
+        /// </summary>
+        private void UpdateShatter(GameTime gameTime)
+        {
+            if (_shattered || !IsDead || CurrentAction != (int)MonsterActionType.Die || World == null)
+                return;
+
+            _dieSeconds += (float)gameTime.ElapsedGameTime.TotalSeconds;
+            int keys = Model?.Actions != null && Model.Actions.Length > (int)MonsterActionType.Die
+                ? Model.Actions[(int)MonsterActionType.Die]?.NumAnimationKeys ?? 0
+                : 0;
+            bool animationDone = keys > 1 && CurrentFrame >= keys - 2;
+            if (!animationDone && _dieSeconds < MaxDieSecondsBeforeShatter)
+                return;
+
+            _shattered = true;
+            var shatter = new Effects.IceShatterEffect(Position, Angle);
+            World.Objects.Add(shatter);
+            _ = shatter.Load();
+            Hidden = true;
+        }
+
+        private const float MaxDieSecondsBeforeShatter = 1.2f;
+        private bool _shattered;
+        private float _dieSeconds;
     }
 }

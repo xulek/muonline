@@ -123,6 +123,11 @@ namespace Client.Main.Objects.Monsters
 
         private static async Task LoadBodyPartAsync(ModelObject part, byte group, short id)
         {
+            // The group/index select the per-item material colours (Legendary set: blue glow, not the
+            // generic set glow).
+            part.MaterialItemGroup = group;
+            part.MaterialItemIndex = id;
+
             var item = ItemDatabase.GetItemDefinition(group, id);
             if (item == null || string.IsNullOrEmpty(item.TexturePath))
                 return;
@@ -133,6 +138,9 @@ namespace Client.Main.Objects.Monsters
 
         private static async Task LoadWeaponAsync(WeaponObject weapon, byte group, short id)
         {
+            weapon.MaterialItemGroup = group;
+            weapon.MaterialItemIndex = id;
+
             var item = ItemDatabase.GetItemDefinition(group, id);
             if (item == null || string.IsNullOrEmpty(item.TexturePath))
                 return;

@@ -53,7 +53,7 @@ namespace Client.Main.Objects.Effects
             if (Status != GameControlStatus.Ready)
                 return;
 
-            if (!_started && _owner.CurrentAction == (int)MonsterActionType.Die)
+            if (!_started && (_owner.IsDead || _owner.CurrentAction == (int)MonsterActionType.Die))
                 StartFragments();
 
             if (!_started)
@@ -69,11 +69,13 @@ namespace Client.Main.Objects.Effects
 
         private void StartFragments()
         {
+            // The original sets Live = false on the first death frame: the body vanishes at once.
+            _started = true;
+            _owner.HiddenMesh = -2;
+
             if (_firstModel == null || _secondModel == null)
                 return;
 
-            _started = true;
-            _owner.HiddenMesh = -2;
             _lifeFrames = LifetimeFrames;
 
             for (int i = 0; i < _fragments.Length; i++)

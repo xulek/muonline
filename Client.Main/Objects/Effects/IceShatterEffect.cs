@@ -6,24 +6,27 @@ using System.Threading.Tasks;
 namespace Client.Main.Objects.Effects
 {
     /// <summary>
-    /// SourceMain5.2 CreateBlood special case for MODEL_ICE_MONSTER:
-    /// monster despawns instantly and ten MODEL_ICE_SMALL (Skill/Ice02.bmd)
-    /// shards replace the corpse, spinning in place until they expire.
+    /// SourceMain5.2 CreateBlood special case for MODEL_ICE_MONSTER: the monster despawns and ten
+    /// MODEL_ICE_SMALL (Skill/Ice02.bmd) shards fly out of it. Per shard (ZzzEffect.cpp, SubType 0): random
+    /// heading, outward speed 6.4-32, upward speed 8-23, gravity 3/frame, direction damped by 0.9/frame,
+    /// bouncing on the terrain (gravity halved and reversed, life -4) while tumbling around X.
     /// </summary>
     public sealed class IceShatterEffect : EffectObject
     {
-        private const float LifetimeSeconds = 1.6f;
         private const int ShardCount = 10;
-        private const float SpawnJitterRadius = 12f;
+        private const float FramesPerSecond = 25f;
 
         private readonly IceShardPiece[] _shards = new IceShardPiece[ShardCount];
-        private float _life = LifetimeSeconds;
+        private Client.Data.BMD.BMD _iceModel;
+        private bool _built;
 
         public IceShatterEffect(Vector3 position, Vector3 angle)
         {
+            // Shards are children placed relative to this effect; keep it axis aligned.
             Position = position;
-            Angle = angle;
+            Angle = Vector3.Zero;
             IsTransparent = true;
+            BoundingBoxLocal = new BoundingBox(new Vector3(-400f, -400f, -100f), new Vector3(400f, 400f, 500f));
         }
 
         public override async Task Load()
@@ -32,56 +35,45 @@ namespace Client.Main.Objects.Effects
             if (Status != GameControlStatus.Ready)
                 return;
 
-            var iceModel = await BMDLoader.Instance.Prepare("Skill/Ice02.bmd");
-            if (iceModel == null)
+            _iceModel = await BMDLoader.Instance.Prepare("Skill/Ice02.bmd");
+            if (_iceModel == null)
                 return;
 
             for (int i = 0; i < _shards.Length; i++)
             {
-                var shard = new IceShardPiece(iceModel);
+                var shard = new IceShardPiece(_iceModel);
                 _shards[i] = shard;
                 Children.Add(shard);
                 await shard.Load();
-
-                // SourceMain5.2 spawns every shard at the monster origin with a one-shot
-                // +50 Z hop; jitter only separates the overlapping meshes for depth sorting.
-                double a = MuGame.Random.NextDouble() * MathHelper.TwoPi;
-                float r = (float)MuGame.Random.NextDouble() * SpawnJitterRadius;
-                shard.Position = new Vector3(
-                    Position.X + MathF.Cos((float)a) * r,
-                    Position.Y + MathF.Sin((float)a) * r,
-                    Position.Z + 50f);
-                shard.RotationSpeed = (0.7f + (float)MuGame.Random.NextDouble() * 0.6f) *
-                                      (MuGame.Random.Next(2) == 0 ? -1f : 1f);
+                shard.Launch();
             }
+            _built = true;
         }
 
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
-            if (Status != GameControlStatus.Ready)
+            if (Status != GameControlStatus.Ready || !_built)
                 return;
 
-            _life -= (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            // Fade shards out during the final third, then clean up (original effects
-            // simply expire after their frame budget).
-            float fadeStart = LifetimeSeconds * 0.66f;
-            float alpha = _life < fadeStart ? MathHelper.Max(_life / fadeStart, 0f) : 1f;
+            float frames = (float)gameTime.ElapsedGameTime.TotalSeconds * FramesPerSecond;
+            bool anyAlive = false;
 
             for (int i = 0; i < _shards.Length; i++)
             {
                 var shard = _shards[i];
                 if (shard == null)
                     continue;
-                shard.Angle = new Vector3(
-                    shard.Angle.X - shard.RotationSpeed,
-                    shard.Angle.Y,
-                    shard.Angle.Z);
-                shard.Alpha = alpha;
+
+                if (!shard.Step(frames, World?.Terrain, Position))
+                {
+                    shard.Hidden = true;
+                    continue;
+                }
+                anyAlive = true;
             }
 
-            if (_life <= 0f)
+            if (!anyAlive)
             {
                 World?.RemoveObject(this);
                 Dispose();
@@ -91,8 +83,10 @@ namespace Client.Main.Objects.Effects
         private sealed class IceShardPiece : ModelObject
         {
             private readonly Client.Data.BMD.BMD _model;
-
-            public float RotationSpeed { get; set; }
+            private Vector3 _direction;
+            private float _gravity;
+            private float _life;
+            private float _tumble;
 
             public IceShardPiece(Client.Data.BMD.BMD model)
             {
@@ -110,6 +104,50 @@ namespace Client.Main.Objects.Effects
             {
                 Model = _model;
                 await base.Load();
+            }
+
+            /// <summary>CreateEffect(MODEL_ICE_SMALL, ..., SubType 0) initial state.</summary>
+            public void Launch()
+            {
+                float yaw = (float)MuGame.Random.NextDouble() * MathHelper.TwoPi;
+                float speed = (MuGame.Random.Next(256) + 64) * 0.1f;
+                _direction = new Vector3(-MathF.Sin(yaw) * speed, MathF.Cos(yaw) * speed, 0f);
+                _gravity = MuGame.Random.Next(16) + 8;
+                _life = MuGame.Random.Next(16) + 32;
+                Scale = (MuGame.Random.Next(4) + 8) * 0.1f;
+                _tumble = 0f;
+                Angle = new Vector3(0f, 0f, yaw);
+                Position = new Vector3(0f, 0f, 50f);
+            }
+
+            /// <summary>One simulation step in 25 fps frames; returns false when the shard has expired.</summary>
+            public bool Step(float frames, Client.Main.Controls.TerrainControl terrain, Vector3 origin)
+            {
+                Vector3 pos = Position + _direction * frames;
+                _direction *= MathF.Pow(0.9f, frames);
+                pos.Z += _gravity * frames;
+                _gravity -= 3f * frames;
+
+                float height = terrain != null
+                    ? terrain.RequestTerrainHeight(origin.X + pos.X, origin.Y + pos.Y) - origin.Z
+                    : float.MinValue;
+                if (pos.Z < height)
+                {
+                    pos.Z = height;
+                    _gravity = -_gravity * 0.5f;
+                    _life -= 4f * frames;
+                    _tumble -= Scale * 128f * frames;
+                }
+                else
+                {
+                    _tumble -= Scale * 32f * frames;
+                }
+
+                Position = pos;
+                Angle = new Vector3(MathHelper.ToRadians(_tumble), 0f, Angle.Z);
+
+                _life -= frames;
+                return _life > 0f;
             }
         }
     }

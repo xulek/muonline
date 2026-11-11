@@ -1750,6 +1750,12 @@ namespace Client.Main.Objects
 
             WalkerObject walker;
             bool isMonster = this is MonsterObject;
+            if (isMonster && ((MonsterObject)this).RequiresPerObjectDraw)
+            {
+                reason = WalkerCrowdRejectionReason.TypeOrRenderer;
+                return false;
+            }
+
             if (isMonster)
                 walker = (MonsterObject)this;
             else if (this is NPCObject npc && UsesDefaultNpcCrowdRendering(npc))

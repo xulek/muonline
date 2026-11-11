@@ -73,10 +73,19 @@ namespace Client.Main.Objects.Monsters.BloodCastle
 
         public override void Draw(GameTime gameTime)
         {
-            if (CurrentAction != (int)MonsterActionType.Die)
-                DrawChromePass();
-
             base.Draw(gameTime);
+
+            // SourceMain5.2 ZzzObject.cpp (MODEL_STATUE_OF_SAINT): body, then RENDER_BRIGHT | RENDER_CHROME
+            // with light (1, 1, 1) and RENDER_BRIGHT | RENDER_METAL with light (0.3, 0.3, 1), both BITMAP_CHROME.
+            if (_chromeTexture == null || Model?.Meshes == null || IsDead ||
+                CurrentAction == (int)MonsterActionType.Die || HiddenMesh == -2)
+                return;
+
+            for (int meshIndex = 0; meshIndex < Model.Meshes.Length; meshIndex++)
+            {
+                DrawMeshItemOverlay(meshIndex, ItemOverlayMode.Chrome, Vector3.One, _chromeTexture);
+                DrawMeshItemOverlay(meshIndex, ItemOverlayMode.Metal, new Vector3(0.3f, 0.3f, 1f), _chromeTexture);
+            }
         }
 
         protected override void RecalculateWorldPosition()
@@ -88,38 +97,6 @@ namespace Client.Main.Objects.Monsters.BloodCastle
             Matrix worldPosition = WorldPosition;
             worldPosition.Translation += new Vector3(0f, 120f, 0f);
             WorldPosition = worldPosition;
-        }
-
-        private void DrawChromePass()
-        {
-            if (_chromeTexture == null || Model?.Meshes == null)
-                return;
-
-            BlendState previousBlendState = BlendState;
-            BlendState = Blendings.OneOneAdditive;
-            try
-            {
-                for (int meshIndex = 0; meshIndex < Model.Meshes.Length; meshIndex++)
-                {
-                    Texture2D originalTexture = GetMeshTexture(meshIndex);
-                    try
-                    {
-                        SetMeshTextureOverride(meshIndex, _chromeTexture);
-                        DrawMesh(meshIndex);
-                    }
-                    finally
-                    {
-                        if (originalTexture != null)
-                            SetMeshTextureOverride(meshIndex, originalTexture);
-                        else
-                            ClearMeshTextureOverride(meshIndex);
-                    }
-                }
-            }
-            finally
-            {
-                BlendState = previousBlendState;
-            }
         }
     }
 }

@@ -572,6 +572,20 @@ namespace Client.Main.Objects
 
         // --- SourceMain5.2 bright/chrome body pass (RenderPartObjectBodyColor approximation) ---
 
+        /// <summary>
+        /// SourceMain5.2 RenderCharacter golden-monster block (MONSTER_GOLDEN_BUDGE_DRAGON, 78..83, 493..502):
+        /// RENDER_METAL | RENDER_BRIGHT (BITMAP_SHINY = Shiny01) followed by RENDER_CHROME | RENDER_BRIGHT
+        /// (BITMAP_CHROME), both tinted gold.
+        /// </summary>
+        protected void ApplyGoldenOverlay()
+        {
+            BrightOverlay = 1f;
+            BrightOverlayTexturePath = "Effect/Shiny01.jpg";
+            BrightOverlayTint = new Vector3(1f, 0.5f, 0f);
+            BrightOverlayTexturePath2 = "Effect/Chrome01.jpg";
+            BrightOverlayTint2 = new Vector3(1f, 0.5f, 0f);
+        }
+
         private Texture2D _brightOverlayTexture;
 
         /// <summary>
@@ -580,6 +594,35 @@ namespace Client.Main.Objects
         /// body passes (RenderCharacter golden-monster block, White Wizard, etc.).
         /// </summary>
         public float BrightOverlay { get; set; } = 0f;
+
+        private static readonly Dictionary<Type, bool> DrawOverrideByType = new();
+
+        /// <summary>
+        /// The walker crowd instancing batch draws only the body meshes and skips <see cref="Draw"/>. Monsters with
+        /// extra passes there (the golden / chrome <see cref="BrightOverlay"/> passes, or a subclass overriding
+        /// Draw such as the Blood Castle statues) must be drawn one by one, otherwise the passes appear only when
+        /// instancing is off, e.g. during the death animation.
+        /// </summary>
+        internal bool RequiresPerObjectDraw
+        {
+            get
+            {
+                if (BrightOverlay > 0f)
+                    return true;
+
+                Type type = GetType();
+                lock (DrawOverrideByType)
+                {
+                    if (!DrawOverrideByType.TryGetValue(type, out bool overrides))
+                    {
+                        overrides = type.GetMethod(nameof(Draw), new[] { typeof(GameTime) })?.DeclaringType != typeof(MonsterObject);
+                        DrawOverrideByType[type] = overrides;
+                    }
+
+                    return overrides;
+                }
+            }
+        }
 
         /// <summary>
         /// Color tint applied during the BrightOverlay pass — SourceMain5.2

@@ -12,6 +12,13 @@ namespace Client.Main.Objects.NPCS
     {
         private readonly WeaponObject _weapon = new() { LinkParentAnimation = false, ParentBoneLink = 33 };
 
+        private static void ConfigureSetPart(ModelObject part, int group)
+        {
+            part.ItemLevel = 7;
+            part.MaterialItemGroup = group;
+            part.MaterialItemIndex = 9;
+        }
+
         public Marlon()
         {
             Children.Add(_weapon);
@@ -23,11 +30,12 @@ namespace Client.Main.Objects.NPCS
             await SetBodyPartsAsync("Player/", "HelmMale", "ArmorMale", "PantMale", "GloveMale", "BootMale", 10);
             
             // ZzzCharacter.cpp (MONSTER_MARLON): Plate set +7 and a +8 Berdysh.
-            Helm.ItemLevel = 7;
-            Armor.ItemLevel = 7;
-            Pants.ItemLevel = 7;
-            Gloves.ItemLevel = 7;
-            Boots.ItemLevel = 7;
+            // Plate set = item index 9; the group/index drive the per-item material colours.
+            ConfigureSetPart(Helm, 7);
+            ConfigureSetPart(Armor, 8);
+            ConfigureSetPart(Pants, 9);
+            ConfigureSetPart(Gloves, 10);
+            ConfigureSetPart(Boots, 11);
 
             var berdysh = ItemDatabase.GetItemDefinition(3, 7);
             if (berdysh != null)
