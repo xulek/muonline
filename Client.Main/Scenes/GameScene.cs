@@ -57,6 +57,7 @@ namespace Client.Main.Scenes
         private MapListControl _mapListControl;
         private ChatLogWindow _chatLog;
         private MoveCommandWindow _moveCommandWindow;
+        public MoveCommandWindow MoveCommandWindow => _moveCommandWindow;
         private ChatInputBoxControl _chatInput;
         private InventoryControl _inventoryControl;
         internal PlayerShopControl PlayerShop { get; private set; }

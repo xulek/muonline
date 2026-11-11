@@ -35,7 +35,7 @@ namespace Client.Main.Diagnostics
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, HeroWalk, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, Windows, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, HeroWalk, Done }
 
         // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
         private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
@@ -327,6 +327,11 @@ namespace Client.Main.Diagnostics
                             FillInventory(game);
                             Next(Phase.Inventory);
                         }
+                        else if (WindowsScene)
+                        {
+                            _windowsShot = 0;
+                            Next(Phase.Windows);
+                        }
                         else if (HeroWalkScene)
                         {
                             _walkStats = default;
@@ -394,6 +399,10 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Inventory:
                     UpdateInventoryShots(game, elapsed);
+                    break;
+
+                case Phase.Windows:
+                    UpdateWindowsShots(game, elapsed);
                     break;
 
                 case Phase.HeroWalk:
@@ -903,6 +912,64 @@ namespace Client.Main.Diagnostics
             }
             SelectShots[_selectShot].Setup?.Invoke(scene);
             PhaseClock.Restart();
+        }
+
+        // MU_STRESS_WINDOWS=1: opens the warp list (plain and with a hovered row), then the vault with sample items.
+        private static readonly bool WindowsScene = Environment.GetEnvironmentVariable("MU_STRESS_WINDOWS") == "1";
+        private static int _windowsShot;
+
+        private static void UpdateWindowsShots(MuGame game, double elapsed)
+        {
+            const double first = 4, step = 1.5;
+            if (elapsed < first + _windowsShot * step)
+                return;
+
+            if (game.ActiveScene is not GameScene scene || scene.MoveCommandWindow is not { } warp)
+            {
+                Finish(game, "no warp window");
+                return;
+            }
+
+            string[] names = { "warp", "warp_hover", "vault" };
+            if (_windowsShot > 0)
+                SaveScreenshot(game, $"{_label}_{names[_windowsShot - 1]}");
+            if (_windowsShot == names.Length)
+            {
+                Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = null;
+                Finish(game, null);
+                return;
+            }
+
+            switch (_windowsShot)
+            {
+                case 0:
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(1200, 700);
+                    MuGame.Network.GetCharacterState().InventoryZen = 4_000; // some maps affordable, others not
+                    if (!warp.Visible)
+                        warp.ToggleVisibility();
+                    break;
+                case 1:
+                    Rectangle w = warp.DisplayRectangle;
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = new Point(w.X + 80, w.Y + 82 + 24 * 2 + 12);
+                    break;
+                case 2:
+                    if (warp.Visible)
+                        warp.ToggleVisibility();
+                    Controls.UI.Ornate.OrnatePointer.DiagnosticPosition = null;
+                    var state = MuGame.Network.GetCharacterState();
+                    state.ClearVaultItems();
+                    state.AddOrUpdateVaultItem(0, SampleItem(0, 13, 9));
+                    state.AddOrUpdateVaultItem(2, ExcellentItem(7, 1, 11));
+                    state.AddOrUpdateVaultItem(4, SampleItem(14, 13));
+                    state.AddOrUpdateVaultItem(5, SampleItem(14, 14));
+                    state.AddOrUpdateVaultItem(17, SampleItem(12, 5));
+                    state.AddOrUpdateVaultItem(40, SampleItem(6, 6, 7));
+                    Controls.UI.Game.VaultControl.Instance.SetVaultZen(123_456_789);
+                    state.RaiseVaultItemsChanged();
+                    break;
+            }
+
+            _windowsShot++;
         }
 
         // MU_STRESS_PAUSE=1: opens the pause menu and every settings category, one screenshot each.

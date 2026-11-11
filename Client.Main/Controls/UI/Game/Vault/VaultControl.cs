@@ -12,6 +12,7 @@ using Client.Main.Controls.UI.Common;
 using Client.Main.Controls.UI.Game.Common;
 using Client.Main.Controls.UI.Game.Hud;
 using Client.Main.Controls.UI.Game.Inventory;
+using Client.Main.Controls.UI.Ornate;
 using Client.Main.Networking;
 using Client.Main.Models;
 using Client.Main.Helpers;
@@ -37,11 +38,20 @@ namespace Client.Main.Controls.UI.Game
         private const int VAULT_SQUARE_WIDTH = 32;
         private const int VAULT_SQUARE_HEIGHT = 32;
 
-        private static int HEADER_HEIGHT => IsSeason6 ? VaultLayout.DragBarH : 46;
+        private static int HEADER_HEIGHT => IsSeason6 ? VaultLayout.DragBarH : 58;
         private const int SECTION_HEADER_HEIGHT = 22;
         private const int GRID_PADDING = 10;
         private const int FOOTER_HEIGHT = 50;
         private const int WINDOW_MARGIN = 12;
+
+        // Modern: drawn at this fraction of its layout (like the inventory); layout and hit tests stay in layout
+        // units around the window's top-left (LayoutRectangle, ToLayout), UiScaler.PushLocalScale shrinks the drawing.
+        private const float ModernWindowScale = 0.85f;
+
+        // Modern (ornate) footer: Zen field over the deposit/withdraw buttons.
+        private const int ORNATE_ZEN_HEIGHT = 30;
+        private const int ORNATE_BUTTON_HEIGHT = 32;
+        private const int ORNATE_FOOTER_GAP = 18;
 
         private static int GRID_WIDTH => Columns * VAULT_SQUARE_WIDTH;
         private static int GRID_HEIGHT => VisibleRows * VAULT_SQUARE_HEIGHT;
@@ -50,7 +60,7 @@ namespace Client.Main.Controls.UI.Game
             : GRID_WIDTH + GRID_PADDING * 2 + WINDOW_MARGIN * 2;
         private static int WINDOW_HEIGHT => IsSeason6
             ? VaultLayout.PanelH
-            : HEADER_HEIGHT + SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT + FOOTER_HEIGHT + WINDOW_MARGIN;
+            : HEADER_HEIGHT + GRID_PADDING + GRID_HEIGHT + ORNATE_FOOTER_GAP + ORNATE_ZEN_HEIGHT + 10 + ORNATE_BUTTON_HEIGHT + 22;
 
         // ═══════════════════════════════════════════════════════════════
         // MODERN DARK THEME
@@ -183,6 +193,7 @@ namespace Client.Main.Controls.UI.Game
 
             BuildLayoutMetrics();
 
+            Scale = IsSeason6 ? 1f : ModernWindowScale;
             ControlSize = new Point(WINDOW_WIDTH, WINDOW_HEIGHT);
             ViewSize = ControlSize;
             AutoViewSize = false;
@@ -251,31 +262,19 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
+            // Modern: title plaque, the slot grid in an ornate well, Zen field, deposit/withdraw buttons.
             _headerRect = new Rectangle(0, 0, WINDOW_WIDTH, HEADER_HEIGHT);
+            _gridRect = new Rectangle((WINDOW_WIDTH - GRID_WIDTH) / 2, HEADER_HEIGHT + GRID_PADDING, GRID_WIDTH, GRID_HEIGHT);
+            _gridFrameRect = new Rectangle(_gridRect.X - 8, _gridRect.Y - 8, _gridRect.Width + 16, _gridRect.Height + 16);
 
-            int gridFrameX = WINDOW_MARGIN;
-            int gridFrameY = HEADER_HEIGHT;
-            int gridFrameWidth = GRID_WIDTH + GRID_PADDING * 2;
-            int gridFrameHeight = SECTION_HEADER_HEIGHT + GRID_PADDING * 2 + GRID_HEIGHT;
-            _gridFrameRect = new Rectangle(gridFrameX, gridFrameY, gridFrameWidth, gridFrameHeight);
-
-            _gridRect = new Rectangle(
-                gridFrameX + GRID_PADDING,
-                gridFrameY + SECTION_HEADER_HEIGHT + GRID_PADDING,
-                GRID_WIDTH,
-                GRID_HEIGHT);
-
-            _footerRect = new Rectangle(WINDOW_MARGIN, _gridFrameRect.Bottom + 4, _gridFrameRect.Width, FOOTER_HEIGHT - 8);
-
-            const int buttonWidth = 44;
-            const int buttonGap = 6;
-            const int fieldHeight = 28;
-            int fieldX = _footerRect.X + 36;
-            int fieldWidth = _footerRect.Width - (fieldX - _footerRect.X) - (buttonWidth * 2 + buttonGap * 2);
-            _zenFieldRect = new Rectangle(fieldX, _footerRect.Y + 8, fieldWidth, fieldHeight);
-            _depositButtonRect = new Rectangle(_zenFieldRect.Right + buttonGap, _zenFieldRect.Y, buttonWidth, fieldHeight);
-            _withdrawButtonRect = new Rectangle(_depositButtonRect.Right + buttonGap, _zenFieldRect.Y, buttonWidth, fieldHeight);
-            _closeButtonRect = new Rectangle(WINDOW_WIDTH - 30, 10, 20, 20);
+            int footerY = _gridRect.Bottom + ORNATE_FOOTER_GAP;
+            _footerRect = new Rectangle(_gridRect.X, footerY, GRID_WIDTH, ORNATE_ZEN_HEIGHT + 10 + ORNATE_BUTTON_HEIGHT);
+            _zenFieldRect = new Rectangle(_gridRect.X, footerY, GRID_WIDTH, ORNATE_ZEN_HEIGHT);
+            int buttonWidth = (GRID_WIDTH - 8) / 2;
+            int buttonY = _zenFieldRect.Bottom + 10;
+            _depositButtonRect = new Rectangle(_gridRect.X, buttonY, buttonWidth, ORNATE_BUTTON_HEIGHT);
+            _withdrawButtonRect = new Rectangle(_gridRect.Right - buttonWidth, buttonY, buttonWidth, ORNATE_BUTTON_HEIGHT);
+            _closeButtonRect = new Rectangle(WINDOW_WIDTH - 46, 12, 32, 32);
             _pagePreviousRect = Rectangle.Empty;
             _pageNextRect = Rectangle.Empty;
         }
@@ -338,7 +337,10 @@ namespace Client.Main.Controls.UI.Game
                     // Do warmup this frame, show next frame
                     WarmupTexturesSync();
                     InvalidateStaticSurface();
-                    EnsureStaticSurface();
+                    if (IsSeason6)
+                        EnsureStaticSurface();
+                    else
+                        _ = OrnateAssets.PreloadAsync(OrnateItemUi.PreloadPaths);
                     _warmupComplete = true;
                 }
             }
@@ -434,6 +436,7 @@ namespace Client.Main.Controls.UI.Game
 
         private bool IsMouseOverDragArea(Point mousePos)
         {
+            mousePos = ToLayout(mousePos);
             Rectangle headerScreen = Translate(_headerRect);
             Rectangle closeScreen = Translate(_closeButtonRect);
             return headerScreen.Contains(mousePos) && !closeScreen.Contains(mousePos);
@@ -441,6 +444,7 @@ namespace Client.Main.Controls.UI.Game
 
         private void UpdateChromeHover(Point mousePos)
         {
+            mousePos = ToLayout(mousePos);
             var closeRect = Translate(_closeButtonRect);
             _closeHovered = closeRect.Contains(mousePos);
 
@@ -458,21 +462,25 @@ namespace Client.Main.Controls.UI.Game
         {
             if (!Visible) return;
 
-            EnsureStaticSurface();
+            // Modern draws the ornate frame live (its ornaments reach past the window edge); Classic caches it.
+            if (IsSeason6)
+                EnsureStaticSurface();
 
             var gm = GraphicsManager.Instance;
             var spriteBatch = gm?.Sprite;
             if (spriteBatch == null) return;
 
-            SpriteBatchScope? scope = null;
-            if (!SpriteBatchScope.BatchIsBegun)
-            {
-                scope = new SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.LinearClamp, transform: UiScaler.SpriteTransform);
-            }
+            using var localScale = UiScaler.PushLocalScale(DisplayRectangle.Location.ToVector2(), Scale);
+            SpriteBatchScope? scope = new SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, BlendState.AlphaBlend,
+                SamplerState.LinearClamp, transform: UiScaler.SpriteTransform);
 
             try
             {
-                if (_staticSurface != null && !_staticSurface.IsDisposed)
+                if (!IsSeason6)
+                {
+                    DrawOrnateFrame(spriteBatch);
+                }
+                else if (_staticSurface != null && !_staticSurface.IsDisposed)
                 {
                     spriteBatch.Draw(_staticSurface, DisplayRectangle, Color.White * Alpha);
                 }
@@ -575,7 +583,7 @@ namespace Client.Main.Controls.UI.Game
 
         public Point GetSlotAtScreenPosition(Point screenPos)
         {
-            return ItemGridRenderHelper.GetSlotAtScreenPosition(DisplayRectangle, _gridRect, Columns, VisibleRows, VAULT_SQUARE_WIDTH, VAULT_SQUARE_HEIGHT, screenPos);
+            return ItemGridRenderHelper.GetSlotAtScreenPosition(LayoutRectangle, _gridRect, Columns, VisibleRows, VAULT_SQUARE_WIDTH, VAULT_SQUARE_HEIGHT, ToLayout(screenPos));
         }
 
         public bool CanPlaceAt(Point gridSlot, InventoryItem item)
@@ -698,6 +706,7 @@ namespace Client.Main.Controls.UI.Game
             RebuildVisibleVaultGrid();
             ControlSize = new Point(WINDOW_WIDTH, WINDOW_HEIGHT);
             ViewSize = ControlSize;
+            Scale = IsSeason6 ? 1f : ModernWindowScale;
             if (Visible)
                 ForceAlignNow();
             if (IsSeason6)
@@ -984,13 +993,37 @@ namespace Client.Main.Controls.UI.Game
         // DYNAMIC DRAWING
         // ═══════════════════════════════════════════════════════════════
 
+        /// <summary>Window, title plaque, slot grid and divider of the Modern theme (screen coordinates).</summary>
+        private void DrawOrnateFrame(SpriteBatch spriteBatch)
+        {
+            float alpha = Alpha;
+            Rectangle frame = LayoutRectangle;
+            Rectangle grid = Translate(_gridRect);
+            OrnateDraw.Window(spriteBatch, frame, alpha);
+            OrnateItemUi.Grid(spriteBatch, grid, Columns, VisibleRows, VAULT_SQUARE_WIDTH, alpha);
+            OrnateDraw.Divider(spriteBatch, new Rectangle(frame.X + 40, grid.Bottom + 4, frame.Width - 80, 14), alpha);
+            OrnateDraw.TitlePlaque(spriteBatch, "Vault", frame.Center.X, frame.Y + 2, 40, alpha);
+        }
+
+        /// <summary>Rim colour of an item's backing plate by rarity (as in the inventory); null for plain items.</summary>
+        private static Color? OrnateRarity(InventoryItem item) =>
+            item.Details.IsExcellent ? new Color(110, 230, 110) :
+            item.Details.IsAncient ? new Color(90, 190, 255) :
+            item.Details.Level >= 7 ? OrnateStyle.Gold :
+            null;
+
         private void DrawCloseButton(SpriteBatch spriteBatch)
         {
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null) return;
 
             var rect = Translate(_closeButtonRect);
-            if (IsSeason6 && IsUsableTexture(_s6Close))
+            if (!IsSeason6)
+            {
+                OrnateWidgets.CloseButton(spriteBatch, rect, _closeHovered, Alpha);
+                return;
+            }
+            if (IsUsableTexture(_s6Close))
             {
                 spriteBatch.Draw(_s6Close, rect, Color.White);
                 return;
@@ -1017,6 +1050,26 @@ namespace Client.Main.Controls.UI.Game
             var zenRect = Translate(_zenFieldRect);
             var pixel = GraphicsManager.Instance.Pixel;
 
+            if (!IsSeason6)
+            {
+                if (!_isZenInputActive)
+                {
+                    OrnateItemUi.ZenField(spriteBatch, zenRect, _vaultZen, Alpha, "Vault");
+                    return;
+                }
+
+                // Typing an amount: focused field with the direction as caption.
+                OrnateWidgets.InputFrame(spriteBatch, zenRect, true, false, Alpha);
+                int coin = zenRect.Height - 6;
+                OrnateItemUi.Glyph(spriteBatch, "zen", new Rectangle(zenRect.X + 4, zenRect.Center.Y - coin / 2, coin, coin), Color.White, Alpha);
+                var area = new Rectangle(zenRect.X + coin + 10, zenRect.Y, zenRect.Width - coin - 20, zenRect.Height);
+                bool deposit = _zenMoveDirection == VaultMoveMoneyRequest.VaultMoneyMoveDirection.InventoryToVault;
+                OrnateDraw.TextLeft(spriteBatch, deposit ? "Deposit" : "Withdraw", area, 12f, OrnateStyle.TextMuted, Alpha);
+                string amount = (_zenInputText.Length == 0 ? "0" : _zenInputText) + (_zenInputShowCursor ? "|" : " ");
+                OrnateDraw.TextRight(spriteBatch, amount, area, 14f, OrnateStyle.Gold, Alpha, bold: true);
+                return;
+            }
+
             if (_isZenInputActive && pixel != null)
             {
                 var borderColor = Theme.AccentBright * 0.9f;
@@ -1041,6 +1094,17 @@ namespace Client.Main.Controls.UI.Game
         {
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null || _font == null) return;
+
+            if (!IsSeason6)
+            {
+                bool depositOn = _isZenInputActive && _zenMoveDirection == VaultMoveMoneyRequest.VaultMoneyMoveDirection.InventoryToVault;
+                bool withdrawOn = _isZenInputActive && _zenMoveDirection == VaultMoveMoneyRequest.VaultMoneyMoveDirection.VaultToInventory;
+                OrnateItemUi.ActionButton(spriteBatch, Translate(_depositButtonRect), "zen", "Deposit",
+                    new WidgetState(Hover: _depositHovered, Selected: depositOn), Alpha, fitLabel: "Withdraw");
+                OrnateItemUi.ActionButton(spriteBatch, Translate(_withdrawButtonRect), "zen", "Withdraw",
+                    new WidgetState(Hover: _withdrawHovered, Selected: withdrawOn), Alpha, fitLabel: "Withdraw");
+                return;
+            }
 
             DrawZenButton(spriteBatch, _depositButtonRect, "IN", _depositHovered, VaultMoveMoneyRequest.VaultMoneyMoveDirection.InventoryToVault);
             DrawZenButton(spriteBatch, _withdrawButtonRect, "OUT", _withdrawHovered, VaultMoveMoneyRequest.VaultMoneyMoveDirection.VaultToInventory);
@@ -1080,7 +1144,7 @@ namespace Client.Main.Controls.UI.Game
             var pixel = GraphicsManager.Instance.Pixel;
             if (pixel == null) return;
 
-            Point gridOrigin = new(DisplayRectangle.X + _gridRect.X, DisplayRectangle.Y + _gridRect.Y);
+            Point gridOrigin = new(LayoutRectangle.X + _gridRect.X, LayoutRectangle.Y + _gridRect.Y);
             var activeDragged = _draggedItem ?? InventoryControl.Instance?.GetDraggedItem();
 
             // Drag preview highlight
@@ -1107,7 +1171,7 @@ namespace Client.Main.Controls.UI.Game
             // Hovered slot highlight (when not dragging item)
             if (activeDragged == null)
             {
-                ItemGridRenderHelper.DrawGridOverlays(spriteBatch, pixel, DisplayRectangle, _gridRect, _hoveredItem, _hoveredSlot,
+                ItemGridRenderHelper.DrawGridOverlays(spriteBatch, pixel, LayoutRectangle, _gridRect, _hoveredItem, _hoveredSlot,
                                  VAULT_SQUARE_WIDTH, VAULT_SQUARE_HEIGHT, Theme.SlotHover, Theme.Secondary, Alpha);
             }
         }
@@ -1115,7 +1179,7 @@ namespace Client.Main.Controls.UI.Game
         private void DrawVaultItems(SpriteBatch spriteBatch)
         {
             var font = _font ?? GraphicsManager.Instance.Font;
-            Point gridOrigin = new(DisplayRectangle.X + _gridRect.X, DisplayRectangle.Y + _gridRect.Y);
+            Point gridOrigin = new(LayoutRectangle.X + _gridRect.X, LayoutRectangle.Y + _gridRect.Y);
             var pixel = GraphicsManager.Instance.Pixel;
             _jewelEntries.Clear();
 
@@ -1136,9 +1200,17 @@ namespace Client.Main.Controls.UI.Game
                 bool isHovered = item == _hoveredItem;
                 Texture2D texture = ResolveItemTexture(item, rect.Width, rect.Height, isHovered, allowGenerate: true);
 
+                if (!IsSeason6)
+                {
+                    // Modern: the inventory's backing plate (rarity rim), gold outline while hovered.
+                    OrnateItemUi.ItemBacking(spriteBatch, rect, OrnateRarity(item), Alpha);
+                    if (isHovered)
+                        OrnateItemUi.CellHighlight(spriteBatch, rect, OrnateStyle.Gold, Alpha);
+                }
+
                 // Glow similar to inventory
-                Color glowColor = ItemUiHelper.GetItemGlowColor(item, GlowPalette);
-                if (glowColor.A > 0 || isHovered)
+                Color glowColor = IsSeason6 ? ItemUiHelper.GetItemGlowColor(item, GlowPalette) : Color.Transparent;
+                if (IsSeason6 && (glowColor.A > 0 || isHovered))
                 {
                     Color finalGlow = isHovered ? Color.Lerp(glowColor, Theme.Accent, 0.4f) : glowColor;
                     finalGlow.A = (byte)Math.Min(255, finalGlow.A + (isHovered ? 40 : 0));
@@ -1146,7 +1218,7 @@ namespace Client.Main.Controls.UI.Game
                 }
 
                 // Cell background
-                if (pixel != null)
+                if (IsSeason6 && pixel != null)
                 {
                     var bgRect = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2);
                     spriteBatch.Draw(pixel, bgRect, isHovered ? Theme.SlotHover : Theme.SlotBg);
@@ -1193,10 +1265,22 @@ namespace Client.Main.Controls.UI.Game
             if (_hoveredItem == null || _font == null) return;
 
             var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem);
-            const float scale = 0.44f;
-            const int lineSpacing = 4;
-            const int paddingX = 14;
-            const int paddingY = 12;
+            if (!IsSeason6)
+            {
+                var hovered = ToScreen(new Rectangle(
+                    LayoutRectangle.X + _gridRect.X + _hoveredItem.GridPosition.X * VAULT_SQUARE_WIDTH,
+                    LayoutRectangle.Y + _gridRect.Y + _hoveredItem.GridPosition.Y * VAULT_SQUARE_HEIGHT,
+                    _hoveredItem.Definition.Width * VAULT_SQUARE_WIDTH,
+                    _hoveredItem.Definition.Height * VAULT_SQUARE_HEIGHT));
+                OrnateItemUi.Tooltip(spriteBatch, lines, OrnateRarity(_hoveredItem) ?? OrnateStyle.TextLight, hovered,
+                    MuGame.Instance.UiMouseState.Position);
+                return;
+            }
+
+            const float scale = 0.37f;
+            const int lineSpacing = 3;
+            const int paddingX = 10;
+            const int paddingY = 9;
 
             int maxWidth = 0;
             int totalHeight = 0;
@@ -1308,14 +1392,14 @@ namespace Client.Main.Controls.UI.Game
 
             if (IsSeason6 && _draggedItem == null)
             {
-                if (Translate(_pagePreviousRect).Contains(mousePos))
+                if (Translate(_pagePreviousRect).Contains(ToLayout(mousePos)))
                 {
                     SetSeason6Page(_season6Page - 1);
                     Scene?.SetMouseInputConsumed();
                     return;
                 }
 
-                if (Translate(_pageNextRect).Contains(mousePos))
+                if (Translate(_pageNextRect).Contains(ToLayout(mousePos)))
                 {
                     SetSeason6Page(_season6Page + 1);
                     Scene?.SetMouseInputConsumed();
@@ -1340,8 +1424,8 @@ namespace Client.Main.Controls.UI.Game
         private void UpdateHoverState()
         {
             var mouse = MuGame.Instance.UiMouseState.Position;
-            _pagePreviousHovered = IsSeason6 && Translate(_pagePreviousRect).Contains(mouse);
-            _pageNextHovered = IsSeason6 && Translate(_pageNextRect).Contains(mouse);
+            _pagePreviousHovered = IsSeason6 && Translate(_pagePreviousRect).Contains(ToLayout(mouse));
+            _pageNextHovered = IsSeason6 && Translate(_pageNextRect).Contains(ToLayout(mouse));
             var externalDragged = InventoryControl.Instance?.GetDraggedItem();
 
             if (_draggedItem != null)
@@ -1565,13 +1649,38 @@ namespace Client.Main.Controls.UI.Game
         // ═══════════════════════════════════════════════════════════════
 
         private Rectangle Translate(Rectangle rect)
-            => new(DisplayRectangle.X + rect.X, DisplayRectangle.Y + rect.Y, rect.Width, rect.Height);
+            => new(LayoutRectangle.X + rect.X, LayoutRectangle.Y + rect.Y, rect.Width, rect.Height);
+
+        /// <summary>The window in layout units (it is drawn at <see cref="GameControl.Scale"/>).</summary>
+        private Rectangle LayoutRectangle => new(DisplayRectangle.Location, ViewSize);
+
+        /// <summary>A screen (virtual UI) position in the window's layout units.</summary>
+        private Point ToLayout(Point screen)
+        {
+            Point origin = DisplayRectangle.Location;
+            float scale = MathF.Max(Scale, 0.01f);
+            return new Point(
+                origin.X + (int)MathF.Floor((screen.X - origin.X) / scale),
+                origin.Y + (int)MathF.Floor((screen.Y - origin.Y) / scale));
+        }
+
+        /// <summary>A rectangle in layout units on screen.</summary>
+        private Rectangle ToScreen(Rectangle layout)
+        {
+            Point origin = DisplayRectangle.Location;
+            return new Rectangle(
+                origin.X + (int)MathF.Round((layout.X - origin.X) * Scale),
+                origin.Y + (int)MathF.Round((layout.Y - origin.Y) * Scale),
+                (int)MathF.Round(layout.Width * Scale),
+                (int)MathF.Round(layout.Height * Scale));
+        }
 
         private InventoryItem GetItemAt(Point mousePos)
         {
-            if (!DisplayRectangle.Contains(mousePos)) return null;
+            mousePos = ToLayout(mousePos);
+            if (!LayoutRectangle.Contains(mousePos)) return null;
 
-            Point gridOrigin = new(DisplayRectangle.X + _gridRect.X, DisplayRectangle.Y + _gridRect.Y);
+            Point gridOrigin = new(LayoutRectangle.X + _gridRect.X, LayoutRectangle.Y + _gridRect.Y);
 
             foreach (var item in _items)
             {

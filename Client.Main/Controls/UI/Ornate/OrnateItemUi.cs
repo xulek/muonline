@@ -122,7 +122,9 @@ namespace Client.Main.Controls.UI.Ornate
         /// Button with a glyph and a label on the standard plate. <see cref="WidgetState.Selected"/> lights the plate
         /// red-gold: a mode that is on (repair mode, an open shop).
         /// </summary>
-        public static void ActionButton(SpriteBatch sb, Rectangle rect, string glyph, string label, WidgetState state, float alpha)
+        /// <param name="fitLabel">Label the text size is fitted to (the longest of a button row), so a row shares one size.</param>
+        public static void ActionButton(SpriteBatch sb, Rectangle rect, string glyph, string label, WidgetState state, float alpha,
+            string fitLabel = null)
         {
             if (state.Pressed)
                 rect.Y += 1;
@@ -140,7 +142,7 @@ namespace Client.Main.Controls.UI.Ornate
             int icon = rect.Height + 2;
             var iconRect = new Rectangle(rect.X + 3, rect.Center.Y - icon / 2 - 1, icon, icon);
             var textArea = new Rectangle(iconRect.Right + 1, rect.Y, Math.Max(0, inner.Right - iconRect.Right - 1), rect.Height);
-            float size = OrnateDraw.FitSize(label, 14f, textArea.Width, 10f);
+            float size = OrnateDraw.FitSize(fitLabel ?? label, 14f, textArea.Width, 10f);
 
             Glyph(sb, glyph, iconRect, Color.White, a);
             Color text = state.Disabled ? OrnateStyle.TextDisabled : hover || state.Selected ? Color.White : OrnateStyle.Gold;
@@ -235,8 +237,8 @@ namespace Client.Main.Controls.UI.Ornate
             if (lines == null || lines.Count == 0)
                 return;
 
-            const float size = 13f;
-            const int spacing = 3, padX = 14, padY = 10;
+            const float size = 11f;
+            const int spacing = 2, padX = 10, padY = 7;
             int width = 0, height = 0;
             foreach (var (text, _) in lines)
             {

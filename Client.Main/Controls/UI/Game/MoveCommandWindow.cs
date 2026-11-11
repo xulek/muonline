@@ -1,4 +1,8 @@
+using Client.Main.Controllers;
 using Client.Main.Controls.UI.Common;
+using Client.Main.Controls.UI.Ornate;
+using Client.Main.Helpers;
+using Microsoft.Xna.Framework.Graphics;
 using Client.Main.Data;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
@@ -38,6 +42,23 @@ namespace Client.Main.Controls.UI.Game
         private const int COL_MAP_NAME_X = 0;
         private const int COL_LEVEL_X = 105;
         private const int COL_ZEN_X = 145;
+
+        // Modern theme: ornate window drawn immediate-mode (no child controls), layout relative to the window.
+        private const int ORNATE_WIDTH = 360;
+        private const int ORNATE_HEIGHT = 480;
+        private const int ORNATE_PAD = 20;
+        private const int ORNATE_HEADER_Y = 58;
+        private const int ORNATE_LIST_Y = 82;
+        private const int ORNATE_ROW_HEIGHT = 24;
+        private const int ORNATE_FOOTER_HEIGHT = 30;
+        private const int ORNATE_SCROLL_WIDTH = 6;
+        private const int ORNATE_LEVEL_COLUMN = 64;
+        private const int ORNATE_ZEN_COLUMN = 84;
+
+        private static bool IsModern => UiThemeManager.CurrentId == UiThemeId.Modern;
+        private bool? _appliedModern;
+        private bool _ornateCloseHovered;
+        private int _ornateHoveredRow = -1;
 
 
         private LabelControl _titleLabel;
@@ -139,7 +160,31 @@ namespace Client.Main.Controls.UI.Game
             Controls.Add(_closeButton);
 
             await base.Load();
+            ApplyTheme();
             LoadMapData();
+            _ = OrnateAssets.PreloadAsync(OrnateItemUi.PreloadPaths);
+        }
+
+        /// <summary>Modern: ornate window without the child controls; Classic: the original labels and scrollbar.</summary>
+        private void ApplyTheme()
+        {
+            bool modern = IsModern;
+            if (_appliedModern == modern)
+                return;
+
+            _appliedModern = modern;
+            ControlSize = modern ? new Point(ORNATE_WIDTH, ORNATE_HEIGHT) : new Point(WINDOW_TARGET_WIDTH, WINDOW_TARGET_HEIGHT);
+            ViewSize = ControlSize;
+            Y = modern ? 80 : WINDOW_Y_OFFSET_FROM_TOP; // below the location box, room for the title plaque
+            BackgroundColor = modern ? Color.Transparent : new Color(15, 15, 25, 220);
+            if (_titleLabel != null) _titleLabel.Visible = !modern;
+            if (_closeButton != null) _closeButton.Visible = !modern;
+            if (modern && _scrollBar != null) _scrollBar.Visible = false;
+            _maxVisibleItems = modern
+                ? Math.Max(1, (ORNATE_HEIGHT - ORNATE_LIST_Y - ORNATE_FOOTER_HEIGHT - 34) / ORNATE_ROW_HEIGHT)
+                : Math.Max(1, (WINDOW_TARGET_HEIGHT - (PADDING_TITLE_TOP + (TITLE_AREA_HEIGHT - PADDING_TITLE_TOP) + PADDING_LIST_TOP_FROM_TITLE)
+                    - CLOSE_BUTTON_AREA_HEIGHT - PADDING_BOTTOM) / ITEM_HEIGHT);
+            _currentScrollOffset = 0;
         }
 
         private void LoadMapData()
@@ -203,6 +248,8 @@ namespace Client.Main.Controls.UI.Game
         {
             // _logger.LogDebug($"Refreshing map list UI. ScrollOffset: {_currentScrollOffset}, MaxVisible: {_maxVisibleItems}, DisplayableMaps: {_currentlyDisplayableMaps.Count}");
             ClearMapListUI();
+            if (IsModern)
+                return;
 
             int listAreaY = PADDING_TOP_CONTENT;
             int mapContentWidth = ControlSize.X - PADDING_LEFT - PADDING_RIGHT - (_scrollBar.Visible ? SCROLLBAR_THUMB_WIDTH + PADDING_SCROLLBAR_RIGHT : 0);
@@ -302,6 +349,12 @@ namespace Client.Main.Controls.UI.Game
         private void UpdateScrollbarState()
         {
             bool needsScrollbar = _currentlyDisplayableMaps.Count > _maxVisibleItems;
+            if (IsModern)
+            {
+                _scrollBar.Visible = false;
+                _currentScrollOffset = Math.Clamp(_currentScrollOffset, 0, Math.Max(0, _currentlyDisplayableMaps.Count - _maxVisibleItems));
+                return;
+            }
 
             if (_scrollBar.Visible != needsScrollbar)
             {
@@ -334,6 +387,7 @@ namespace Client.Main.Controls.UI.Game
             if (Visible)
             {
                 _logger.LogDebug("MoveCommandWindow toggled ON. Refreshing map data.");
+                ApplyTheme();
                 _currentScrollOffset = 0;
                 if (_scrollBar != null) _scrollBar.Value = 0;
                 LoadMapData();
@@ -365,6 +419,12 @@ namespace Client.Main.Controls.UI.Game
             }
 
             var playerState = _networkManager.GetCharacterState();
+            if (IsModern)
+            {
+                UpdateOrnate(mouse, playerState);
+                return;
+            }
+
             bool listNeedsVisualRefresh = false;
             for (int i = 0; i < _currentlyDisplayableMaps.Count; ++i)
             {
@@ -434,6 +494,12 @@ namespace Client.Main.Controls.UI.Game
                 return false;
 
             int scrollDirection = scrollDelta > 0 ? 1 : -1;
+            if (IsModern)
+            {
+                ScrollOrnate(-scrollDirection * 3);
+                Scene?.SetMouseInputConsumed();
+                return true;
+            }
 
             if (_scrollBar != null && _scrollBar.Visible && _scrollBar.IsMouseOver)
             {
@@ -463,7 +529,159 @@ namespace Client.Main.Controls.UI.Game
         public override void Draw(GameTime gameTime)
         {
             if (!Visible) return;
+            if (IsModern)
+            {
+                DrawOrnate();
+                return;
+            }
             base.Draw(gameTime);
+        }
+
+        // --- Modern (ornate) ---------------------------------------------------------------------------
+
+        private Rectangle OrnateAt(int x, int y, int width, int height) =>
+            new(DisplayRectangle.X + x, DisplayRectangle.Y + y, width, height);
+
+        private Rectangle OrnateCloseRect => OrnateAt(ORNATE_WIDTH - 46, 12, 32, 32);
+
+        private Rectangle OrnateListRect =>
+            OrnateAt(ORNATE_PAD, ORNATE_LIST_Y, ORNATE_WIDTH - ORNATE_PAD * 2, _maxVisibleItems * ORNATE_ROW_HEIGHT);
+
+        private Rectangle OrnateRowsRect
+        {
+            get
+            {
+                Rectangle list = OrnateListRect;
+                bool scroll = _currentlyDisplayableMaps.Count > _maxVisibleItems;
+                return new Rectangle(list.X, list.Y, list.Width - (scroll ? ORNATE_SCROLL_WIDTH + 6 : 0), list.Height);
+            }
+        }
+
+        private Rectangle OrnateRow(int visualIndex)
+        {
+            Rectangle rows = OrnateRowsRect;
+            return new Rectangle(rows.X, rows.Y + visualIndex * ORNATE_ROW_HEIGHT, rows.Width, ORNATE_ROW_HEIGHT);
+        }
+
+        private void ScrollOrnate(int delta)
+        {
+            int max = Math.Max(0, _currentlyDisplayableMaps.Count - _maxVisibleItems);
+            _currentScrollOffset = Math.Clamp(_currentScrollOffset + delta, 0, max);
+        }
+
+        private void UpdateOrnate(MouseState mouse, CharacterState playerState)
+        {
+            for (int i = 0; i < _currentlyDisplayableMaps.Count; i++)
+            {
+                var map = _currentlyDisplayableMaps[i];
+                map.CanMove = CanPlayerMoveTo(map, playerState);
+                _currentlyDisplayableMaps[i] = map;
+            }
+
+            OrnatePointer ornatePointer = OrnatePointer.Capture();
+            Point pointer = PointerForHitTest(ornatePointer.Position);
+            bool clicked = ornatePointer.Released;
+
+            _ornateCloseHovered = OrnateCloseRect.Contains(pointer);
+            if (_ornateCloseHovered && clicked)
+            {
+                SoundController.Instance?.PlayBuffer("Sound/iButtonClick.wav");
+                ToggleVisibility();
+                Scene?.SetMouseInputConsumed();
+                return;
+            }
+
+            _ornateHoveredRow = -1;
+            int visible = Math.Min(_maxVisibleItems, _currentlyDisplayableMaps.Count - _currentScrollOffset);
+            for (int i = 0; i < visible; i++)
+            {
+                if (!OrnateRow(i).Contains(pointer))
+                    continue;
+
+                _ornateHoveredRow = i;
+                if (clicked)
+                {
+                    OnMapClicked(i);
+                    Scene?.SetMouseInputConsumed();
+                }
+                break;
+            }
+        }
+
+        private int EffectiveRequiredLevel(MoveCommandInfo mapInfo, CharacterState state)
+        {
+            var c = state?.Class;
+            bool reduced = c == CharacterClassNumber.MagicGladiator || c == CharacterClassNumber.DuelMaster ||
+                           c == CharacterClassNumber.DarkLord || c == CharacterClassNumber.LordEmperor ||
+                           c == CharacterClassNumber.RageFighter || c == CharacterClassNumber.FistMaster;
+            return reduced && mapInfo.RequiredLevel != 400 ? (int)(mapInfo.RequiredLevel * 2.0f / 3.0f) : mapInfo.RequiredLevel;
+        }
+
+        private void DrawOrnate()
+        {
+            SpriteBatch sb = GraphicsManager.Instance.Sprite;
+            if (sb == null)
+                return;
+
+            using var scope = new SpriteBatchScope(sb, SpriteSortMode.Deferred, BlendState.AlphaBlend,
+                GraphicsManager.GetQualityLinearSamplerState(), transform: UiScaler.SpriteTransform);
+
+            float alpha = Alpha;
+            Rectangle frame = DisplayRectangle;
+            var state = _networkManager.GetCharacterState();
+            OrnateDraw.Window(sb, frame, alpha);
+
+            // Column captions over the list.
+            Rectangle rows = OrnateRowsRect;
+            var header = new Rectangle(rows.X + 10, frame.Y + ORNATE_HEADER_Y, rows.Width - 20, 20);
+            int zenRight = header.Right;
+            int levelRight = zenRight - ORNATE_ZEN_COLUMN;
+            OrnateDraw.TextLeft(sb, "MAP", header, 11f, OrnateStyle.GoldDim, alpha, bold: true);
+            OrnateDraw.TextRight(sb, "LEVEL", new Rectangle(header.X, header.Y, levelRight - header.X, header.Height), 11f, OrnateStyle.GoldDim, alpha, bold: true);
+            OrnateDraw.TextRight(sb, "ZEN", header, 11f, OrnateStyle.GoldDim, alpha, bold: true);
+
+            Rectangle list = OrnateListRect;
+            Rectangle well = list;
+            well.Inflate(4, 4);
+            OrnateDraw.Inset(sb, well, alpha, 0.5f);
+            UiDrawHelper.DrawBorder(sb, new Rectangle(well.X - 1, well.Y - 1, well.Width + 2, well.Height + 2), OrnateItemUi.Rim * (0.9f * alpha));
+
+            int visible = Math.Min(_maxVisibleItems, _currentlyDisplayableMaps.Count - _currentScrollOffset);
+            for (int i = 0; i < visible; i++)
+            {
+                var map = _currentlyDisplayableMaps[_currentScrollOffset + i];
+                Rectangle row = OrnateRow(i);
+                bool hover = i == _ornateHoveredRow;
+                OrnateWidgets.RowBackground(sb, row, _currentScrollOffset + i, hover && map.CanMove, alpha);
+
+                int level = EffectiveRequiredLevel(map, state);
+                bool levelOk = state != null && state.Level >= level;
+                bool zenOk = state != null && state.InventoryZen >= map.RequiredZen;
+                Color name = !map.CanMove ? (map.IsStrifeMap ? new Color(150, 80, 70) : OrnateStyle.TextDisabled)
+                    : hover ? Color.White : OrnateStyle.TextLight;
+
+                var text = new Rectangle(row.X + 10, row.Y, row.Width - 20, row.Height);
+                var levelArea = new Rectangle(text.X, text.Y, levelRight - text.X, text.Height);
+                OrnateDraw.TextLeft(sb, map.DisplayName, new Rectangle(text.X, text.Y, levelRight - text.X - ORNATE_LEVEL_COLUMN, text.Height),
+                    12f, name, alpha, bold: hover && map.CanMove);
+                OrnateDraw.TextRight(sb, level.ToString(), levelArea, 12f, levelOk ? OrnateStyle.TextMuted : OrnateStyle.Danger, alpha);
+                string zen = map.RequiredZen == 0 ? "-" : OrnateItemUi.FormatZenShort(map.RequiredZen);
+                OrnateDraw.TextRight(sb, zen, text, 12f, zenOk ? OrnateStyle.Gold : OrnateStyle.Danger, alpha);
+            }
+
+            if (_currentlyDisplayableMaps.Count > _maxVisibleItems)
+            {
+                var track = new Rectangle(list.Right - ORNATE_SCROLL_WIDTH, list.Y, ORNATE_SCROLL_WIDTH, list.Height);
+                OrnateWidgets.Scrollbar(sb, track, _currentScrollOffset, _maxVisibleItems, _currentlyDisplayableMaps.Count, alpha);
+            }
+
+            // Footer: the character's Zen.
+            var zenField = OrnateAt(ORNATE_PAD, ORNATE_HEIGHT - ORNATE_PAD - ORNATE_FOOTER_HEIGHT, ORNATE_WIDTH - ORNATE_PAD * 2, ORNATE_FOOTER_HEIGHT);
+            OrnateDraw.Divider(sb, new Rectangle(frame.X + 40, zenField.Y - 18, frame.Width - 80, 14), alpha);
+            OrnateItemUi.ZenField(sb, zenField, state?.InventoryZen ?? 0, alpha, "Zen");
+
+            OrnateWidgets.CloseButton(sb, OrnateCloseRect, _ornateCloseHovered, alpha);
+            OrnateDraw.TitlePlaque(sb, "Warp", frame.Center.X, frame.Y + 2, 40, alpha);
         }
 
         public void ProcessKeyInput(Keys key, bool isRepeated)
@@ -474,6 +692,13 @@ namespace Client.Main.Controls.UI.Game
             {
                 Visible = false;
                 if (Scene?.FocusControl == this) Scene.FocusControl = null;
+            }
+            else if (IsModern)
+            {
+                if (key == Keys.Up) ScrollOrnate(-1);
+                else if (key == Keys.Down) ScrollOrnate(1);
+                else if (key == Keys.PageUp) ScrollOrnate(-_maxVisibleItems);
+                else if (key == Keys.PageDown) ScrollOrnate(_maxVisibleItems);
             }
             else if (_scrollBar.Visible)
             {
