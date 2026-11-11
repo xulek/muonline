@@ -84,7 +84,7 @@ namespace Client.Main.Objects.Effects
 
             _ = await TextureLoader.Instance.Prepare(SmokeTexturePath);
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _smokeTexture = TextureLoader.Instance.GetTexture2D(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _smokeTexture = await TextureLoader.Instance.PrepareAndGetTexture(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (World?.Terrain != null && !_lightAdded)
             {

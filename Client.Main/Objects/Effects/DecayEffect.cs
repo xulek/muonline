@@ -130,9 +130,9 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(TrailTexturePath);
             _ = await TextureLoader.Instance.Prepare(GlowTexturePath);
             _ = await TextureLoader.Instance.Prepare(ShinyTexturePath);
-            _trailTexture = TextureLoader.Instance.GetTexture2D(TrailTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _glowTexture = TextureLoader.Instance.GetTexture2D(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _shinyTexture = TextureLoader.Instance.GetTexture2D(ShinyTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _trailTexture = await TextureLoader.Instance.PrepareAndGetTexture(TrailTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _glowTexture = await TextureLoader.Instance.PrepareAndGetTexture(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _shinyTexture = await TextureLoader.Instance.PrepareAndGetTexture(ShinyTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (_disposed)
                 return;
@@ -730,7 +730,7 @@ namespace Client.Main.Objects.Effects
             public override async Task LoadContent()
             {
                 await TextureLoader.Instance.Prepare(SmokeTexturePath);
-                _texture = TextureLoader.Instance.GetTexture2D(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
+                _texture = await TextureLoader.Instance.PrepareAndGetTexture(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
                 _textureCenter = new Vector2(_texture.Width * 0.5f, _texture.Height * 0.5f);
             }
 

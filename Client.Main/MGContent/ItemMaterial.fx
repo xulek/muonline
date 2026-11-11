@@ -188,8 +188,8 @@ struct VertexShaderInputSkinned
     float3 Position : POSITION0;
     float3 Normal : NORMAL0;
     float2 TextureCoordinate : TEXCOORD0;
-    float4 Color : COLOR0;
     float2 BoneIndices : TEXCOORD1;
+    float4 Color : COLOR0;
 };
 #endif
 
@@ -546,10 +546,10 @@ struct VertexShaderInputComposite
     float3 Position : POSITION0;
     float3 Normal : NORMAL0;
     float2 TextureCoordinate : TEXCOORD0;
-    float4 Color : COLOR0;
     float2 BoneIndices : TEXCOORD1;
     float4 AtlasRect : TEXCOORD2;   // xy = tile origin, zw = texture size (atlas UV)
     float4 ItemData : TEXCOORD3;    // x = item options, y = excellent, z = ancient, w = part index
+    float4 Color : COLOR0;
 };
 
 struct VertexShaderOutputComposite

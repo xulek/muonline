@@ -76,7 +76,7 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(BeamTexturePath);
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _beamTexture = TextureLoader.Instance.GetTexture2D(BeamTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _beamTexture = await TextureLoader.Instance.PrepareAndGetTexture(BeamTexturePath) ?? GraphicsManager.Instance.Pixel;
         }
 
         public override void Update(GameTime gameTime)

@@ -179,8 +179,8 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(FlareTexturePath);
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _spiritTexture = TextureLoader.Instance.GetTexture2D(SpiritTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _flareTexture = TextureLoader.Instance.GetTexture2D(FlareTexturePath) ?? _spiritTexture;
+            _spiritTexture = await TextureLoader.Instance.PrepareAndGetTexture(SpiritTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _flareTexture = await TextureLoader.Instance.PrepareAndGetTexture(FlareTexturePath) ?? _spiritTexture;
         }
 
         public override void Update(GameTime gameTime)

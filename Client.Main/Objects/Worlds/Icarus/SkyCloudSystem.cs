@@ -185,8 +185,8 @@ namespace Client.Main.Objects.Worlds.Icarus
             {
                 await TextureLoader.Instance.Prepare("Effect/clouds.jpg");
                 await TextureLoader.Instance.Prepare("Effect/cloudLight.jpg");
-                _cloudTexture = TextureLoader.Instance.GetTexture2D("Effect/clouds.jpg");
-                _cloudLightTexture = TextureLoader.Instance.GetTexture2D("Effect/cloudLight.jpg");
+                _cloudTexture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/clouds.jpg");
+                _cloudLightTexture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/cloudLight.jpg");
             }
             catch (Exception ex)
             {

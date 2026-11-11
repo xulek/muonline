@@ -146,7 +146,8 @@ namespace Client.Main.Objects.Worlds.Devias
             {
                 string path = _texturePaths[i];
                 await TextureLoader.Instance.Prepare(path);
-                var rawTexture = TextureLoader.Instance.GetTexture2D(path) ?? GraphicsManager.Instance.Pixel;
+                var rawTexture = await TextureLoader.Instance.PrepareAndGetTexture(path) ?? GraphicsManager.Instance.Pixel;
+                await MuGame.YieldToNextFrameAsync("DeviasSnow.MaskTexture");
                 _textures[i] = CreateMaskedTexture(rawTexture);
 
                 _verticesPerTexture[i] = new VertexPositionColorTexture[_maxParticles * 4];

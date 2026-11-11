@@ -43,7 +43,7 @@ namespace Client.Main.Objects.Effects
         public override async Task LoadContent()
         {
             await TextureLoader.Instance.Prepare(SmokeTexturePath);
-            _texture = TextureLoader.Instance.GetTexture2D(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(SmokeTexturePath) ?? GraphicsManager.Instance.Pixel;
             _textureCenter = new Vector2(_texture.Width * 0.5f, _texture.Height * 0.5f);
         }
 

@@ -319,7 +319,7 @@ namespace Client.Main.Objects.Effects
             }
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _explosionTexture = TextureLoader.Instance.GetTexture2D(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _explosionTexture = await TextureLoader.Instance.PrepareAndGetTexture(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
             _jointSparkTexture = _includeImpactSparks
                 ? TextureLoader.Instance.GetTexture2D(JointSparkTexturePath) ?? GraphicsManager.Instance.Pixel
                 : GraphicsManager.Instance.Pixel;

@@ -41,11 +41,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MonoGame.Framework.Native" Version="3.8.5" />
-    <PackageReference Include="MonoGame.Runtime.Windows.Vulkan" Version="3.8.5" />
-    <PackageReference Include="MonoGame.Runtime.Linux.Vulkan" Version="3.8.5" />
-    <PackageReference Include="MonoGame.Runtime.Mac.Vulkan" Version="3.8.5" />
-    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.5" />
+    <PackageReference Include="MonoGame.Framework.Native" Version="3.8.6.1" />
+    <PackageReference Include="MonoGame.Runtime.Windows.Vulkan" Version="3.8.6.1" />
+    <PackageReference Include="MonoGame.Runtime.Linux.Vulkan" Version="3.8.6.1" />
+    <PackageReference Include="MonoGame.Runtime.Mac.Vulkan" Version="3.8.6.1" />
+    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.6.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,7 +63,7 @@
   <Target Name="RestoreDotnetTools"
           BeforeTargets="RunContentBuilder"
           Condition="'$(DesignTimeBuild)' != 'true' AND '$(RestoreMonoGameTools)' != 'false'">
-    <Message Text="Restoring MonoGame 3.8.5 tools" Importance="High" />
+    <Message Text="Restoring MonoGame tools" Importance="High" />
     <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="dotnet tool restore" />
   </Target>
 

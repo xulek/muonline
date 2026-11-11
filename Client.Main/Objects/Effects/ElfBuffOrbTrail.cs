@@ -77,7 +77,7 @@ namespace Client.Main.Objects.Effects
             var textureData = await TextureLoader.Instance.Prepare("Effect/Shiny05.jpg");
             if (textureData != null)
             {
-                _texture = TextureLoader.Instance.GetTexture2D("Effect/Shiny05.jpg");
+                _texture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/Shiny05.jpg");
             }
         }
 

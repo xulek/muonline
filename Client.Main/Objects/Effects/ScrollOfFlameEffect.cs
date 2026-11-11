@@ -127,7 +127,7 @@ namespace Client.Main.Objects.Effects
             await base.LoadContent();
 
             _ = await TextureLoader.Instance.Prepare(FlameTexturePath);
-            _flameTexture = TextureLoader.Instance.GetTexture2D(FlameTexturePath)
+            _flameTexture = await TextureLoader.Instance.PrepareAndGetTexture(FlameTexturePath)
                 ?? GraphicsManager.Instance.Pixel;
         }
 

@@ -126,8 +126,8 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(SparkTexturePath);
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _energyTexture = TextureLoader.Instance.GetTexture2D(EnergyTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _glowTexture = TextureLoader.Instance.GetTexture2D(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _energyTexture = await TextureLoader.Instance.PrepareAndGetTexture(EnergyTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _glowTexture = await TextureLoader.Instance.PrepareAndGetTexture(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
             _sparkTexture = TextureLoader.Instance.GetTexture2D(SparkTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (World?.Terrain != null && !_lightsAdded)

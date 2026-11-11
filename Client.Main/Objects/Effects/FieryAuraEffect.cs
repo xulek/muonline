@@ -217,9 +217,9 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(SecondaryTexturePath);
             _ = await TextureLoader.Instance.Prepare(GlowTexturePath);
 
-            _primaryTexture = TextureLoader.Instance.GetTexture2D(PrimaryTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _secondaryTexture = TextureLoader.Instance.GetTexture2D(SecondaryTexturePath) ?? _primaryTexture;
-            _glowTexture = TextureLoader.Instance.GetTexture2D(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _primaryTexture = await TextureLoader.Instance.PrepareAndGetTexture(PrimaryTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _secondaryTexture = await TextureLoader.Instance.PrepareAndGetTexture(SecondaryTexturePath) ?? _primaryTexture;
+            _glowTexture = await TextureLoader.Instance.PrepareAndGetTexture(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (_enableDynamicLight && World?.Terrain != null && !_lightAdded)
             {

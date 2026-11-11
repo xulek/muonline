@@ -106,7 +106,7 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(ExplosionTexturePath);
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _explosionTexture = TextureLoader.Instance.GetTexture2D(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _explosionTexture = await TextureLoader.Instance.PrepareAndGetTexture(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (!_lightsAdded && World?.Terrain != null)
             {
@@ -569,7 +569,7 @@ namespace Client.Main.Objects.Effects
             {
                 await base.LoadContent();
                 await TextureLoader.Instance.Prepare(TexturePath);
-                _texture = TextureLoader.Instance.GetTexture2D(TexturePath) ?? GraphicsManager.Instance.Pixel;
+                _texture = await TextureLoader.Instance.PrepareAndGetTexture(TexturePath) ?? GraphicsManager.Instance.Pixel;
             }
 
             public override void Update(GameTime gameTime)

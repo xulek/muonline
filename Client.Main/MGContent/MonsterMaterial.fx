@@ -125,8 +125,8 @@ struct VertexShaderInputSkinned
     float3 Position : POSITION0;
     float3 Normal : NORMAL0;
     float2 TextureCoordinate : TEXCOORD0;
-    float4 Color : COLOR0;
     float2 BoneIndices : TEXCOORD1;
+    float4 Color : COLOR0;
 };
 #endif
 

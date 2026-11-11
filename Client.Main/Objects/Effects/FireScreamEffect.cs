@@ -136,9 +136,9 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(JointTexturePath);
             _ = await TextureLoader.Instance.Prepare(GlowTexturePath);
 
-            _flameTexture = TextureLoader.Instance.GetTexture2D(FlameTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _blurTexture = TextureLoader.Instance.GetTexture2D(BlurTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _jointTexture = TextureLoader.Instance.GetTexture2D(JointTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _flameTexture = await TextureLoader.Instance.PrepareAndGetTexture(FlameTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _blurTexture = await TextureLoader.Instance.PrepareAndGetTexture(BlurTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _jointTexture = await TextureLoader.Instance.PrepareAndGetTexture(JointTexturePath) ?? GraphicsManager.Instance.Pixel;
             _glowTexture = TextureLoader.Instance.GetTexture2D(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             if (_disposed)

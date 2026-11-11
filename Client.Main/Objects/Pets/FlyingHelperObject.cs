@@ -377,6 +377,7 @@ namespace Client.Main.Objects.Pets
                 _sparkTexture = await PrepareTextureAsync(SparkTexturePath);
                 if (_sparkTexture == null)
                 {
+                    await MuGame.YieldToNextFrameAsync("FlyingHelper.SparkTexture");
                     _sparkTexture = CreateRadialTexture(GraphicsDevice, 32, 2.8f);
                     _ownsSparkTexture = true;
                 }
@@ -387,10 +388,14 @@ namespace Client.Main.Objects.Pets
                 _lightTexture = await PrepareTextureAsync(LightTexturePath);
                 if (_lightTexture == null)
                 {
+                    await MuGame.YieldToNextFrameAsync("FlyingHelper.LightTexture");
                     _lightTexture = CreateRadialTexture(GraphicsDevice, 64, 2.2f);
                     _ownsLightTexture = true;
                 }
             }
+
+            if (_billboardEffect == null && !MuGame.IsMainThread)
+                await MuGame.YieldToNextFrameAsync("FlyingHelper.BillboardEffect");
 
             _billboardEffect ??= new BasicEffect(GraphicsDevice)
             {
@@ -1564,7 +1569,7 @@ namespace Client.Main.Objects.Pets
             try
             {
                 await TextureLoader.Instance.Prepare(path);
-                return TextureLoader.Instance.GetTexture2D(path);
+                return await TextureLoader.Instance.PrepareAndGetTexture(path);
             }
             catch
             {

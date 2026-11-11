@@ -223,6 +223,9 @@ float4 SampleSamplerState0(float2 uv) { return DiffuseTexture.Sample(SamplerStat
 float4 SampleSnowOverlaySampler(float2 uv) { return SnowOverlayTexture.Sample(SnowOverlaySampler, uv); }
 float4 SampleSnowMaterialSampler(float2 uv) { return SnowMaterialTexture.Sample(SnowMaterialSampler, uv); }
 #define tex2D(s, uv) Sample##s(uv)
+#define TERRAIN_SAMPLE_GRAD(uv, dx, dy) DiffuseTexture.SampleGrad(SamplerState0, (uv), (dx), (dy))
+#else
+#define TERRAIN_SAMPLE_GRAD(uv, dx, dy) tex2Dgrad(SamplerState0, (uv), (dx), (dy))
 #endif
 
 // Shadow map fetch at mip 0 (the map has no mips). Explicit LOD means no implicit
@@ -319,36 +322,40 @@ float4 ComputeShadowCoord(float3 worldPos)
 }
 
 // Input structures
+// Vulkan: the MonoGame effect compiler numbers vertex attributes by their order among the inputs a
+// shader actually reads, not by their SPIR-V location. An unread member followed by a read one shifts
+// every later attribute (bone indices land on the wrong data), so members that some vertex shaders do
+// not read (Normal, Color) are declared after the ones every shader of that format reads.
 struct VertexInput
 {
     float3 Position : POSITION0;
-    float3 Normal   : NORMAL0;
     float2 TexCoord : TEXCOORD0;
     float4 Color    : COLOR0;
+    float3 Normal   : NORMAL0;
 };
 
 #if !OPENGL
 struct VertexInputSkinned
 {
     float3 Position  : POSITION0;
-    float3 Normal    : NORMAL0;
     float2 TexCoord  : TEXCOORD0;
-    float4 Color     : COLOR0;
     float2 BoneIndices : TEXCOORD1;
+    float4 Color     : COLOR0;
+    float3 Normal    : NORMAL0;
 };
 
 struct VertexInputSkinnedInstanced
 {
     float3 Position      : POSITION0;
-    float3 Normal        : NORMAL0;
     float2 TexCoord      : TEXCOORD0;
-    float4 Color         : COLOR0;
     float2 BoneIndices   : TEXCOORD1;
     float4 InstWorld0    : TEXCOORD2;
     float4 InstWorld1    : TEXCOORD3;
     float4 InstWorld2    : TEXCOORD4;
     float4 InstWorld3    : TEXCOORD5;
+    float4 Color         : COLOR0;
     float4 InstanceColor : COLOR1;
+    float3 Normal        : NORMAL0;
 };
 
 struct VertexInputSkinnedMultiPoseInstanced
@@ -835,8 +842,8 @@ float4 SampleTerrainVaried(float2 uv, float2 worldXY)
     float f = frac(l);
     float2 offA = sin(float2(3.0, 7.0) * i);
     float2 offB = sin(float2(3.0, 7.0) * (i + 1.0));
-    float4 a = tex2Dgrad(SamplerState0, uv + offA, dx, dy);
-    float4 b = tex2Dgrad(SamplerState0, uv + offB, dx, dy);
+    float4 a = TERRAIN_SAMPLE_GRAD(uv + offA, dx, dy);
+    float4 b = TERRAIN_SAMPLE_GRAD(uv + offB, dx, dy);
     float3 d = a.rgb - b.rgb;
     float blend = smoothstep(0.2, 0.8, f - 0.1 * (d.x + d.y + d.z));
     float3 varied = lerp(a.rgb, b.rgb, blend);

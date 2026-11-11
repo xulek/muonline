@@ -212,7 +212,7 @@ namespace Client.Main.Objects.Effects
             }
 
             _ = await TextureLoader.Instance.Prepare(JointSpiritTexturePath);
-            _spiritTexture = TextureLoader.Instance.GetTexture2D(JointSpiritTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _spiritTexture = await TextureLoader.Instance.PrepareAndGetTexture(JointSpiritTexturePath) ?? GraphicsManager.Instance.Pixel;
 
             _effect = new BasicEffect(GraphicsDevice)
             {

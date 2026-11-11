@@ -95,8 +95,8 @@ namespace Client.Main.Objects.Effects
             _ = await TextureLoader.Instance.Prepare(SparkTexturePath);
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
-            _infernoTexture = TextureLoader.Instance.GetTexture2D(InfernoTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _explosionTexture = TextureLoader.Instance.GetTexture2D(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _infernoTexture = await TextureLoader.Instance.PrepareAndGetTexture(InfernoTexturePath) ?? GraphicsManager.Instance.Pixel;
+            _explosionTexture = await TextureLoader.Instance.PrepareAndGetTexture(ExplosionTexturePath) ?? GraphicsManager.Instance.Pixel;
             _sparkTexture = TextureLoader.Instance.GetTexture2D(SparkTexturePath) ?? GraphicsManager.Instance.Pixel;
             _texturesLoaded = true;
 

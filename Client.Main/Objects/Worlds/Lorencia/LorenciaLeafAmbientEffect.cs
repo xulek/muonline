@@ -131,7 +131,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
         public async override Task LoadContent()
         {
             await TextureLoader.Instance.Prepare(_texturePath);
-            _texture = TextureLoader.Instance.GetTexture2D(_texturePath) ?? GraphicsManager.Instance.Pixel;
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(_texturePath) ?? GraphicsManager.Instance.Pixel;
 
             _vertices = new VertexPositionColorTexture[_maxParticles * 4];
             _indices = QuadIndexCache.Get(_maxParticles);
