@@ -26,6 +26,8 @@ namespace Client.Main.Worlds
             BackgroundMusicPath = "Music/main_theme.mp3";
             AmbientSoundPath = "Sound/aWind.wav"; // Wind ambient for open spaces
             Name = "Lorencia";
+            // SourceMain5.2 lights the map with the terrain light map only (no extra ambient): darker, like the original.
+            Terrain.AmbientLight = 0f;
         }
 
         public override void AfterLoad()

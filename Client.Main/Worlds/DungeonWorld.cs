@@ -17,6 +17,8 @@ namespace Client.Main.Worlds
             BackgroundMusicPath = "Music/Dungeon.mp3";
             AmbientSoundPath = "Sound/aDungeon.wav"; // Dungeon atmosphere
             Name = "Dungeon";
+            // SourceMain5.2 lights the map with the terrain light map only (no extra ambient): darker, like the original.
+            Terrain.AmbientLight = 0f;
         }
 
         public override void AfterLoad()

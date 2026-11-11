@@ -15,6 +15,8 @@ namespace Client.Main.Worlds
             BackgroundMusicPath = "Music/lost_tower_a.mp3";
             AmbientSoundPath = "Sound/aTower.wav"; // Tower atmosphere
             Name = "Lost Tower";
+            // SourceMain5.2 lights the map with the terrain light map only (no extra ambient): darker, like the original.
+            Terrain.AmbientLight = 0f;
         }
 
         public override void AfterLoad()
