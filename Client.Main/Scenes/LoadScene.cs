@@ -31,8 +31,13 @@ namespace Client.Main.Scenes
         // Download tuning - balanced for all platforms
         private const int ChunkSize = 2 * 1024 * 1024;            // 2 MB per chunk (safer for mobile)
         private const int BufferSize = 128 * 1024;                 // 128 KB read buffer
-        private const int MaxRetryAttempts = 3;
+        private const int MaxRetryAttempts = 5;
         private const int RetryDelayMs = 1000;
+
+        // A chunk that receives nothing for this long is abandoned and retried.
+        private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan StallCheckInterval = TimeSpan.FromSeconds(5);
+        private const int StallAbandonGraceMs = 2000;
 
         private static readonly TimeSpan HttpTimeout = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan SpeedUpdateInterval = TimeSpan.FromMilliseconds(300);
@@ -562,10 +567,10 @@ namespace Client.Main.Scenes
             {
                 try
                 {
-                    await DownloadChunkAsync(url, destination, chunk, onProgress, ct);
+                    await DownloadChunkWithStallGuardAsync(url, destination, chunk, onProgress, ct);
                     return;
                 }
-                catch (OperationCanceledException) { throw; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
                     lastError = ex;
@@ -580,6 +585,47 @@ namespace Client.Main.Scenes
             }
 
             throw new IOException($"Chunk {chunk.Index} failed after {MaxRetryAttempts} attempts", lastError);
+        }
+
+        /// <summary>
+        /// Runs one chunk attempt and gives it up when no byte arrives for <see cref="StallTimeout"/>.
+        /// The Android HTTP handler neither times out nor cancels a read on a dead connection, so a
+        /// stalled chunk would otherwise keep the whole download waiting forever.
+        /// </summary>
+        private async Task DownloadChunkWithStallGuardAsync(
+            string url, string destination, ChunkInfo chunk,
+            Action<long> onProgress, CancellationToken ct)
+        {
+            var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            long lastActivity = Stopwatch.GetTimestamp();
+
+            Task attempt = Task.Run(() => DownloadChunkAsync(url, destination, chunk, bytes =>
+            {
+                Interlocked.Exchange(ref lastActivity, Stopwatch.GetTimestamp());
+                onProgress?.Invoke(bytes);
+            }, attemptCts.Token), ct);
+
+            while (true)
+            {
+                Task finished = await Task.WhenAny(attempt, Task.Delay(StallCheckInterval, ct));
+                if (finished == attempt)
+                    break;
+
+                ct.ThrowIfCancellationRequested();
+
+                if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastActivity)) < StallTimeout)
+                    continue;
+
+                // The attempt may be blocked in a read that ignores cancellation: leave it behind (it
+                // releases its own buffer and handles once the connection finally drops) and retry.
+                attemptCts.Cancel();
+                await Task.WhenAny(attempt, Task.Delay(StallAbandonGraceMs, CancellationToken.None));
+                _ = attempt.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                throw new TimeoutException($"No data received for {StallTimeout.TotalSeconds:F0} s");
+            }
+
+            attemptCts.Dispose();
+            await attempt;
         }
 
         private async Task DownloadChunkAsync(
