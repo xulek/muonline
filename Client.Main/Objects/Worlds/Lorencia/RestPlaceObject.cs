@@ -60,6 +60,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     targetPlayer.IsResting = true;
                     targetPlayer.RestPlaceTarget = targetTile;
                     targetPlayer.Direction = DirectionExtensions.GetDirectionFromAngle(this.Angle.Z);
+                    targetPlayer.FaceExactAngle(this.Angle.Z);
 
                     targetPlayer = null;
                 }

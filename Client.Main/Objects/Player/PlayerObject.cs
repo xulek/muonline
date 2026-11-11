@@ -2862,6 +2862,12 @@ namespace Client.Main.Objects.Player
             }
         }
 
+        /// <summary>
+        /// Faces exactly <paramref name="angleZ"/> (radians) at once, like SourceMain5.2 does for rest/sit objects
+        /// (Hero->Object.Angle[2] = TargetAngle) instead of snapping to one of the eight tile directions.
+        /// </summary>
+        public void FaceExactAngle(float angleZ) => SetFacingAngleZ(angleZ, immediate: true);
+
         public bool TryGetBoneWorldMatrix(int boneIndex, out Matrix worldMatrix)
         {
             var bones = GetBoneTransforms();

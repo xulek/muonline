@@ -57,6 +57,7 @@ namespace Client.Main.Objects.Worlds.Noria
                         player.IsSitting = true;
                         player.SitPlaceTarget = targetTile;
                         player.Direction = DirectionExtensions.GetDirectionFromAngle(this.Angle.Z);
+                        player.FaceExactAngle(this.Angle.Z);
                     }
                 }
 

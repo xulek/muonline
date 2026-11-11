@@ -69,19 +69,27 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
 
+                // Original (CChaosCastleTimeCheckMsgBoxLayout): with a ticket pending the box always has
+                // OK / Cancel, also while the timer is still running; OK sends the enter request and the
+                // server answers "not open" when it is too early.
+                if (type == 4 && ticket is { Type: 4 } cc)
+                {
+                    string prompt = minutes > 0
+                        ? (minutes >= 60
+                            ? $"{name} opens in {minutes / 60} hour(s) {minutes % 60} minute(s)."
+                            : $"{name} opens in {minutes} minute(s).") + " Try to enter anyway?"
+                        : $"Chaos Castle is open ({users}/100 participants). Do you want to enter?";
+                    RequestDialog.Show(
+                        prompt,
+                        onAccept: () => _ = _characterService.SendChaosCastleEnterRequestAsync(cc.Level, cc.Slot));
+                    return;
+                }
+
                 if (minutes > 0)
                 {
                     RequestDialog.ShowInfo(minutes >= 60
                         ? $"{name} opens in {minutes / 60} hour(s) {minutes % 60} minute(s)."
                         : $"{name} opens in {minutes} minute(s).");
-                    return;
-                }
-
-                if (type == 4 && ticket is { Type: 4 } cc)
-                {
-                    RequestDialog.Show(
-                        $"Chaos Castle is open ({users}/100 participants). Do you want to enter?",
-                        onAccept: () => _ = _characterService.SendChaosCastleEnterRequestAsync(cc.Level, cc.Slot));
                     return;
                 }
 

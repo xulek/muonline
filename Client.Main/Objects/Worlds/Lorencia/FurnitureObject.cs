@@ -60,6 +60,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
                         player.SitPlaceTarget = targetTile;
                         if (Type != 146)
                             player.Direction = DirectionExtensions.GetDirectionFromAngle(this.Angle.Z);
+                            player.FaceExactAngle(this.Angle.Z);
                     }
                 }
 

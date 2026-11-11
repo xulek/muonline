@@ -144,6 +144,12 @@ namespace Client.Main.Scenes
         private bool WhenMiniMapToggle(HotkeyContext context)
             => _miniMap?.Visible == true || !context.IsUiInputActive;
 
+        // The warp window takes focus itself when opened, so it must not block its own toggle key.
+        private bool WhenMoveCommandToggle(HotkeyContext context)
+            => !context.Scene.IsTextInputActive
+               && !(context.Scene.FocusControl is TextFieldControl textField && textField.Visible)
+               && !(_pauseMenu?.Visible ?? false);
+
         private bool WhenCharacterInfoToggle(HotkeyContext context)
             => !context.Scene.IsTextInputActive
                && !(context.Scene.FocusControl is TextFieldControl textField && textField.Visible)
@@ -174,7 +180,7 @@ namespace Client.Main.Scenes
             hotkeys.OnKeyPressed(Keys.I, ToggleInventory, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.V, ToggleInventory, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.C, ToggleCharacterInfo, when: WhenCharacterInfoToggle);
-            hotkeys.OnKeyPressed(Keys.M, ToggleMoveCommand, when: WhenNotUiInput);
+            hotkeys.OnKeyPressed(Keys.M, ToggleMoveCommand, when: WhenMoveCommandToggle);
             hotkeys.OnKeyPressed(Keys.G, ToggleGuildWindow, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.F, ToggleFriendWindow, when: WhenNotUiInput);
             hotkeys.OnKeyPressed(Keys.Tab, ToggleMiniMap, when: WhenMiniMapToggle);

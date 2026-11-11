@@ -605,6 +605,12 @@ namespace Client.Main.Controls.UI.Game
                 return;
             }
 
+            // The map surface is a render target. Switching targets while the interface is being drawn discards
+            // what the HUD already drew into the current target this frame (its labels vanished), so it is
+            // rendered here, outside of any SpriteBatch pass.
+            EnsureTerrainTexture();
+            RenderMapSurface(gameTime);
+
             Point mousePosition = MuGame.Instance.UiMouseState.Position;
             Rectangle mapRectangle = GetMapScreenRectangle();
 
@@ -650,9 +656,6 @@ namespace Client.Main.Controls.UI.Game
             {
                 return;
             }
-
-            EnsureTerrainTexture();
-            RenderMapSurface(gameTime);
 
             SpriteBatch spriteBatch = GraphicsManager.Instance.Sprite;
             SpriteBatchScope? scope = null;
@@ -779,6 +782,7 @@ namespace Client.Main.Controls.UI.Game
             }
 
             RenderTargetBinding[] previousTargets = graphicsDevice.GetRenderTargets();
+            Viewport previousViewport = graphicsDevice.Viewport;
             try
             {
                 graphicsDevice.SetRenderTarget(_mapSurface);
@@ -830,6 +834,7 @@ namespace Client.Main.Controls.UI.Game
             finally
             {
                 graphicsDevice.SetRenderTargets(previousTargets);
+                graphicsDevice.Viewport = previousViewport;
             }
         }
 
