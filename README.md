@@ -10,7 +10,7 @@
 
 **A cross-platform MuOnline client implementation built with .NET 10 and MonoGame framework.**
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Building](#-building-the-project) • [Architecture](#-architecture-overview) • [Contributing](#-contributing)
+[Screenshots](#screenshots) • [Features](#-features) • [Quick Start](#-quick-start) • [Building](#-building-the-project) • [Architecture](#-architecture-overview) • [Contributing](#-contributing)
 
 </div>
 
@@ -27,15 +27,56 @@ https://youtu.be/_ekXCQI2byE
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/lorencia-town.jpg" alt="Lorencia town with ornate HUD" width="100%">
+</p>
+
+### World & combat
+
+| | |
+|---|---|
+| <img src="screenshots/devias-mounted-combat.jpg" alt="Mounted combat against Elite Yetis in Devias" width="100%"> | <img src="screenshots/devias-combat.jpg" alt="Fighting in Devias with dropped items and damage numbers" width="100%"> |
+| <img src="screenshots/lorencia-bridge.jpg" alt="Lorencia bridge at night" width="100%"> | <img src="screenshots/lorencia-fields.jpg" alt="Lorencia fields with grass and campfire" width="100%"> |
+| <img src="screenshots/devias-loot.jpg" alt="Loot labels after a fight in Devias" width="100%"> | <img src="screenshots/loading-devias.jpg" alt="Map loading screen" width="100%"> |
+
+### Characters
+
+| | |
+|---|---|
+| <img src="screenshots/character-select.jpg" alt="Character selection scene" width="100%"> | <img src="screenshots/character-create.jpg" alt="Character creation" width="100%"> |
+
+<p align="center">
+  <img src="screenshots/players-wings.jpg" alt="Players with sets, wings and +15 glow" width="60%">
+</p>
+
+### User interface
+
+| | |
+|---|---|
+| <img src="screenshots/ui-character-guild-inventory.jpg" alt="Character, guild and inventory windows" width="100%"> | <img src="screenshots/ui-npc-shop.jpg" alt="NPC shop" width="100%"> |
+| <img src="screenshots/ui-vault.jpg" alt="Vault" width="100%"> | <img src="screenshots/ui-skills.jpg" alt="Skill selection window" width="100%"> |
+
+<p align="center">
+  <img src="screenshots/ui-item-tooltip.jpg" alt="Item tooltip in the original client's format" height="340">
+  <img src="screenshots/ui-warp.jpg" alt="Warp menu" height="340">
+</p>
+
+---
+
 ## 🎮 Features
 
-- **🌐 Cross-Platform Support** - Windows (OpenGL/DirectX), Linux, macOS, Android, and iOS
-- **🎨 Full 3D Rendering** - MonoGame-based graphics engine with dynamic lighting and effects
-- **🎯 Dual Graphics Backends** - Choose between OpenGL (compatibility) or DirectX 11 (performance)
+- **🌐 Cross-Platform Support** - Windows, Linux, macOS, Android, and iOS
+- **🎨 Full 3D Rendering** - MonoGame-based graphics engine with dynamic lighting, shadows, grass and distance fog
+- **🎯 Multiple Graphics Backends** - DirectX 11 (default), OpenGL (compatibility), DirectX 12 and Vulkan (experimental)
+- **✨ Faithful Skill Effects** - Skill visuals, timing and animations ported from the original 5.2 client source
+- **🧾 Original Item Tooltips** - Item names, options, set/socket/harmony bonuses and prices read from the original text and item tables
+- **🏰 Ornate UI** - HUD, inventory, vault, shops, character, skills, guild and warp windows; cinematic login and character selection scenes
 - **📦 Original Data Compatibility** - Supports Season 20 (1.20.61) game data files
 - **🔌 Network Protocol** - Season 6 (S6) protocol implementation
 - **🎯 Multiplayer Ready** - Full networking stack with packet handling system
-- **🖼️ Custom UI System** - Resolution-independent UI with virtual coordinates
+- **🖼️ Resolution-Independent UI** - Virtual 1280x720 coordinates scaled to any window size; settings in the in-game pause menu
 - **🗺️ Terrain Rendering** - Heightmap-based terrain with walkability attributes
 - **🏃 Character Animation** - BMD skeletal animation system
 - **💡 Real-Time Lighting** - Dynamic lighting with shader support
@@ -126,14 +167,20 @@ This client requires **Season 20 (1.20.61)** client data files for assets (model
 
 ### 3️⃣ Configure Data Path
 
-Open `Client.Main/Constants.cs` and update line 25:
+The client looks for the game data in this order:
 
-```csharp
-// Windows
-public static string DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";
+1. The `MU_DATA_PATH` environment variable, if set.
+2. Debug builds on Windows: `C:\Games\MU_Red_1_20_61_Full\Data` (set in `MuWinDX/Program.cs` and the other Windows heads).
+3. Otherwise a `Data` folder next to the executable. When it is missing, the loading screen downloads the 1.20.61 data archive.
 
-// Linux/macOS
-public static string DataPath = "/home/user/Games/MU_Red_1_20_61_Full/Data";
+```powershell
+# Windows (PowerShell)
+$env:MU_DATA_PATH = "D:\Games\MU_Red_1_20_61_Full\Data"
+```
+
+```bash
+# Linux/macOS
+export MU_DATA_PATH="$HOME/Games/MU_Red_1_20_61_Full/Data"
 ```
 
 ### 4️⃣ Configure Server Settings
@@ -187,6 +234,10 @@ dotnet run --project ./MuWinDX/MuWinDX.csproj -f net10.0-windows -c Debug -p:Mon
 # Windows (OpenGL - For compatibility)
 dotnet run --project ./MuWinGL/MuWinGL.csproj -f net10.0-windows -c Debug -p:MonoGameFramework=MonoGame.Framework.DesktopGL
 
+# Windows (DirectX 12 / Vulkan - experimental)
+dotnet run --project ./MuWinDX12/MuWinDX12.csproj -c Debug
+dotnet run --project ./MuDesktopVK/MuDesktopVK.csproj -c Debug
+
 # Linux
 dotnet run --project ./MuLinux/MuLinux.csproj -f net10.0 -c Debug
 
@@ -205,18 +256,20 @@ dotnet run --project ./MuMac/MuMac.csproj -f net10.0 -c Debug -p:UsePrebuiltCont
 muonline/
 ├── Client.Data/           # Data file readers (BMD, ATT, MAP, OZB, etc.)
 ├── Client.Main/           # Core game engine, networking, UI, game logic
-│   ├── Client.Main.Shared.props   # shared settings
-│   ├── Client.Main.*.csproj      # platform variants: desktop/windows/android/ios
-├── Client.Data/           # data processing (platform variants)
-│   ├── Client.Data.Shared.props
-│   ├── Client.Data.*.csproj
 ├── Client.Editor/         # Asset editor tool
-├── MuWinGL/               # Windows OpenGL executable (MonoGame.Framework.DesktopGL)
+├── Client.Telemetry/      # Telemetry protocol shared with the diagnostics service
+├── MuDiagnostics.Web/     # Optional diagnostics web service
 ├── MuWinDX/               # Windows DirectX 11 executable (MonoGame.Framework.WindowsDX)
+├── MuWinGL/               # Windows OpenGL executable (MonoGame.Framework.DesktopGL)
+├── MuWinDX12/             # Windows DirectX 12 executable (experimental)
+├── MuDesktopVK/           # Windows Vulkan executable (experimental)
 ├── MuAndroid/             # Android executable project
 ├── MuIos/                 # iOS executable project
 ├── MuLinux/               # Linux executable project
-└── MuMac/                 # macOS executable project
+├── MuMac/                 # macOS executable project
+├── tests/                 # Packet, gameplay, tooltip and skill effect check programs
+├── scripts/               # Publish scripts (Windows, Android)
+└── screenshots/           # README screenshots
 ```
 
 ### Development Builds (per head)
@@ -274,7 +327,9 @@ OpenGL remains available as the compatibility backend:
 dotnet publish ./MuWinGL/MuWinGL.csproj -c Release -r win-x64 -o publish-gl -p:MonoGameFramework=MonoGame.Framework.DesktopGL
 ```
 
-The GitHub Actions workflow automatically builds **both** Windows versions (OpenGL and DirectX) on every push to `main` and publishes them to GitHub Pages.
+The GitHub Actions workflow builds the Windows OpenGL, DirectX 11, DirectX 12 (experimental) and Vulkan (experimental) versions plus an Android ARM64 APK on every push to `main` and publishes them to GitHub Pages.
+
+The performance build runs on whichever GPU Windows assigns to it. On laptops with two GPUs, pick the dedicated one in **Settings → System → Display → Graphics** (add `MuMono.exe`, choose **High performance**).
 
 #### Linux
 
@@ -404,23 +459,21 @@ This project implements a layered architecture with clear separation of concerns
 
 ## 🔧 Configuration
 
-### Constants.cs (Client.Main/Constants.cs:25)
+### In-game settings
 
-Debug vs Release builds have different configurations:
+Most options (graphics quality preset, render scale, grass, shadows, weapon trails, inventory camera zoom, music and sound) are changed in the **pause menu → Settings** and saved between sessions.
 
-**Debug Settings:**
-- `SHOW_DEBUG_PANEL: true` - Shows FPS, position, network stats
-- `UNLIMITED_FPS: true` - Disables VSync for testing
-- `DataPath` - Absolute path to data files
+### Constants.cs (Client.Main/Constants.cs)
 
-**Release Settings:**
-- `SHOW_DEBUG_PANEL: false`
-- `DataPath` - Relative to executable location
+Defaults used before saved settings are applied:
 
-**Rendering Options:**
-- `RENDER_SCALE: 2.0` - Supersampling multiplier
+- `SHOW_DEBUG_PANEL: false` - Debug panel with FPS, position and network stats
+- `UNLIMITED_FPS: false` - VSync on by default
+- `RENDER_SCALE: 1.0` - Supersampling multiplier
 - `ENABLE_DYNAMIC_LIGHTING_SHADER: true` - GPU-based lighting
 - `MSAA_ENABLED: false` - Multi-sample anti-aliasing (performance impact)
+- `INVENTORY_CAMERA_SHOWCASE: false` - Camera zoom on the hero while the inventory is open
+- `DataPath` - See step 3 of [Quick Start](#-quick-start)
 
 ### appsettings.json (Client.Main/appsettings.json)
 
@@ -494,10 +547,10 @@ Both versions produce **identical visual results** but use different rendering p
 <details>
 <summary><b>❌ "Data path not found" error</b></summary>
 
-**Solution:** Ensure `Client.Main/Constants.cs` has the correct path to your MU data files.
+**Solution:** Point the client at your MU data folder with the `MU_DATA_PATH` environment variable, or put the `Data` folder next to the executable.
 
-```csharp
-public static string DataPath = @"C:\Games\MU_Red_1_20_61_Full\Data";
+```powershell
+$env:MU_DATA_PATH = "C:\Games\MU_Red_1_20_61_Full\Data"
 ```
 
 Verify the path exists and contains files like `Data/Player.bmd`, `Data/Item`, etc.
@@ -518,12 +571,9 @@ Verify the path exists and contains files like `Data/Player.bmd`, `Data/Item`, e
 
 **Solution:**
 1. Verify data files are complete (re-extract if needed)
-2. Check `Constants.cs` shader settings:
-   ```csharp
-   public const bool ENABLE_DYNAMIC_LIGHTING_SHADER = true;
-   ```
+2. Lower the quality preset in the pause menu settings
 3. Update graphics drivers
-4. Try disabling MSAA in Constants.cs
+4. On a laptop with two GPUs, make sure the dedicated GPU is used (Windows graphics settings)
 5. **If using DirectX:** Try the OpenGL version (MuWinGL) instead
 </details>
 
@@ -629,7 +679,8 @@ Found a bug or have a question? [Open an issue](https://github.com/xulek/muonlin
 
 ## 📚 Additional Resources
 
-- **CLAUDE.md** - Comprehensive developer documentation
+- **AGENTS.md** - Notes for contributors and coding agents (code graph tools)
+- **scripts/README.md** - Publish scripts
 - **OpenMU Server** - https://github.com/MUnique/OpenMU
 - **MonoGame Documentation** - https://docs.monogame.net/
 - **.NET 10.0 Docs** - https://docs.microsoft.com/en-us/dotnet/
