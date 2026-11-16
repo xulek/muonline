@@ -27,7 +27,8 @@ Write-Host "Restoring $project for $RuntimeIdentifier..."
 & dotnet restore $project `
     -r $RuntimeIdentifier `
     -p:MonoGameFramework=MonoGame.Framework.WindowsDX `
-    -p:MonoGamePlatform=Windows
+    -p:MonoGamePlatform=Windows `
+    -p:PublishReadyToRun=true
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet restore failed with exit code $LASTEXITCODE"
 }
