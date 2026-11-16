@@ -13,7 +13,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            return ScrollOfNovaChargeEffect.GetOrCreate(context.World, context.Caster);
+            return NovaChargeEffect.GetOrCreate(context.World, context.Caster);
         }
     }
 }

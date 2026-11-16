@@ -17,24 +17,37 @@ namespace Client.Main.Core.Utilities
             Repair = 2
         }
 
+        /// <summary>ItemValue(ip, 0): NPC purchase price (SourceMain5.2 ZzzInfomation.cpp:1592).</summary>
         public static int CalculateBuyPrice(InventoryItem item)
         {
-            if (item == null) return 0;
-            return (int)CalculatePrice(item, PriceMode.Buy);
+            var ip = ItemTooltip.SourceItemTooltip.CreateSourceItem(item);
+            if (ip == null) return 0;
+            return (int)Math.Clamp(ItemTooltip.SourceItemValue.ItemValue(ip, 0), 0, int.MaxValue);
         }
 
+        /// <summary>ItemValue(ip, 1): NPC selling price.</summary>
         public static int CalculateSellPrice(InventoryItem item)
         {
-            if (item == null) return 0;
-            return (int)CalculatePrice(item, PriceMode.Sell);
+            var ip = ItemTooltip.SourceItemTooltip.CreateSourceItem(item);
+            if (ip == null) return 0;
+            return (int)Math.Clamp(ItemTooltip.SourceItemValue.ItemValue(ip, 1), 0, int.MaxValue);
         }
 
+        /// <summary>
+        /// Repair price: CalcRepairCost(ItemValue(ip, 2), ...) (ZzzInventory.cpp:1205). npcDiscount = NPC repair shop,
+        /// otherwise the inventory self-repair price (x2.5 included, as in the original).
+        /// </summary>
         public static int CalculateRepairPrice(InventoryItem item, bool npcDiscount = true)
         {
-            if (item == null) return 0;
-            if (!IsRepairable(item)) return 0;
-            return (int)CalculateRepairPriceInternal(item, npcDiscount);
+            var ip = ItemTooltip.SourceItemTooltip.CreateSourceItem(item);
+            if (ip == null || ItemTooltip.SourceItemTooltip.IsRepairBan(ip)) return 0;
+            long gold = ItemTooltip.SourceItemTooltip.RepairGold(ip, npcDiscount);
+            return gold < 0 ? 0 : (int)Math.Min(gold, int.MaxValue);
         }
+
+        /// <summary>Legacy approximation kept for reference; the excellent flags now come from the parsed item data.</summary>
+        [Obsolete("Use CalculateBuyPrice / CalculateSellPrice (faithful ItemValue port).")]
+        public static long CalculateLegacyPrice(InventoryItem item, PriceMode mode) => item == null ? 0 : CalculatePrice(item, mode);
 
         /// <summary>
         /// Checks if an item can be repaired based on Season 6 repair ban list from ZzzInventory.cpp RepairAllGold()
@@ -42,44 +55,9 @@ namespace Client.Main.Core.Utilities
         public static bool IsRepairable(InventoryItem item)
         {
             if (item == null) return false;
-
-            var def = item.Definition;
-            if (def == null) return false;
-
-            bool isStaff = def.Group == 5;
-
-            // Items with no durability cannot be repaired
-            // Staffs use MagicDurability, other items use BaseDurability
-            int maxDur = isStaff ? def.MagicDurability : def.BaseDurability;
-            if (maxDur == 0) return false;
-
-            byte group = (byte)def.Group;
-            short id = (short)def.Id;
-
-            // Group 13 (Helpers/Pets/Misc) - most banned except Dark Horse/Raven
-            if (group == 13)
-            {
-                // Dark Horse (4), Dark Raven (5), Horn of Fenrir (37) can be repaired
-                if (id == 4 || id == 5) return true;
-                // Everything else in group 13 is banned
-                return false;
-            }
-
-            // Group 14 (Potions/Scrolls) - all banned
-            if (group == 14) return false;
-
-            // Bolts and Arrows
-            if (group == 4 && (id == 7 || id == 15)) return false;
-
-            // Orbs (group 12, id 7-11 roughly, need exact mapping)
-            // Simplified: ban group 12 id 7-20 (orbs and some other banned items)
-            if (group == 12 && id >= 7 && id <= 20) return false;
-
-            // Wings 130-135 (season items)
-            if (group == 12 && id >= 130 && id <= 135) return false;
-
-            // If not in banned list, item can be repaired
-            return true;
+            var source = ItemTooltip.SourceItemTooltip.CreateSourceItem(item);
+            if (source == null || ItemTooltip.SourceItemTooltip.IsRepairBan(source)) return false; // IsRepairBan (ZzzInventory.cpp:7879)
+            return ItemTooltip.SourceItemAttributes.CalcMaxDurability(source, source.Attribute, source.Level) > 0;
         }
 
         /// <summary>
@@ -154,12 +132,8 @@ namespace Client.Main.Core.Utilities
             int level = details.Level;
 
             // Count excellent options (each bit in excByte & 0x3F)
-            int excellentCount = 0;
-            if (item.RawData != null && item.RawData.Length > 3)
-            {
-                byte excByte = item.RawData[3];
-                excellentCount = CountBits((byte)(excByte & 0x3F));
-            }
+            // Excellent flags from the parsed item data (works for the extended OpenMU format too).
+            int excellentCount = CountBits((byte)(details.ExcellentFlags & 0x3F));
 
             long gold;
 

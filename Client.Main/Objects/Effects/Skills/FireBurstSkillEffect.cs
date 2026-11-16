@@ -1,6 +1,5 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
@@ -13,17 +12,10 @@ namespace Client.Main.Objects.Effects.Skills
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
         {
-            if (context.Caster == null || context.World == null || context.TargetId == 0)
+            if (context.Caster == null || context.World == null)
                 return null;
 
-            if (!context.World.TryGetWalkerById(context.TargetId, out _))
-                return null;
-
-            return new FireBurstEffect(
-                context.Caster,
-                context.TargetId,
-                context.World,
-                context.TargetPosition);
+            return new FireBurstEffect(context.Caster, context.TargetId);
         }
     }
 }

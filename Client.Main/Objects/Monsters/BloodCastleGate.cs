@@ -1,4 +1,5 @@
 ﻿using Client.Main.Content;
+using Client.Main.Controllers;
 using Client.Main.Models;
 using Client.Main.Objects.Effects;
 using Microsoft.Xna.Framework;
@@ -17,10 +18,38 @@ namespace Client.Main.Objects.Monsters
         {
             Scale = 0.8f;
             RenderShadow = false;
-            Children.Add(new BloodCastleDeathFragmentEffect(
-                this,
-                "Object12/Gate01.bmd",
-                "Object12/Gate02.bmd"));
+        }
+
+        private bool _destroyed;
+
+        /// <summary>
+        /// ZzzObject.cpp:1415 (MODEL_CASTLE_GATE, MONSTER01_DIE): o->Live = false, SOUND_HIT_GATE2 and
+        /// RenderMeshEffect(0, MODEL_GATE) on the same frame: the gate vanishes and breaks into fragments.
+        /// </summary>
+        public override void OnDeathAnimationStart()
+        {
+            base.OnDeathAnimationStart();
+            if (_destroyed)
+                return;
+
+            _destroyed = true;
+            HiddenMesh = -2;
+            Hidden = true;
+            Interactive = false;
+            SoundController.Instance.PlayBuffer("Sound/eHitGate2.wav");
+            BloodCastleDeathFragmentEffect.Spawn(this, "Object12/Gate01.bmd", "Object12/Gate02.bmd");
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            if (_destroyed)
+            {
+                World?.RemoveObject(this);
+                Dispose();
+                return;
+            }
+
+            base.Update(gameTime);
         }
 
         public override async Task Load()

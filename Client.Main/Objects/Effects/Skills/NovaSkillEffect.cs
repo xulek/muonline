@@ -16,7 +16,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            byte stage = ScrollOfNovaChargeEffect.ConsumeStageAndStop(context.World, context.Caster.NetworkId);
+            byte stage = NovaChargeEffect.ConsumeStageAndStop(context.World, context.Caster.NetworkId);
 
             // The local hero already spawned its release explosion optimistically in
             // GameSceneSkillController.SpawnNovaExplosion; the server echo would
@@ -27,7 +27,7 @@ namespace Client.Main.Objects.Effects.Skills
                 return null;
 
             Vector3 center = context.Caster.WorldPosition.Translation;
-            return new ScrollOfNovaExplosionEffect(context.Caster, center, stage);
+            return new NovaReleaseEffect(context.Caster, stage);
         }
     }
 }

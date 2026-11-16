@@ -7,6 +7,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Client.Main.Content;
 using Client.Main;
+using Client.Main.Core.Utilities.ItemTooltip;
+using Client.Main.Controllers;
 
 namespace Client.Main.Controls.UI.Game.Common
 {
@@ -28,117 +30,52 @@ namespace Client.Main.Controls.UI.Game.Common
         public Color Legendary { get; }
     }
 
+    /// <summary>Style of one tooltip row as RenderTipTextList draws it: bold font and optional background (DARKRED, DARKBLUE, DARKYELLOW, GREEN_BLUE).</summary>
+    public readonly record struct ItemTooltipRowStyle(bool Bold, Color? Background);
+
+    /// <summary>
+    /// Tooltip rows (text, color) plus the original per-row style. Rows appended by callers have no style.
+    /// </summary>
+    public sealed class ItemTooltipLines : List<(string text, Color color)>
+    {
+        private readonly List<ItemTooltipRowStyle> _styles = new();
+
+        internal void Add(string text, Color color, ItemTooltipRowStyle style)
+        {
+            Add((text, color));
+            while (_styles.Count < Count - 1) _styles.Add(default);
+            _styles.Add(style);
+        }
+
+        public ItemTooltipRowStyle GetStyle(int index) => index >= 0 && index < _styles.Count ? _styles[index] : default;
+
+        public static ItemTooltipRowStyle StyleOf(IReadOnlyList<(string Text, Color Color)> lines, int index)
+            => lines is ItemTooltipLines l ? l.GetStyle(index) : default;
+    }
+
     public static class ItemUiHelper
     {
         /// <summary>
-        /// Calculates max durability based on item level, excellent, and ancient options.
-        /// Formula from ZzzInventory.cpp:CalcMaxDurability()
+        /// Max durability: SourceMain5.2 CalcMaxDurability (ZzzInventory.cpp:1553) applied to the item's ITEM data.
         /// </summary>
         public static int CalculateMaxDurability(ItemDefinition def, ItemDatabase.ItemDetails details, bool isStaff)
         {
-            // Start with base durability (staffs use MagicDurability, others use BaseDurability)
-            int maxDur = isStaff ? def.MagicDurability : def.BaseDurability;
-
-            // Add level bonuses
-            int level = details.Level;
-            for (int i = 0; i < level; i++)
+            if (def == null) return 0;
+            var ip = new SourceItem
             {
-                if (i >= 14)      // Level 15
-                    maxDur = Math.Min(maxDur + 8, 255);
-                else if (i >= 13) // Level 14
-                    maxDur = Math.Min(maxDur + 7, 255);
-                else if (i >= 12) // Level 13
-                    maxDur += 6;
-                else if (i >= 11) // Level 12
-                    maxDur += 5;
-                else if (i >= 10) // Level 11
-                    maxDur += 4;
-                else if (i >= 9)  // Level 10
-                    maxDur += 3;
-                else if (i >= 4)  // Level 5-9
-                    maxDur += 2;
-                else              // Level 1-4
-                    maxDur++;
-            }
-
-            // Ancient items: +20 durability
-            if (details.IsAncient)
-            {
-                maxDur += 20;
-            }
-            // Excellent items (non-wings): +15 durability
-            else if (details.IsExcellent && def.Group != 12) // Group 12 = Wings
-            {
-                maxDur += 15;
-            }
-
-            return Math.Min(maxDur, 255);
+                Type = def.Group * SourceConstants.MAX_ITEM_INDEX + def.Id,
+                Level = details.Level,
+                ExcellentFlags = details.IsExcellent ? details.ExcellentFlags & 0x3F : 0,
+                AncientDiscriminator = details.IsAncient ? 1 : 0,
+            };
+            return SourceItemAttributes.CalcMaxDurability(ip, SourceItemAttribute.FromDefinition(def), details.Level);
         }
 
-        /// <summary>
-        /// Calculates damage with level bonus.
-        /// Formula from ZzzInfomation.cpp (line 501-514)
-        /// </summary>
-        public static (int min, int max) CalculateDamageWithLevel(int baseMin, int baseMax, int level, bool isExcellent, int dropLevel)
+        /// <summary>Max durability of an inventory item (uses the full ITEM data, incl. extended packets).</summary>
+        public static int CalculateMaxDurability(InventoryItem item)
         {
-            int dmgMin = baseMin;
-            int dmgMax = baseMax;
-
-            if (baseMin > 0)
-            {
-                if (isExcellent && dropLevel > 0)
-                    dmgMin += baseMin * 25 / dropLevel + 5;
-                dmgMin += level * 3;
-            }
-
-            if (baseMax > 0)
-            {
-                if (isExcellent && dropLevel > 0)
-                    dmgMax += baseMin * 25 / dropLevel + 5;
-                dmgMax += level * 3;
-            }
-
-            return (dmgMin, dmgMax);
-        }
-
-        /// <summary>
-        /// Calculates defense with level bonus.
-        /// Formula from ZzzInfomation.cpp (line 516-530)
-        /// </summary>
-        public static int CalculateDefenseWithLevel(int baseDefense, int level, bool isShield, bool isExcellent, int dropLevel)
-        {
-            int defense = baseDefense;
-
-            if (defense > 0)
-            {
-                if (isShield)
-                {
-                    defense += level; // Shields: +level
-                }
-                else
-                {
-                    if (isExcellent && dropLevel > 0)
-                        defense += baseDefense * 12 / dropLevel + 4 + dropLevel / 5;
-                    defense += level * 3; // Non-shields: +level*3
-                }
-            }
-
-            return defense;
-        }
-
-        /// <summary>
-        /// Calculates requirements with level and excellent bonuses.
-        /// Formula from ZzzInfomation.cpp (line 540-551)
-        /// </summary>
-        public static int CalculateRequirement(int baseRequirement, int level, bool isExcellent, int dropLevel)
-        {
-            if (baseRequirement == 0) return 0;
-
-            int itemLevel = dropLevel;
-            if (isExcellent)
-                itemLevel += 25; // Excellent adds +25 to ItemLevel for requirements
-
-            return 20 + baseRequirement * (itemLevel + level * 3) * 3 / 100;
+            var ip = SourceItemTooltip.CreateSourceItem(item);
+            return ip == null ? 0 : SourceItemAttributes.CalcMaxDurability(ip, ip.Attribute, ip.Level);
         }
 
         public static Color GetItemGlowColor(InventoryItem item, ItemGlowPalette palette)
@@ -171,160 +108,130 @@ namespace Client.Main.Controls.UI.Game.Common
             }
         }
 
-        public static List<(string text, Color color)> BuildTooltipLines(InventoryItem item)
+        /// <summary>RGB of a TEXT_COLOR_* value as RenderTipTextList sets it (ZzzInventory.cpp:385-443).</summary>
+        public static Color GetSourceTextColor(int textColor) => textColor switch
         {
-            var lines = new List<(string, Color)>();
+            SourceConstants.TEXT_COLOR_BLUE => new Color(0.5f, 0.7f, 1f),
+            SourceConstants.TEXT_COLOR_GRAY => new Color(0.4f, 0.4f, 0.4f),
+            SourceConstants.TEXT_COLOR_GREEN_BLUE => new Color(0, 255, 0),
+            SourceConstants.TEXT_COLOR_RED => new Color(1f, 0.2f, 0.1f),
+            SourceConstants.TEXT_COLOR_YELLOW => new Color(1f, 0.8f, 0.1f),
+            SourceConstants.TEXT_COLOR_GREEN => new Color(0.1f, 1f, 0.5f),
+            SourceConstants.TEXT_COLOR_PURPLE => new Color(1f, 0.1f, 1f),
+            SourceConstants.TEXT_COLOR_REDPURPLE => new Color(0.8f, 0.5f, 0.8f),
+            SourceConstants.TEXT_COLOR_VIOLET => new Color(0.7f, 0.4f, 1f),
+            SourceConstants.TEXT_COLOR_ORANGE => new Color(0.9f, 0.42f, 0.04f),
+            _ => Color.White, // WHITE, DARKRED, DARKBLUE, DARKYELLOW
+        };
+
+        /// <summary>Background of a TEXT_COLOR_* row (DARKRED/DARKBLUE/DARKYELLOW/GREEN_BLUE), or null.</summary>
+        public static Color? GetSourceTextBackground(int textColor) => textColor switch
+        {
+            SourceConstants.TEXT_COLOR_DARKRED => new Color(160, 0, 0),
+            SourceConstants.TEXT_COLOR_DARKBLUE => new Color(0, 0, 160),
+            SourceConstants.TEXT_COLOR_DARKYELLOW => new Color(160, 102, 0),
+            SourceConstants.TEXT_COLOR_GREEN_BLUE => new Color(60, 60, 200),
+            _ => null,
+        };
+
+        /// <summary>
+        /// Draws one tooltip row like RenderTipTextList: optional background box (SetBgColor) and bold text.
+        /// SpriteFont has no bold face, so bold rows are drawn twice with a one pixel offset.
+        /// </summary>
+        public static void DrawTooltipRow(SpriteBatch sb, SpriteFont font, IReadOnlyList<(string Text, Color Color)> lines, int index,
+            string text, Vector2 position, Color color, float scale, Rectangle rowBounds)
+        {
+            if (sb == null || font == null || string.IsNullOrEmpty(text)) return;
+            var style = ItemTooltipLines.StyleOf(lines, index);
+            if (style.Background is Color bg && GraphicsManager.Instance?.Pixel is Texture2D pixel)
+                sb.Draw(pixel, rowBounds, bg);
+            sb.DrawString(font, text, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            if (style.Bold)
+                sb.DrawString(font, text, position + new Vector2(1f, 0f), color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        }
+
+        /// <summary>Background of a row (for renderers that draw text themselves).</summary>
+        public static void DrawTooltipRowBackground(SpriteBatch sb, IReadOnlyList<(string Text, Color Color)> lines, int index, Rectangle rowBounds)
+        {
+            var style = ItemTooltipLines.StyleOf(lines, index);
+            if (style.Background is Color bg && GraphicsManager.Instance?.Pixel is Texture2D pixel)
+                sb.Draw(pixel, rowBounds, bg);
+        }
+
+        [ThreadStatic] private static SourceItemTooltip t_tooltipBuilder;
+        [ThreadStatic] private static List<SourceTooltipLine> t_lastLines;
+        [ThreadStatic] private static (InventoryItem Item, int Durability, ItemTooltipType Type, bool Npc, long? Price, bool Equipped, int Tax, int StateHash) t_lastKey;
+
+        /// <summary>
+        /// Original item tooltip rows (RenderItemInfo, ZzzInventory.cpp:2096) with TEXT_COLOR value and bold flag.
+        /// The leading "\n" row of the original is dropped; other blank rows are empty strings.
+        /// The result for the same item/context is cached, so per-frame callers do not rebuild it.
+        /// </summary>
+        public static IReadOnlyList<SourceTooltipLine> BuildSourceTooltip(InventoryItem item, ItemTooltipContext context = null)
+        {
+            if (item?.Definition == null)
+                return Array.Empty<SourceTooltipLine>();
+
+            context ??= new ItemTooltipContext { NpcShopOpen = NpcShopControl.IsOpen };
+            var state = context.Character ?? MuGame.Network?.GetCharacterState();
+            int heroHash = state == null ? 0 : HashCode.Combine(state.Level, (int)state.Class, state.TotalStrength, state.TotalAgility, state.TotalEnergy, state.TotalVitality, state.TotalLeadership, state.InventoryZen);
+            int petHash = context.PetInfo == null ? -1 : HashCode.Combine(context.PetInfo.m_wLevel, context.PetInfo.m_dwExp1, context.PetInfo.m_wLife);
+            var key = (item, item.Durability, context.Type, context.NpcShopOpen, context.PersonalShopPrice, context.IsEquipped, context.NpcTaxRate, HashCode.Combine(heroHash, petHash));
+            if (t_lastLines != null && t_lastKey.Equals(key))
+                return t_lastLines;
+
+            t_tooltipBuilder ??= new SourceItemTooltip();
+            var lines = t_tooltipBuilder.Build(item, context);
+            if (lines.Count > 0 && lines[0].Text.Length == 0)
+                lines.RemoveAt(0);
+            t_lastLines = lines;
+            t_lastKey = key;
+            return lines;
+        }
+
+        /// <summary>
+        /// Tooltip rows as (text, color) for the existing renderers. Blank rows are empty strings.
+        /// <paramref name="context"/> carries the NPC shop / personal shop state (prices, GlobalText 62/63/1620).
+        /// </summary>
+        public static ItemTooltipLines BuildTooltipLines(InventoryItem item, ItemTooltipContext context = null)
+        {
+            var lines = new ItemTooltipLines();
             if (item?.Definition == null || item?.Details is null)
                 return lines;
 
-            var details = item.Details;
+            // TOOLTIP_TYPE_REPAIR: with the NPC repair window open the original renders RenderRepairInfo instead.
+            var npcShop = NpcShopControl.IsOpen ? NpcShopControl.Instance : null;
+            if (npcShop != null && npcShop.IsRepairMode && (context == null || context.Type == ItemTooltipType.Inventory))
+                return BuildRepairTooltipLines(item, npcRepairShop: true, context);
 
-            var characterState = MuGame.Network?.GetCharacterState();
-
-            string name = details.IsExcellent ? $"Excellent {item.Definition.Name}"
-                        : details.IsAncient ? $"Ancient {item.Definition.Name}"
-                        : item.Definition.Name;
-
-            if (details.Level > 0)
-                name += $" +{details.Level}";
-
-            lines.Add((name, Color.White));
-
-            var def = item.Definition;
-            int itemLevel = details.Level;
-            bool isExcellent = details.IsExcellent;
-            bool isStaff = def.Group == 5;
-            bool isShield = def.Group == 6;
-
-            // Physical damage (all weapons including staffs)
-            if (def.DamageMin > 0 || def.DamageMax > 0)
-            {
-                var (dmgMin, dmgMax) = CalculateDamageWithLevel(def.DamageMin, def.DamageMax, itemLevel, isExcellent, def.DropLevel);
-
-                // Staffs have special calculation: DamageMin / 2 + Level * 2
-                if (isStaff)
-                {
-                    dmgMin = dmgMin / 2 + itemLevel * 2;
-                    dmgMax = 0;
-                }
-
-                string dmgType = def.TwoHanded ? "Two-hand" : "One-hand";
-                if (dmgMax > 0)
-                    lines.Add(($"{dmgType} Damage : {dmgMin} ~ {dmgMax}", Color.Orange));
-                else
-                    lines.Add(($"{dmgType} Damage : {dmgMin}", Color.Orange));
-            }
-
-            // Wizard damage (for staffs and other magic weapons)
-            if (def.MagicPower > 0)
-            {
-                lines.Add(($"Wizardry Damage : {def.MagicPower}%", new Color(150, 200, 255)));
-            }
-
-            // Defense
-            if (def.Defense > 0)
-            {
-                int defense = CalculateDefenseWithLevel(def.Defense, itemLevel, isShield, isExcellent, def.DropLevel);
-                lines.Add(($"Defense     : {defense}", Color.Orange));
-            }
-
-            if (def.DefenseRate > 0) lines.Add(($"Defense Rate: {def.DefenseRate}", Color.Orange));
-            if (def.AttackSpeed > 0) lines.Add(($"Attack Speed: {def.AttackSpeed}", Color.Orange));
-
-            // Movement speed for boots/gloves
-            if (def.WalkSpeed > 0)
-            {
-                lines.Add(($"Movement Speed : {def.WalkSpeed}", new Color(100, 255, 100)));
-            }
-
-            // Max durability with level/excellent/ancient bonuses
-            int maxDurability = CalculateMaxDurability(def, details, isStaff);
-
-            // Only show durability if item has durability (maxDurability > 0)
-            // This excludes jewels, scrolls, and other items without durability
-            if (maxDurability > 0)
-            {
-                lines.Add(($"Durability : {item.Durability}/{maxDurability}", Color.Silver));
-            }
-
-            if (def.RequiredLevel > 0)
-            {
-                Color color = (characterState != null && characterState.Level >= def.RequiredLevel) ? Color.LightGray : Color.Red;
-                lines.Add(($"Required Level   : {def.RequiredLevel}", color));
-            }
-
-            // Requirements with level/excellent bonuses
-            if (def.RequiredStrength > 0)
-            {
-                int reqStr = CalculateRequirement(def.RequiredStrength, itemLevel, isExcellent, def.DropLevel);
-                Color color = (characterState != null && characterState.TotalStrength >= reqStr) ? Color.LightGray : Color.Red;
-                lines.Add(($"Required Strength: {reqStr}", color));
-            }
-            if (def.RequiredDexterity > 0)
-            {
-                int reqDex = CalculateRequirement(def.RequiredDexterity, itemLevel, isExcellent, def.DropLevel);
-                Color color = (characterState != null && characterState.TotalAgility >= reqDex) ? Color.LightGray : Color.Red;
-                lines.Add(($"Required Agility : {reqDex}", color));
-            }
-            if (def.RequiredEnergy > 0)
-            {
-                int reqEne = 20 + def.RequiredEnergy * (def.DropLevel + itemLevel * 3) * 4 / 10; // Energy uses different formula
-                Color color = (characterState != null && characterState.TotalEnergy >= reqEne) ? Color.LightGray : Color.Red;
-                lines.Add(($"Required Energy  : {reqEne}", color));
-            }
-
-            if (def.AllowedClasses != null)
-            {
-                foreach (var cls in def.AllowedClasses)
-                    lines.Add(($"Can be equipped by {cls}", Color.LightGray));
-
-                bool canEquip = characterState != null && def.AllowedClasses.Contains(CharacterClassDatabase.GetClassName(characterState.Class));
-                if (!canEquip)
-                {
-                    var className = characterState != null ? CharacterClassDatabase.GetClassName(characterState.Class) : "Unknown";
-                    lines.Add(($"This item cannot be equipped by {className}", Color.Red));
-                }
-            }
-
-            if (details.OptionLevel > 0)
-                lines.Add(($"Additional Option : +{details.OptionLevel * 4}", new Color(80, 255, 80)));
-
-            if (details.HasLuck) lines.Add(("+Luck  (Crit +5 %, Jewel +25 %)", Color.CornflowerBlue));
-            if (details.HasSkill) lines.Add(("+Skill (Right mouse click - skill)", Color.CornflowerBlue));
-
-            if (details.IsExcellent)
-            {
-                byte excByte = item.RawData.Length > 3 ? item.RawData[3] : (byte)0;
-                foreach (var option in ItemDatabase.ParseExcellentOptions(excByte))
-                    lines.Add(($"+{option}", new Color(128, 255, 128)));
-            }
-
-            if (details.IsAncient)
-                lines.Add(("Ancient Option", new Color(0, 255, 128)));
-
-            // Show "Right-click to use" for consumables (potions, scrolls), but not for jewels
-            if (def.IsConsumable() && !def.IsJewel())
-                lines.Add(("Right-click to use", new Color(255, 215, 0)));
-
-            // Add repair cost if in repair mode
-            var npcShop = NpcShopControl.Instance;
-            if (npcShop != null && npcShop.Visible && npcShop.IsRepairMode)
-            {
-                if (Core.Utilities.ItemPriceCalculator.IsRepairable(item))
-                {
-                    int repairCost = Core.Utilities.ItemPriceCalculator.CalculateRepairPrice(item, npcDiscount: true);
-                    if (repairCost > 0 && item.Durability < maxDurability)
-                    {
-                        lines.Add(($"Repair Cost: {repairCost} Zen", new Color(212, 175, 85)));
-                    }
-                }
-                else
-                {
-                    lines.Add(("Cannot be repaired", new Color(255, 100, 100)));
-                }
-            }
-
+            AppendRows(lines, BuildSourceTooltip(item, context));
             return lines;
+        }
+
+        /// <summary>RenderRepairInfo (ZzzInventory.cpp:5642): NPC repair (npcRepairShop) or inventory self-repair price.</summary>
+        public static ItemTooltipLines BuildRepairTooltipLines(InventoryItem item, bool npcRepairShop, ItemTooltipContext context = null)
+        {
+            var lines = new ItemTooltipLines();
+            if (item?.Definition == null) return lines;
+            var ctx = new ItemTooltipContext
+            {
+                Type = ItemTooltipType.Inventory,
+                NpcRepairShop = npcRepairShop,
+                PetInfo = context?.PetInfo,
+                Character = context?.Character,
+            };
+            t_tooltipBuilder ??= new SourceItemTooltip();
+            var rows = t_tooltipBuilder.BuildRepair(item, ctx);
+            if (rows.Count > 0 && rows[0].Text.Length == 0) rows.RemoveAt(0);
+            AppendRows(lines, rows);
+            t_lastLines = null; // the shared builder was used for another layout
+            return lines;
+        }
+
+        private static void AppendRows(ItemTooltipLines lines, IReadOnlyList<SourceTooltipLine> rows)
+        {
+            foreach (var line in rows)
+                lines.Add(line.Text, GetSourceTextColor(line.TextColor), new ItemTooltipRowStyle(line.Bold, line.Text.Length == 0 ? null : GetSourceTextBackground(line.TextColor)));
         }
     }
 }

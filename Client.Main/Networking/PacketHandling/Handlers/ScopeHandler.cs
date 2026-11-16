@@ -867,7 +867,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 string monster = NpcDatabase.GetNpcName(type);
                 string name = string.IsNullOrEmpty(owner) ? monster : $"{monster} ({owner})";
                 _monsterNameOverrides[maskedId] = (name, false);
-                _scopeManager.AddOrUpdateNpcInScope(maskedId, rawId, x, y, type, name);
+                _scopeManager.AddOrUpdateNpcInScope(maskedId, rawId, x, y, type, name, isSummoned: true);
                 QueueNpcSpawn(maskedId, rawId, x, y, direction, type, name, mapId);
             }
 
@@ -1080,6 +1080,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 forceFullVisibilityRebuild: true);
                         }
 
+                        // An idle walker that is not on the server's tile missed a walk: walk it there.
+                        if (!existing.IsMoving && !existing.MovementIntent && existing.IsAlive())
+                        {
+                            var scopeTile = new Vector2(npc.PositionX, npc.PositionY);
+                            float drift = MathF.Max(MathF.Abs((int)existing.Location.X - scopeTile.X),
+                                MathF.Abs((int)existing.Location.Y - scopeTile.Y));
+                            if (drift > 1f)
+                                existing.MoveFromServerWalk(scopeTile);
+                        }
+
                         continue;
                     }
 
@@ -1223,6 +1233,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
             // Configure the object's properties
             obj.NetworkId = maskedId;
+            if (obj is MonsterObject summoned && _scopeManager.GetScopeObjectByMaskedId(maskedId) is NpcScopeObject scopedNpc)
+                summoned.IsSummoned = scopedNpc.IsSummoned;
             if (obj is MonsterObject named && _monsterNameOverrides.TryGetValue(maskedId, out var nameOverride))
             {
                 named.DisplayNameOverride = nameOverride.Name;
@@ -1282,6 +1294,18 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         obj.Dispose();
                         insertionCompletion.TrySetResult(false);
                         return;
+                    }
+
+                    // The viewport classification may have changed while assets were loading.
+                    if (obj is MonsterObject loadedMonster && _scopeManager.GetScopeObjectByMaskedId(maskedId) is NpcScopeObject currentNpc)
+                        loadedMonster.IsSummoned = currentNpc.IsSummoned;
+
+                    // Walk / move packets for this id were dropped while it was loading (no walker yet), but the
+                    // scope kept its position: start where the server has it now, not at the spawn packet's tile.
+                    if (_scopeManager.GetScopeObjectByMaskedId(maskedId) is { } latestScope &&
+                        (latestScope.PositionX != x || latestScope.PositionY != y))
+                    {
+                        obj.Location = new Vector2(latestScope.PositionX, latestScope.PositionY);
                     }
 
                     // Check and remove stale objects quickly.
@@ -2270,6 +2294,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             ushort raw;
             ushort maskedId;
             byte x, y;
+            Vector2? source = null;
 
             if (_useExtendedWalkFormat && packet.Length >= ObjectWalkedExtended.GetRequiredSize(0))
             {
@@ -2280,6 +2305,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 maskedId = (ushort)(raw & 0x7FFF);
                 x = walkExtended.TargetX;
                 y = walkExtended.TargetY;
+                source = new Vector2(walkExtended.SourceX, walkExtended.SourceY);
             }
             else
             {
@@ -2331,42 +2357,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
 
-                walker.MoveTo(new Vector2(x, y), sendToServer: false, usePathfinding: false);
+                walker.MoveFromServerWalk(new Vector2(x, y), source);
 
-                if (walker is PlayerObject player)
+                // Remote players: UpdateRemotePlayer picks the walk / run / weapon / mount action every frame
+                // (SetPlayerWalk). Forcing the generic walk here restarted that action on every walk packet.
+                if (walker is PlayerObject)
                 {
-                    bool isFemale = PlayerActionMapper.IsCharacterFemale(player.CharacterClass);
-                    PlayerAction walkAction;
-
-                    if (world.WorldIndex == 8) // Atlans
-                    {
-                        var flags = world.Terrain.RequestTerrainFlag(x, y);
-                        if (flags.HasFlag(TWFlags.SafeZone))
-                        {
-                            walkAction = isFemale ? PlayerAction.PlayerWalkFemale : PlayerAction.PlayerWalkMale;
-                        }
-                        else if (player.HasEquippedWings)
-                        {
-                            walkAction = PlayerAction.PlayerFly;
-                        }
-                        else
-                        {
-                            walkAction = PlayerAction.PlayerRunSwim;
-                        }
-                    }
-                    else if (world.WorldIndex == 11 || (world.WorldIndex == 1 && player.HasEquippedWings && !world.Terrain.RequestTerrainFlag(x, y).HasFlag(TWFlags.SafeZone)))
-                    {
-                        walkAction = PlayerAction.PlayerFly;
-                    }
-                    else
-                    {
-                        walkAction = isFemale ? PlayerAction.PlayerWalkFemale : PlayerAction.PlayerWalkMale;
-                    }
-
-                    if (player.CurrentAction != walkAction)
-                    {
-                        player.PlayAction((ushort)walkAction, fromServer: true);
-                    }
                 }
                 else if (walker is MonsterObject)
                 {
@@ -2725,7 +2721,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                 if (maskedId == _characterState.Id && walker is PlayerObject localPlayer)
                 {
-                    localPlayer.Direction = clientDirection;
+                    // The echo of a local attack / cast must not turn the hero back to one of the 8 directions:
+                    // the request already set the continuous angle to the target.
+                    if (!localPlayer.IsAttackOrSkillAnimationPlaying())
+                        localPlayer.Direction = clientDirection;
                     localPlayer.PlayAction((ushort)clientActionToPlay, fromServer: true); // <-- Dodaj fromServer: true
                     _logger.LogDebug("🎞️ Animation (LocalPlayer {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",
                         maskedId, actionNameForLog, clientActionToPlay, serverActionId, clientDirection);
@@ -2733,6 +2732,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 else
                 {
                     walker.Direction = clientDirection;
+                    // ReceiveAction: c->Object.Angle[2] = (Angle - 1) * 45 is set at once, not eased.
+                    walker.SnapFacingToDirection();
 
                     walker.PlayAction((ushort)clientActionToPlay, fromServer: true);
 

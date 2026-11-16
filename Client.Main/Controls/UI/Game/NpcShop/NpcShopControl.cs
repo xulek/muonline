@@ -818,12 +818,11 @@ namespace Client.Main.Controls.UI.Game
         {
             if (_hoveredItem == null || _font == null) return;
 
-            var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem);
-            int buyPrice = ItemPriceCalculator.CalculateBuyPrice(_hoveredItem);
-            if (buyPrice > 0)
+            var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem, new Core.Utilities.ItemTooltip.ItemTooltipContext
             {
-                lines.Add(($"Buy Price: {buyPrice} Zen", Theme.TextGold));
-            }
+                Type = Core.Utilities.ItemTooltip.ItemTooltipType.NpcShop,
+                NpcShopOpen = true,
+            });
             const float scale = 0.44f;
             const int lineSpacing = 4;
             const int paddingX = 14;
@@ -898,16 +897,17 @@ namespace Client.Main.Controls.UI.Game
 
             int textY = tooltipRect.Y + paddingY;
             bool firstLine = true;
-            foreach (var (text, color) in lines)
+            for (int row = 0; row < lines.Count; row++)
             {
+                var (text, color) = lines[row];
                 Vector2 textSize = _font.MeasureString(text) * scale;
                 int textX = tooltipRect.X + (tooltipRect.Width - (int)textSize.X) / 2;
 
                 spriteBatch.DrawString(_font, text, new Vector2(textX + 1, textY + 1), Color.Black * 0.7f,
                                        0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                Color lineColor = firstLine ? borderColor : color;
-                spriteBatch.DrawString(_font, text, new Vector2(textX, textY), lineColor,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                Color lineColor = color;
+                ItemUiHelper.DrawTooltipRow(spriteBatch, _font, lines, row, text, new Vector2(textX, textY), lineColor, scale,
+                    new Rectangle(tooltipRect.X + 4, textY, tooltipRect.Width - 8, (int)MathF.Ceiling(textSize.Y)));
 
                 textY += (int)textSize.Y + lineSpacing;
 

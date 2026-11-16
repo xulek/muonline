@@ -14,7 +14,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            return new RagefulBlowEffect(context.Caster, context.TargetPosition);
+            return new FuryStrikeEffect(context.Caster);
         }
     }
 }

@@ -1039,7 +1039,8 @@ namespace Client.Main.Controls.UI.Game.Hud
             if (!SkillIconAtlas.TryResolve(skill.SkillId, definition, out var frame))
                 return;
 
-            var tex = TextureLoader.Instance.GetTexture2D(frame.TexturePath);
+            bool unusable = !SkillManager.MeetsDemandConditions(skill.SkillId);
+            var tex = SkillIconRenderer.GetIconTexture(frame.TexturePath, unusable, out Color tint);
             if (tex == null)
                 return;
 
@@ -1059,7 +1060,7 @@ namespace Client.Main.Controls.UI.Game.Hud
                 iconBounds.Y + (iconBounds.Height - drawH) / 2,
                 drawW,
                 drawH);
-            sb.Draw(tex, iconDest, frame.SourceRectangle, Color.White);
+            sb.Draw(tex, iconDest, frame.SourceRectangle, tint);
 
             DrawSkillCooldownOverlay(sb, iconDest, skill);
             DrawSkillCooldownTimer(sb, iconDest, skill);

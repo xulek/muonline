@@ -1,40 +1,43 @@
 #nullable enable
 using Client.Main.Content;
 using Client.Main.Controllers;
-using Client.Main.Graphics;
-using Client.Main.Helpers;
 using Client.Main.Models;
 using Client.Main.Objects;
+using Client.Main.Objects.Effects.SkillFx;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using System;
 using System.Threading.Tasks;
 
 namespace Client.Main.Effects
 {
     /// <summary>
-    /// SourceMain5.2 InsertBuffPhysicalEffect eBuff_WizDefense: soul barrier /
-    /// mana shield bubble orbiting the protected character
-    /// (CreateJoint(MODEL_SPEARSKILL, ..., sub0, owner, 50)).
-    /// Approximated with a pulsing translucent shell: horizontal ring + two
-    /// crossed vertical light columns around the owner.
+    /// SourceMain5.2 eBuff_WizDefense (Soul Barrier): InsertBuffPhysicalEffect creates
+    /// 5 x CreateJoint(MODEL_SPEARSKILL, owner, sub 0, Scale 50). Each joint wanders on the
+    /// deterministic "magic screw" path around the owner (radius 80, height 110 +- 120, driven by
+    /// WorldTime / 40 and the joint index), keeps 30 owner-relative tails rendered with flareBlue.jpg
+    /// (darkening with height above the owner) and a flareBlue sprite at its middle tail.
     /// </summary>
     public sealed class ManaShieldBubbleEffect : EffectObject
     {
-        private const string RingTexturePath = "Effect/ring.jpg";
-        private const string ColumnTexturePath = "Effect/Shiny01.jpg";
+        private const string FlareBlueTexturePath = "Effect/flareBlue.jpg"; // BITMAP_FLARE_BLUE
+        private const int JointCount = 5;
+        private const int MaxTails = 30;
+        private const float JointScale = 50f;
+        private const float TickSeconds = 0.04f;
 
-        private const float BaseRadius = 62f;
-        private const float HeightOffset = 65f;
-        private const float PulseSpeed = 2.2f;
+        private static readonly float[] Speed = { 0.048f, 0.0613f, 0.1113f };
 
-        private Texture2D? _ringTexture;
-        private Texture2D? _columnTexture;
         private readonly WalkerObject _owner;
+        private readonly int[] _jointIndex = new int[JointCount];
+        private readonly Vector3[] _tails = new Vector3[JointCount * MaxTails]; // owner-relative
+        private readonly int[] _tailCount = new int[JointCount];
+        private Texture2D? _texture;
+        private float _accumulator;
 
         public ManaShieldBubbleEffect(WalkerObject owner)
         {
             _owner = owner;
-            Position = new Vector3(0f, 0f, HeightOffset);
 
             IsTransparent = true;
             AffectedByTransparency = true;
@@ -42,16 +45,17 @@ namespace Client.Main.Effects
             DepthState = DepthStencilState.DepthRead;
 
             BoundingBoxLocal = new BoundingBox(
-                new Vector3(-120f, -120f, -140f),
-                new Vector3(120f, 120f, 160f));
+                new Vector3(-160f, -160f, -40f),
+                new Vector3(160f, 160f, 300f));
+
+            for (int i = 0; i < JointCount; i++)
+                _jointIndex[i] = MuGame.Random.Next(1, 1000);
         }
 
         public override async Task Load()
         {
             await base.Load();
-
-            _ringTexture = await TextureLoader.Instance.PrepareAndGetTexture(RingTexturePath);
-            _columnTexture = await TextureLoader.Instance.PrepareAndGetTexture(ColumnTexturePath);
+            _texture = await TextureLoader.Instance.PrepareAndGetTexture(FlareBlueTexturePath);
         }
 
         public override void Update(GameTime gameTime)
@@ -63,99 +67,88 @@ namespace Client.Main.Effects
                 RemoveSelf();
                 return;
             }
+
+            _accumulator += MathHelper.Clamp((float)gameTime.ElapsedGameTime.TotalSeconds, 0f, TickSeconds * 4f);
+            double worldTime = gameTime.TotalGameTime.TotalMilliseconds;
+            int steps = 0;
+            while (_accumulator >= TickSeconds && steps++ < 4)
+            {
+                _accumulator -= TickSeconds;
+                for (int j = 0; j < JointCount; j++)
+                    PushTail(j, ComputeOffset(_jointIndex[j], worldTime));
+            }
+        }
+
+        /// <summary>MoveJoint MODEL_SPEARSKILL sub 0 position relative to TargetPosition (owner + 10 z).</summary>
+        private static Vector3 ComputeOffset(int index, double worldTime)
+        {
+            int frame = (int)(worldTime / 40.0);
+            frame = ((index % 2) != 0 ? frame : -frame) + index * 53731;
+
+            float a = (frame + 55555) * Speed[0];
+            float b = frame * Speed[1];
+            float tx = MathF.Sin(a) * MathF.Cos(b);
+            float ty = MathF.Sin(a) * MathF.Sin(b);
+            float tz = MathF.Cos(a);
+
+            float sinAdd = MathF.Sin((frame + 11111) * Speed[2]);
+            float cosAdd = MathF.Cos((frame + 11111) * Speed[2]);
+            float dx = cosAdd * ty - sinAdd * tz;
+            float dy = sinAdd * ty + cosAdd * tz;
+            float dz = tx;
+
+            return new Vector3(dx * 80f, dy * 80f, 10f + 110f + dz * 120f);
+        }
+
+        private void PushTail(int joint, Vector3 offset)
+        {
+            int baseIndex = joint * MaxTails;
+            int count = Math.Min(_tailCount[joint] + 1, MaxTails);
+            for (int t = count - 1; t > 0; t--)
+                _tails[baseIndex + t] = _tails[baseIndex + t - 1];
+            _tails[baseIndex] = offset;
+            _tailCount[joint] = count;
         }
 
         public override void Draw(GameTime gameTime)
         {
             base.Draw(gameTime);
 
-            if (!Visible || _ringTexture == null || _columnTexture == null)
+            if (!Visible || _texture == null || !SkillFxQuadBatch.Begin(_texture))
                 return;
 
-            float time = (float)gameTime.TotalGameTime.TotalSeconds;
-            float pulse = 0.42f + MathF.Sin(time * PulseSpeed) * 0.16f;
-            Color tint = new Color(70, 130, 255, 255) * pulse;
+            Vector3 ownerPos = _owner.WorldPosition.Translation;
+            float sprite = _texture.Width * 0.7f * 0.5f;
+            float half = JointScale * 0.5f;
+            float denom = MaxTails - 1;
 
-            var spriteBatch = GraphicsManager.Instance.Sprite;
-            if (!SpriteBatchScope.BatchIsBegun)
+            for (int j = 0; j < JointCount; j++)
             {
-                using (new SpriteBatchScope(spriteBatch, SpriteSortMode.Deferred, BlendState.Additive, SamplerState.LinearClamp, DepthStencilState.DepthRead))
-                    DrawShell(time, tint, pulse);
+                int baseIndex = j * MaxTails;
+                int count = _tailCount[j];
+                for (int t = 0; t < count - 1; t++)
+                {
+                    Vector3 a = ownerPos + _tails[baseIndex + t];
+                    Vector3 b = ownerPos + _tails[baseIndex + t + 1];
+                    Color ca = TailColor(_tails[baseIndex + t].Z);
+                    Color cb = TailColor(_tails[baseIndex + t + 1].Z);
+                    // Light1 = (NumTails - j) / (MaxTails - 1): UV scrolls along the tail.
+                    SkillFxQuadBatch.Segment(a, b, half, half, ca, cb, (count - t) / denom, (count - t - 1) / denom);
+
+                    if (t == count / 2)
+                        SkillFxQuadBatch.Billboard(a, sprite, sprite, 0f, ca);
+                }
             }
-            else
-                DrawShell(time, tint, pulse);
+
+            SkillFxQuadBatch.End();
         }
 
-        private void DrawShell(float time, Color tint, float pulse)
+        /// <summary>RenderJoints sub 0: Light - (tailZ - (targetZ + 50)) * 0.01 above the waist.</summary>
+        private static Color TailColor(float relativeZ)
         {
-            var spriteBatch = GraphicsManager.Instance.Sprite;
-
-            // Horizontal ring at torso height, slowly rotating around the owner.
-            float ringRotation = time * 0.9f;
-            float ringScale = BaseRadius * pulse * ComputeScreenScale(WorldPosition.Translation);
-
-            Vector3 ringCenter = WorldPosition.Translation;
-            if (TryProject(ringCenter, out var screen))
-            {
-                spriteBatch.Draw(
-                    _ringTexture,
-                    screen,
-                    null,
-                    tint,
-                    ringRotation,
-                    new Vector2(_ringTexture.Width * 0.5f, _ringTexture.Height * 0.5f),
-                    ringScale,
-                    SpriteEffects.None,
-                    0.5f);
-            }
-
-            // Two crossed vertical columns forming the dome silhouette.
-            for (int i = 0; i < 2; i++)
-            {
-                float angle = time * 0.6f + i * MathHelper.PiOver2;
-                Vector3 offset = new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0f) * BaseRadius * 0.72f;
-                if (!TryProject(ringCenter + offset, out var columnScreen))
-                    continue;
-
-                float columnScale = BaseRadius * 1.35f * ComputeScreenScale(ringCenter + offset);
-                spriteBatch.Draw(
-                    _columnTexture,
-                    columnScreen,
-                    null,
-                    tint * 0.85f,
-                    0f,
-                    new Vector2(_columnTexture.Width * 0.5f, _columnTexture.Height * 0.5f),
-                    columnScale,
-                    SpriteEffects.None,
-                    0.5f);
-            }
-        }
-
-        private static bool TryProject(Vector3 worldPos, out Vector2 screen)
-        {
-            var camera = Camera.Instance;
-            if (camera == null)
-            {
-                screen = default;
-                return false;
-            }
-
-            Vector3 projected = GraphicsManager.Instance.GraphicsDevice.Viewport.Project(
-                worldPos, camera.Projection, camera.View, Matrix.Identity);
-            if (projected.Z < 0f || projected.Z > 1f)
-            {
-                screen = default;
-                return false;
-            }
-
-            screen = new Vector2(projected.X, projected.Y);
-            return true;
-        }
-
-        private static float ComputeScreenScale(Vector3 worldPos)
-        {
-            float distance = Vector3.Distance(Camera.Instance.Position, worldPos);
-            return 1f / (MathF.Max(distance, 0.1f) / Constants.TERRAIN_SIZE) * Constants.RENDER_SCALE;
+            float height = (relativeZ - 50f) * 0.01f;
+            float l = height > 0f ? 1f - height : 1f;
+            return SkillFxQuadBatch.Light(new Vector3(l));
         }
 
         private void RemoveSelf()

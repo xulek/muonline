@@ -31,6 +31,16 @@ namespace Client.Main.Core.Utilities
         public static Task PreloadAsync() => _definitionsTask.Value;
 
         /// <summary>
+        /// SourceMain5.2 items with no model of their own: ZzzOpenData.cpp loads no MODEL_HELPER + 20, and
+        /// ZzzObject.cpp:6214 / ZzzInventory.cpp:10614 draw Wizard's Ring (level 0) as MODEL_EVENT + 15
+        /// (Data\Item\MagicRing00.bmd, ZzzOpenData.cpp:1002).
+        /// </summary>
+        private static readonly Dictionary<(byte, short), string> ModelOverrides = new()
+        {
+            [(13, 20)] = "Item/MagicRing00.bmd",
+        };
+
+        /// <summary>
         /// Loads items.bmd from an embedded resource and builds the definition table.
         /// </summary>
         private static async Task<Dictionary<(byte, short), ItemDefinition>> InitializeItemDataAsync()
@@ -51,7 +61,11 @@ namespace Client.Main.Core.Utilities
                         continue;
 
                     string texturePath = null;
-                    if (!string.IsNullOrEmpty(item.szModelFolder) &&
+                    if (ModelOverrides.TryGetValue(((byte)item.ItemSubGroup, (short)item.ItemSubIndex), out var overridePath))
+                    {
+                        texturePath = overridePath;
+                    }
+                    else if (!string.IsNullOrEmpty(item.szModelFolder) &&
                         !string.IsNullOrEmpty(item.szModelName))
                     {
                         texturePath = Path.Combine(
@@ -102,7 +116,14 @@ namespace Client.Main.Core.Utilities
                         IsExpensive = item.Expensive != 0,
                         CanSellToNpc = item.SellNpc != 0,
                         Money = item.Money,
-                        ItemValue = item.ItemValue
+                        ItemValue = item.ItemValue,
+                        SkillIndex = item.SkillIndex,
+                        MagicDefense = item.MagicResistance,
+                        RequiredVitality = item.ReqVit,
+                        RequiredCommand = item.ReqCmd,
+                        SetAttribute = item.SetAttr,
+                        RequireClass = new[] { item.DW, item.DK, item.FE, item.MG, item.DL, item.SU, item.RF },
+                        Resistance = new[] { item.Resist_0, item.Resist_1, item.Resist_2, item.Resist_3, item.Resist_4, item.Resist_5, item.Resist_6 }
                     };
 
                     data.Add(key, definition);

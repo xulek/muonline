@@ -132,7 +132,7 @@ namespace Client.Main.Controls.UI.Game.Skills
 
         public void HighlightSkill(ushort skillId) => _selectedSkillId = skillId;
 
-        public IEnumerable<string> GetPreloadTexturePaths() => SkillIconAtlas.TexturePaths;
+        public IEnumerable<string> GetPreloadTexturePaths() => SkillIconAtlas.AllTexturePaths;
 
         private Rectangle At(Rectangle local) => new(DisplayRectangle.X + local.X, DisplayRectangle.Y + local.Y, local.Width, local.Height);
 
@@ -266,7 +266,8 @@ namespace Client.Main.Controls.UI.Game.Skills
             if (!SkillIconAtlas.TryResolve(skillId, definition, out var frame))
                 return;
 
-            Texture2D? texture = TextureLoader.Instance.GetTexture2D(frame.TexturePath);
+            bool unusable = !Core.Client.SkillManager.MeetsDemandConditions(skillId);
+            Texture2D? texture = SkillIconRenderer.GetIconTexture(frame.TexturePath, unusable, out Color tint);
             if (texture == null)
                 return;
 
@@ -274,7 +275,7 @@ namespace Client.Main.Controls.UI.Game.Skills
             float scale = MathF.Min((dest.Width - pad * 2) / (float)SkillIconAtlas.IconWidth, (dest.Height - pad * 2) / (float)SkillIconAtlas.IconHeight);
             int w = Math.Max(1, (int)MathF.Round(SkillIconAtlas.IconWidth * scale));
             int h = Math.Max(1, (int)MathF.Round(SkillIconAtlas.IconHeight * scale));
-            sb.Draw(texture, new Rectangle(dest.Center.X - w / 2, dest.Center.Y - h / 2, w, h), frame.SourceRectangle, Color.White * alpha);
+            sb.Draw(texture, new Rectangle(dest.Center.X - w / 2, dest.Center.Y - h / 2, w, h), frame.SourceRectangle, tint * alpha);
         }
 
         private void DrawDetail(SpriteBatch sb, Rectangle area, SkillEntryState? skill, float alpha)

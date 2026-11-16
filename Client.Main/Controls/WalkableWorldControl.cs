@@ -362,7 +362,7 @@ namespace Client.Main.Controls
             {
                 var m = monsters[i];
                 if (m != null &&
-                    !m.IsDead &&
+                    !m.IsDead && !m.IsSummoned &&
                     m.Location.X == tileX &&
                     m.Location.Y == tileY)
                 {

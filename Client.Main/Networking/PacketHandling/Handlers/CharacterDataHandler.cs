@@ -458,6 +458,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     if (MuGame.Instance.ActiveScene is GameScene gs && gs.Hero != null)
                     {
                         gs.Hero.Hidden = false;
+                        // Teleport arrival flash; it follows the hero onto the new tile.
+                        Objects.Effects.TeleportSparkEffect.Spawn(gs.World, gs.Hero.WorldPosition.Translation, gs.Hero);
                     }
                 });
             }
@@ -1310,7 +1312,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     if (activeScene?.World is not WalkableWorldControl world)
                         return;
 
-                    Objects.Effects.ScrollOfNovaChargeEffect.UpdateStage(world, playerId, stage);
+                    Objects.Effects.NovaChargeEffect.UpdateStage(world, playerId, stage);
                 });
             }
             catch (Exception ex)
@@ -1334,6 +1336,19 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 _logger.LogDebug("SkillAnimation: Player={PlayerId}, Skill={SkillId}, Target={TargetId}",
                     playerId, skillId, targetId);
 
+                // ReceiveMagic carries success in the target's high bit. A successful
+                // Cancel Invisibility removes the cloak even without a separate 0x07.
+                if (skillId == 71 && (targetId & 0x8000) != 0)
+                {
+                    ushort unmaskedTargetId = (ushort)(targetId & 0x7FFF);
+                    _characterState.DeactivateBuff((byte)BuffEffectId.Invisible, unmaskedTargetId);
+                    _buffManager.ProcessMagicEffectStatus(unmaskedTargetId, (byte)BuffEffectId.Invisible, false);
+                }
+                else if (skillId == 72 && (targetId & 0x8000) != 0)
+                {
+                    RemoveBuffEffect.ClearTargetBuffs(_characterState, _buffManager, targetId);
+                }
+
                 MuGame.ScheduleOnMainThread(() =>
                 {
                     var activeScene = MuGame.Instance?.ActiveScene as GameScene;
@@ -1352,10 +1367,21 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     {
                         activeScene.NotifyLocalSkillAnimation(skillId);
 
-                        int animationId = ArrowProjectileSpawner.IsArrowSkill(skillId)
-                            ? (int)activeScene.Hero.GetArrowSkillAnimation(skillId)
-                            : Core.Utilities.SkillDatabase.GetSkillAnimation(skillId);
-                        string soundPath = Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
+                        // Dragon Lower: the cast (action + sound) comes from the area packet;
+                        // each per-target packet only plays the hit (ReceiveMagic has no SetAction).
+                        bool isDragonLowerHit = IsDragonLowerHit(skillId, targetId);
+                        // The cast animation already started at request time (PlayerObject.BeginLocalCast).
+                        bool localCast = !isDragonLowerHit && activeScene.Hero.ConsumeLocalCast(skillId);
+                        int animationId = isDragonLowerHit || localCast
+                            ? -1
+                            : ArrowProjectileSpawner.IsArrowSkill(skillId)
+                                ? (int)activeScene.Hero.GetArrowSkillAnimation(skillId)
+                                : activeScene.Hero.GetPacketSkillAnimation(skillId);
+                        if (!localCast)
+                            animationId = activeScene.Hero.ApplySlashSwordCount(skillId, animationId);
+                        string soundPath = isDragonLowerHit
+                            ? null
+                            : Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
 
                         // Play skill sound if available
                         if (!string.IsNullOrEmpty(soundPath))
@@ -1364,7 +1390,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         }
 
                         // Trigger vehicle skill animation if riding
-                        activeScene.Hero.TriggerVehicleSkillAnimation();
+                        if (!isDragonLowerHit && !localCast)
+                            activeScene.Hero.TriggerVehicleSkillAnimation();
 
                         if (animationId > 0)
                         {
@@ -1385,8 +1412,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 targetId);
                         }
 
-                        // Spawn skill visual effect via registry
-                        if (activeScene.World is WalkableWorldControl world)
+                        // Spawn skill visual effect via registry, unless the local cast already created it.
+                        if (!isDragonLowerHit && activeScene.Hero.ConsumeLocalSkillVisual(skillId))
+                        {
+                        }
+                        else if (activeScene.World is WalkableWorldControl world)
                         {
                             Vector3? targetPosition = null;
                             if (targetId != 0 && world.TryGetWalkerById(targetId, out var target))
@@ -1414,19 +1444,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 World = world
                             };
 
-                            if (Objects.Effects.Skills.SkillVisualEffectRegistry.TrySpawn(skillId, effectContext, out var effect))
-                            {
-                                if (effect!.World == null)
-                                    world.Objects.Add(effect);
-
-                                if (effect.Status == GameControlStatus.NonInitialized)
-                                {
-                                    MuGame.TaskScheduler?.QueueTask(
-                                        async () => await effect.Load(),
-                                        Controllers.TaskScheduler.Priority.High,
-                                        $"SkillEffect.Load.{effect.GetType().Name}");
-                                }
-                            }
+                            Objects.Effects.Skills.SkillVisualEffectRegistry.SpawnInWorld(skillId, effectContext, world);
                         }
                     }
                     else
@@ -1454,10 +1472,9 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 SoundController.Instance.PlayBuffer(soundPath);
                         }
 
-                        if (ArrowProjectileSpawner.IsArrowSkill(skillId) &&
-                            activeScene.World is WalkableWorldControl remoteWorld)
+                        if (activeScene.World is WalkableWorldControl remoteWorld)
                         {
-                            SpawnRemoteArrowSkill(remoteWorld, playerId, targetId, skillId, targetPosition: null);
+                            SpawnRemoteSkillVisual(remoteWorld, playerId, targetId, skillId, targetPosition: null);
                         }
 
                         _logger.LogDebug("Other player {PlayerId} used targeted skill {SkillId} on {TargetId}",
@@ -1483,6 +1500,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 ushort skillId = areaSkill.SkillId;
                 byte targetX = areaSkill.PointX;
                 byte targetY = areaSkill.PointY;
+                byte rotation = areaSkill.Rotation;
 
                 _logger.LogDebug("AreaSkillAnimation: Player={PlayerId}, Skill={SkillId}, Target=({X},{Y})",
                     playerId, skillId, targetX, targetY);
@@ -1497,10 +1515,15 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     {
                         activeScene.NotifyLocalSkillAnimation(skillId);
 
-                        // Get animation from SkillDatabase
-                        int animationId = ArrowProjectileSpawner.IsArrowSkill(skillId)
-                            ? (int)activeScene.Hero.GetArrowSkillAnimation(skillId)
-                            : Core.Utilities.SkillDatabase.GetSkillAnimation(skillId);
+                        // Get animation from SkillDatabase; a local cast already started it at request time.
+                        bool localCast = activeScene.Hero.ConsumeLocalCast(skillId);
+                        int animationId = localCast
+                            ? -1
+                            : ArrowProjectileSpawner.IsArrowSkill(skillId)
+                                ? (int)activeScene.Hero.GetArrowSkillAnimation(skillId)
+                                : activeScene.Hero.GetPacketSkillAnimation(skillId);
+                        if (!localCast)
+                            animationId = activeScene.Hero.ApplySlashSwordCount(skillId, animationId);
                         string soundPath = Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
 
                         // Play skill sound if available
@@ -1510,7 +1533,8 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         }
 
                         // Trigger vehicle skill animation if riding
-                        activeScene.Hero.TriggerVehicleSkillAnimation();
+                        if (!localCast)
+                            activeScene.Hero.TriggerVehicleSkillAnimation();
 
                         if (animationId > 0)
                         {
@@ -1525,8 +1549,11 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                                 skillId, Core.Utilities.SkillDatabase.GetSkillName(skillId));
                         }
 
-                        // Spawn skill visual effect via registry (area skills included)
-                        if (activeScene.World is WalkableWorldControl world)
+                        // Spawn skill visual effect via registry (area skills included), unless the local cast already created it.
+                        if (activeScene.Hero.ConsumeLocalSkillVisual(skillId))
+                        {
+                        }
+                        else if (activeScene.World is WalkableWorldControl world)
                         {
                             float worldX = (targetX + 0.5f) * Constants.TERRAIN_SCALE;
                             float worldY = (targetY + 0.5f) * Constants.TERRAIN_SCALE;
@@ -1536,41 +1563,32 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                             var effectContext = new Objects.Effects.Skills.SkillEffectContext
                             {
                                 Caster = activeScene.Hero,
-                                TargetId = 0,
+                                TargetId = skillId is 214 or 458
+                                    ? _characterState.GetRecentAreaSkillTarget(skillId,
+                                        MuGame.Instance?.GameTime?.TotalGameTime.TotalMilliseconds ?? Environment.TickCount64)
+                                    : (ushort)0,
                                 SkillId = skillId,
                                 TargetPosition = targetPosition,
                                 World = world
                             };
 
-                            if (Objects.Effects.Skills.SkillVisualEffectRegistry.TrySpawn(skillId, effectContext, out var effect))
-                            {
-                                if (effect!.World == null)
-                                    world.Objects.Add(effect);
-
-                                if (effect.Status == GameControlStatus.NonInitialized)
-                                {
-                                    MuGame.TaskScheduler?.QueueTask(
-                                        async () => await effect.Load(),
-                                        Controllers.TaskScheduler.Priority.High,
-                                        $"SkillEffect.Load.{effect.GetType().Name}");
-                                }
-                            }
+                            Objects.Effects.Skills.SkillVisualEffectRegistry.SpawnInWorld(skillId, effectContext, world);
                         }
                     }
                     else
                     {
-                        if (ArrowProjectileSpawner.IsArrowSkill(skillId) &&
-                            activeScene.World is WalkableWorldControl remoteWorld)
+                        if (activeScene.World is WalkableWorldControl remoteWorld)
                         {
                             float worldX = (targetX + 0.5f) * Constants.TERRAIN_SCALE;
                             float worldY = (targetY + 0.5f) * Constants.TERRAIN_SCALE;
                             float worldZ = remoteWorld.Terrain.RequestTerrainHeight(worldX, worldY);
-                            SpawnRemoteArrowSkill(
+                            SpawnRemoteSkillVisual(
                                 remoteWorld,
                                 playerId,
                                 0,
                                 skillId,
-                                new Vector3(worldX, worldY, worldZ));
+                                new Vector3(worldX, worldY, worldZ),
+                                rotation);
                         }
 
                         _logger.LogDebug("Other player {PlayerId} used skill {SkillId}", playerId, skillId);
@@ -1586,21 +1604,132 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         }
 
 
-        private void SpawnRemoteArrowSkill(
+        /// <summary>
+        /// ReceiveChainMagic (WSclient.cpp:5265): mount-dependent Chain Lightning action, then one
+        /// MODEL_CHAIN_LIGHTNING per target (SubType = index, owner = previous object) while the previous object
+        /// differs from the target and the target is alive.
+        /// </summary>
+        [PacketHandler(0xBF, 0x0A)] // ChainLightningHitInfo
+        public Task HandleChainLightningHitInfoAsync(Memory<byte> packet)
+        {
+            try
+            {
+                var span = packet.Span;
+                if (span.Length < 10)
+                    return Task.CompletedTask;
+
+                ushort playerId = (ushort)(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(span[6..]) & 0x7FFF);
+                int count = Math.Min((int)span[8], (span.Length - 10) / 2);
+                if (count <= 0)
+                    return Task.CompletedTask;
+
+                var targetIds = new ushort[count];
+                for (int i = 0; i < count; i++)
+                    targetIds[i] = (ushort)(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(span[(10 + i * 2)..]) & 0x7FFF);
+
+                MuGame.ScheduleOnMainThread(() =>
+                {
+                    if (MuGame.Instance?.ActiveScene is not GameScene scene || scene.World is not WalkableWorldControl world)
+                        return;
+                    if (!world.TryGetWalkerById(playerId, out WalkerObject caster) || caster == null)
+                        return;
+
+                    if (caster is PlayerObject player)
+                    {
+                        var action = player.GetSkillAction(215, false);
+                        if (player.CurrentAction != action)
+                            player.PlayAction((ushort)action, fromServer: playerId != _characterState.Id);
+                    }
+
+                    var hops = new Objects.Effects.Summoner.ChainLightningEffect.Hop[count];
+                    int hopCount = 0;
+                    WalkerObject previous = caster;
+                    for (int i = 0; i < count; i++)
+                    {
+                        world.TryGetWalkerById(targetIds[i], out WalkerObject target);
+                        if (target != null && target != previous && target.Status != GameControlStatus.Disposed)
+                            hops[hopCount++] = new Objects.Effects.Summoner.ChainLightningEffect.Hop { Owner = previous, Target = target, SubType = i };
+                        previous = target;
+                    }
+
+                    if (hopCount == 0)
+                        return;
+
+                    var effect = new Objects.Effects.Summoner.ChainLightningEffect(caster, hops, hopCount);
+                    world.Objects.Add(effect);
+                    if (effect.Status == GameControlStatus.NonInitialized)
+                    {
+                        MuGame.TaskScheduler?.QueueTask(
+                            async () => await effect.Load(),
+                            Controllers.TaskScheduler.Priority.High,
+                            "SkillEffect.Load.ChainLightningEffect");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "💥 Error handling ChainLightningHitInfo packet.");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Mirrors ReceiveMagic/ReceiveMagicPosition for other players: the original client runs the
+        /// same SetAction + AttackStage path for every visible caster, so observers see the cast
+        /// animation and the skill effects, not only the local hero.
+        /// </summary>
+        private void SpawnRemoteSkillVisual(
             WalkableWorldControl world,
             ushort rawPlayerId,
             ushort rawTargetId,
             ushort skillId,
-            Vector3? targetPosition)
+            Vector3? targetPosition,
+            byte? rotation = null)
         {
             ushort playerId = (ushort)(rawPlayerId & 0x7FFF);
             ushort targetId = (ushort)(rawTargetId & 0x7FFF);
             if (!world.TryGetWalkerById(playerId, out WalkerObject caster) || caster is not PlayerObject remotePlayer)
                 return;
 
-            int animationId = (int)remotePlayer.GetArrowSkillAnimation(skillId);
+            WalkerObject target = null;
+            if (targetId != 0 && targetId != playerId)
+                world.TryGetWalkerById(targetId, out target);
+
+            if (rotation.HasValue)
+            {
+                // ReceiveMagicContinue: so->Angle[2] = Angle / 255 * 360, set before the action and the effect.
+                remotePlayer.SetFacingYawDegrees(rotation.Value / 255f * 360f);
+                if (target != null)
+                    targetPosition ??= target.WorldPosition.Translation;
+            }
+            else if (target != null)
+            {
+                // ReceiveMagic: so->Angle[2] = CreateAngle2D(so->Position, to->Position) for a visible target,
+                // except Teleport.
+                if (skillId is not (6 or 15) && !target.Hidden)
+                    remotePlayer.FaceTowardsObject(target, immediate: true);
+                targetPosition ??= target.WorldPosition.Translation;
+            }
+
+            bool isDragonLowerHit = IsDragonLowerHit(skillId, rawTargetId);
+            int animationId = isDragonLowerHit
+                ? -1
+                : ArrowProjectileSpawner.IsArrowSkill(skillId)
+                    ? (int)remotePlayer.GetArrowSkillAnimation(skillId)
+                    : remotePlayer.GetPacketSkillAnimation(skillId);
+            animationId = remotePlayer.ApplySlashSwordCount(skillId, animationId);
             if (animationId > 0)
                 remotePlayer.PlayAction((ushort)animationId, fromServer: true);
+
+            // ReceiveMagic plays the cast sound for every caster. Skills 1/3/4/7/59/77 are
+            // already voiced by the caller once their caster/target checks pass.
+            if (!isDragonLowerHit && skillId is not (1 or 3 or 4 or 7 or 59 or 77))
+            {
+                string soundPath = Client.Data.BMD.SkillDefinitions.GetSkillSound(skillId);
+                if (!string.IsNullOrEmpty(soundPath))
+                    SoundController.Instance.PlayBuffer(soundPath);
+            }
 
             var context = new Objects.Effects.Skills.SkillEffectContext
             {
@@ -1622,9 +1751,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                 MuGame.TaskScheduler?.QueueTask(
                     async () => await effect.Load(),
                     Controllers.TaskScheduler.Priority.High,
-                    $"RemoteArrowSkill.Load.{effect.GetType().Name}");
+                    $"RemoteSkillEffect.Load.{effect.GetType().Name}");
             }
         }
+
+        private static bool IsDragonLowerHit(ushort skillId, ushort rawTargetId) =>
+            skillId == 264 && (rawTargetId & 0x7FFF) != 0;
 
         private void HandleElfBuffVisual(byte effectId, ushort playerId, bool isActive) =>
             _elfBuffEffectManager.HandleBuff(effectId, playerId, isActive);

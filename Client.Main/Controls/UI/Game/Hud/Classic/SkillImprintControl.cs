@@ -580,9 +580,11 @@ namespace Client.Main.Controls.UI.Game.Hud
                 if (id.HasValue)
                 {
                     var ic = ShrinkToSquare(r, 0.98f);
-                    var cut = SkillIconRenderer.GetCircleIconTexture(id.Value);
-                    if (cut != null) sb.Draw(cut, ic, Color.White);
-                    else SkillIconRenderer.DrawSkillCircle(sb, id.Value, ic, Color.White, 2f);
+                    bool unusable = !SkillManager.MeetsDemandConditions(id.Value);
+                    Color tint = unusable ? SkillIconAtlas.UnusableTint : Color.White;
+                    var cut = SkillIconRenderer.GetCircleIconTexture(id.Value, disabled: unusable);
+                    if (cut != null) sb.Draw(cut, ic, tint);
+                    else SkillIconRenderer.DrawSkillCircle(sb, id.Value, ic, tint, 2f);
                     if (Tex(_texHoleGlow)) sb.Draw(_texHoleGlow, ShrinkToSquare(r, 0.90f), Color.White);
                 }
             }
@@ -785,11 +787,13 @@ namespace Client.Main.Controls.UI.Game.Hud
                 // 0.98 = preenche quase todo o círculo do soquete (o corte já é redondo com
                 // borda AA, então pode encostar na moldura sem lacuna).
                 var iconRect = ShrinkToSquare(r, 0.98f);
-                var cut = SkillIconRenderer.GetCircleIconTexture(skillId, disabled: !isLearned);
+                bool unusable = isLearned && !SkillManager.MeetsDemandConditions(skillId);
+                var cut = SkillIconRenderer.GetCircleIconTexture(skillId, disabled: !isLearned || unusable);
                 if (cut != null)
-                    sb.Draw(cut, iconRect, Color.White);
+                    sb.Draw(cut, iconRect, unusable ? SkillIconAtlas.UnusableTint : Color.White);
                 else
-                    SkillIconRenderer.DrawSkillCircle(sb, skillId, iconRect, isLearned ? Color.White : Color.Gray, 2f);
+                    SkillIconRenderer.DrawSkillCircle(sb, skillId, iconRect,
+                        unusable ? SkillIconAtlas.UnusableTint : isLearned ? Color.White : Color.Gray, 2f);
 
                 // Brilho por cima (mesmo efeito da hotbar): glow 0.90 do rect do soquete.
                 if (Tex(_texHoleGlow))
@@ -831,9 +835,11 @@ namespace Client.Main.Controls.UI.Game.Hud
                 bg.X + (bg.Width - iconSide) / 2,
                 bg.Y + (bg.Height - iconSide) / 2,
                 iconSide, iconSide);
-            var cut = SkillIconRenderer.GetCircleIconTexture(selId, disabled: !isLearned);
-            if (cut != null) sb.Draw(cut, iconRect, Color.White);
-            else SkillIconRenderer.DrawSkillCircle(sb, selId, iconRect, isLearned ? Color.White : Color.Gray, 2f);
+            bool selUnusable = isLearned && !SkillManager.MeetsDemandConditions(selId);
+            Color selTint = selUnusable ? SkillIconAtlas.UnusableTint : Color.White;
+            var cut = SkillIconRenderer.GetCircleIconTexture(selId, disabled: !isLearned || selUnusable);
+            if (cut != null) sb.Draw(cut, iconRect, selTint);
+            else SkillIconRenderer.DrawSkillCircle(sb, selId, iconRect, selUnusable ? selTint : isLearned ? Color.White : Color.Gray, 2f);
             // hole_glow por cima (mesmo efeito dos outros 3 lugares).
             if (Tex(_texHoleGlow)) sb.Draw(_texHoleGlow, ShrinkToSquare(iconRect, 0.92f), Color.White);
 

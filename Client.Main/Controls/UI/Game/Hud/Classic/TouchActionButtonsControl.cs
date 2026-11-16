@@ -242,7 +242,7 @@ namespace Client.Main.Controls.UI.Game.Hud
             for (int i = 0; i < monsters.Count; i++)
             {
                 var m = monsters[i];
-                if (m == null || m.IsDead || m.World != world) continue;
+                if (m == null || m.IsDead || m.IsSummoned || m.World != world) continue;
                 float d = Vector2.DistanceSquared(hloc, m.Location);
                 if (d < best) { best = d; nearest = m; }
             }
@@ -381,10 +381,12 @@ namespace Client.Main.Controls.UI.Game.Hud
         {
             // Ícone pré-cortado (detecta célula VAZIA no atlas e devolve null — sem isso
             // o scanline "desenha" texels transparentes e o slot fica vazado no chão).
-            var cut = global::Client.Main.Controls.UI.Game.Skills.SkillIconRenderer.GetCircleIconTexture(skill.SkillId);
+            bool unusable = !global::Client.Main.Core.Client.SkillManager.MeetsDemandConditions(skill.SkillId);
+            var cut = global::Client.Main.Controls.UI.Game.Skills.SkillIconRenderer.GetCircleIconTexture(skill.SkillId, disabled: unusable);
             if (cut != null)
             {
-                sb.Draw(cut, frameRect, Color.White * alpha);
+                Color tint = unusable ? global::Client.Main.Controls.UI.Game.Skills.SkillIconAtlas.UnusableTint : Color.White;
+                sb.Draw(cut, frameRect, tint * alpha);
                 return true;
             }
             return false;

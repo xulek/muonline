@@ -16,7 +16,11 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            return new PowerWaveEffect(context.Caster);
+            WalkerObject? target = null;
+            if (context.TargetId != 0)
+                context.World.TryGetWalkerById(context.TargetId, out target);
+
+            return new PowerWaveEffect(context.Caster, target);
         }
     }
 }

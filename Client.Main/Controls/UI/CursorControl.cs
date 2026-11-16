@@ -160,7 +160,7 @@ public class CursorControl : SpriteControl
             {
                 SetCursorState("Interface/CursorPush.ozt", DefaultAnimation);
             }
-            else if ((hoveredObject is MonsterObject monster && !monster.IsDead) || IsDuelAttackTarget(hoveredObject))
+            else if ((hoveredObject is MonsterObject monster && !monster.IsDead && !monster.IsSummoned) || IsDuelAttackTarget(hoveredObject))
             {
                 SetCursorState("Interface/CursorAttack.ozt", DefaultAnimation);
             }
@@ -220,7 +220,7 @@ public class CursorControl : SpriteControl
                     npc.OnClick();
                 }
             }
-            else if ((hoveredObject is MonsterObject monster && !monster.IsDead) || IsDuelAttackTarget(hoveredObject))
+            else if ((hoveredObject is MonsterObject monster && !monster.IsDead && !monster.IsSummoned) || IsDuelAttackTarget(hoveredObject))
             {
                 SetCursorState("Interface/CursorAttack.ozt", DefaultAnimation);
             }

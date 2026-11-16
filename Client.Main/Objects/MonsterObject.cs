@@ -57,6 +57,9 @@ namespace Client.Main.Objects
         /// <summary>True for a player that appears as this monster (transformation ring).</summary>
         public bool IsTransformedPlayer { get; set; }
 
+        /// <summary>Summons use player targeting rules despite using a monster model.</summary>
+        public bool IsSummoned { get; set; }
+
         public override string DisplayName
         {
             get

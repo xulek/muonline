@@ -15,6 +15,7 @@ namespace Client.Main.Objects.Effects.Skills
     public static class SkillVisualEffectRegistry
     {
         private static readonly Dictionary<ushort, ISkillVisualEffect> _effects = new();
+        private static readonly Dictionary<ushort, ushort> _masterSkillReplaces = new();
         private static readonly ILogger? _logger;
         private static bool _initialized;
 
@@ -34,6 +35,7 @@ namespace Client.Main.Objects.Effects.Skills
 
             _initialized = true;
             DiscoverEffects();
+            BuildMasterSkillFallbacks();
         }
 
         /// <summary>
@@ -48,7 +50,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (!_initialized)
                 Initialize();
 
-            if (_effects.TryGetValue(skillId, out var factory))
+            if (TryResolveFactory(skillId, out var factory))
             {
                 try
                 {
@@ -71,6 +73,35 @@ namespace Client.Main.Objects.Effects.Skills
         }
 
         /// <summary>
+        /// Spawns the skill visual into the world and starts loading it.
+        /// </summary>
+        public static bool SpawnInWorld(ushort skillId, SkillEffectContext context, Client.Main.Controls.WalkableWorldControl world) =>
+            SpawnInWorld(skillId, context, world, out _);
+
+        /// <summary>
+        /// Spawns the skill visual into the world and starts loading it.
+        /// </summary>
+        public static bool SpawnInWorld(ushort skillId, SkillEffectContext context, Client.Main.Controls.WalkableWorldControl world, out WorldObject? effect)
+        {
+            if (!TrySpawn(skillId, context, out effect) || effect == null)
+                return false;
+
+            WorldObject spawned = effect;
+            if (spawned.World == null)
+                world.Objects.Add(spawned);
+
+            if (spawned.Status == Client.Main.Models.GameControlStatus.NonInitialized)
+            {
+                MuGame.TaskScheduler?.QueueTask(
+                    async () => await spawned.Load(),
+                    Client.Main.Controllers.TaskScheduler.Priority.High,
+                    $"SkillEffect.Load.{spawned.GetType().Name}");
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Checks if a visual effect is registered for the given skill.
         /// </summary>
         public static bool HasEffect(ushort skillId)
@@ -78,7 +109,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (!_initialized)
                 Initialize();
 
-            return _effects.ContainsKey(skillId);
+            return TryResolveFactory(skillId, out _);
         }
 
         /// <summary>
@@ -90,6 +121,38 @@ namespace Client.Main.Objects.Effects.Skills
                 Initialize();
 
             return _effects.Keys;
+        }
+
+        /// <summary>
+        /// Master-level skills reuse the visuals of the normal skill they replace (the original
+        /// client maps them back to the base AT_SKILL before AttackStage), so a strengthener or
+        /// mastery id without its own factory falls back along the replacement chain.
+        /// </summary>
+        private static bool TryResolveFactory(ushort skillId, out ISkillVisualEffect factory)
+        {
+            ushort current = skillId;
+            for (int depth = 0; depth < 4; depth++)
+            {
+                if (_effects.TryGetValue(current, out factory!))
+                    return true;
+
+                if (!_masterSkillReplaces.TryGetValue(current, out ushort replaced) || replaced == current)
+                    break;
+
+                current = replaced;
+            }
+
+            factory = null!;
+            return false;
+        }
+
+        private static void BuildMasterSkillFallbacks()
+        {
+            foreach (var entry in ServerMasterSkills.All)
+            {
+                if (entry.Replaced != 0)
+                    _masterSkillReplaces[entry.Number] = entry.Replaced;
+            }
         }
 
         private static void DiscoverEffects()

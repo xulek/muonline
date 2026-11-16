@@ -1,14 +1,12 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-using Client.Main.Objects;
-using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Ice skill visual effect (Skill ID 7 - Scroll of Ice / Slow).
+    /// Factory for Ice (AT_SKILL_SLOW = 7): MODEL_ICE + 5 MODEL_ICE_SMALL at the target.
     /// </summary>
-    [SkillVisualEffect(7)]
+    [SkillVisualEffect(7)] // Ice
     public sealed class IceSkillEffect : ISkillVisualEffect
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
@@ -16,21 +14,11 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            WalkerObject? targetWalker = null;
-            Vector3 center;
-            if (context.TargetId != 0 && context.World.TryGetWalkerById(context.TargetId, out var target))
-            {
-                targetWalker = target;
-                center = target.WorldPosition.Translation + (Vector3.UnitZ * 70f);
-            }
-            else
-            {
-                center = context.Caster.WorldPosition.Translation + (Vector3.UnitZ * 70f);
-            }
+            WalkerObject? target = null;
+            if (context.TargetId != 0)
+                context.World.TryGetWalkerById(context.TargetId, out target);
 
-            (targetWalker ?? context.Caster).ApplyTemporaryDebuffTint(effectId: 56, durationSeconds: 3.2f);
-
-            return new ScrollOfIceEffect(center);
+            return new IceEffect(context.Caster, target);
         }
     }
 }

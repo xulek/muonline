@@ -14,12 +14,10 @@ namespace Client.Main.Objects.Effects.Skills
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
         {
-            if (context.World == null)
+            if (context.World == null || context.Caster == null)
                 return null;
 
-            Vector3 target = context.TargetPosition
-                ?? context.Caster?.WorldPosition.Translation
-                ?? Vector3.Zero;
+            Vector3 target = context.TargetPosition ?? context.Caster.WorldPosition.Translation;
 
             return new DecayEffect(context.Caster, target);
         }

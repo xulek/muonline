@@ -135,6 +135,9 @@ namespace Client.Main
         public static bool SMOOTH_PATH_CORNERS = true;
         /// <summary>The camera follows the hero's height smoothly instead of every terrain step.</summary>
         public static bool SMOOTH_CAMERA_HEIGHT = true;
+
+        /// <summary>Opening the inventory in a safe zone moves the camera in on the hero (off by default).</summary>
+        public static bool INVENTORY_CAMERA_SHOWCASE = false;
         /// <summary>
         /// Game worlds fade into the world's clear colour between <see cref="DISTANCE_FOG_START"/> and
         /// <see cref="DISTANCE_FOG_END"/> (distance from the camera) and nothing is rendered beyond the end.

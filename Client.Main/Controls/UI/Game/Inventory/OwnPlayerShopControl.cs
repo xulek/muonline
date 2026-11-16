@@ -826,12 +826,12 @@ namespace Client.Main.Controls.UI.Game.Inventory
             var sb = GraphicsManager.Instance.Sprite;
             if (sb == null) return;
 
-            var lines = ItemUiHelper.BuildTooltipLines(item);
-            lines.Add((string.Empty, Color.White));
-            if (_prices.TryGetValue(slot, out uint price))
-                lines.Add(($"Price: {PlayerShopUi.FormatZen(price)} Zen", PlayerShopUi.GetPriceColor(price)));
-            else
-                lines.Add(("No price set - click to set it", ModernHudTheme.Danger));
+            // TOOLTIP_TYPE_MY_SHOP: price (GlobalText 63) or "Right click for price setting" (1101) come from the tooltip.
+            var lines = ItemUiHelper.BuildTooltipLines(item, new Core.Utilities.ItemTooltip.ItemTooltipContext
+            {
+                Type = Core.Utilities.ItemTooltip.ItemTooltipType.MyShop,
+                PersonalShopPrice = _prices.TryGetValue(slot, out uint price) ? price : null,
+            });
             if (!_state.IsPlayerShopOpen)
                 lines.Add(("Click: change price  |  Right-click: take back", ModernHudTheme.TextGray));
 

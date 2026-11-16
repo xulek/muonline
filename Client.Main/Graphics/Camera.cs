@@ -74,6 +74,10 @@ namespace Client.Main.Graphics
         private float _shakeElapsed;
         private readonly Random _shakeRng = new();
 
+        // SourceMain5.2 EarthQuake (ZzzScene.cpp:1783 CameraAngle[0] += EarthQuake, 1930 EarthQuake *= 0.2 per frame)
+        private float _earthQuake;
+        private float _earthQuakeApplied;
+
         // Public Properties
         public float AspectRatio
         {
@@ -206,10 +210,26 @@ namespace Client.Main.Graphics
         }
 
         /// <summary>
+        /// SourceMain5.2 <c>EarthQuake = value</c>: pitch offset of the camera in degrees for the next rendered
+        /// frame; it decays by x0.2 every frame, so effects set it every tick while they shake.
+        /// </summary>
+        public void SetEarthQuake(float degrees) => _earthQuake = degrees;
+
+        /// <summary>
         /// Call once per frame from the main update loop to advance shake timer.
         /// </summary>
         public void UpdateShake(float dt)
         {
+            if (_earthQuake != 0f || _earthQuakeApplied != 0f)
+            {
+                _earthQuakeApplied = _earthQuake;
+                _earthQuake *= 0.2f;
+                if (MathF.Abs(_earthQuake) < 0.0001f)
+                    _earthQuake = 0f;
+                if (_shakeTimeLeft <= 0f)
+                    UpdateView(updateCulling: false);
+            }
+
             if (_shakeTimeLeft <= 0f)
                 return;
 
@@ -266,7 +286,22 @@ namespace Client.Main.Graphics
                 renderTarget += offset;
             }
 
-            View = renderPosition == basePosition
+            bool quake = _earthQuakeApplied != 0f;
+            if (quake)
+            {
+                // CameraAngle[0] += EarthQuake: positive values pitch the view down around the camera position.
+                Vector3 direction = renderTarget - renderPosition;
+                float length = direction.Length();
+                if (length > 1e-4f)
+                {
+                    direction /= length;
+                    float radians = MathHelper.ToRadians(_earthQuakeApplied);
+                    Vector3 pitched = direction * MathF.Cos(radians) - cameraUp * MathF.Sin(radians);
+                    renderTarget = renderPosition + pitched * length;
+                }
+            }
+
+            View = renderPosition == basePosition && !quake
                 ? stableView
                 : CreateViewMatrix(renderPosition, renderTarget, out cameraRight, out cameraUp);
             Right = cameraRight;

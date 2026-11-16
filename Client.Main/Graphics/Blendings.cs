@@ -22,6 +22,28 @@ namespace Client.Main.Graphics
             AlphaDestinationBlend = Blend.One
         };
 
+        // SourceMain5.2 EnableAlphaBlend2: glBlendFunc(GL_ONE_MINUS_SRC_COLOR, GL_ONE)
+        public static readonly BlendState InverseSourceColorAdditive = new()
+        {
+            ColorBlendFunction = BlendFunction.Add,
+            ColorSourceBlend = Blend.InverseSourceColor,
+            ColorDestinationBlend = Blend.One,
+            AlphaBlendFunction = BlendFunction.Add,
+            AlphaSourceBlend = Blend.InverseSourceColor,
+            AlphaDestinationBlend = Blend.One
+        };
+
+        // SourceMain5.2 EnableAlphaBlend4: glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR)
+        public static readonly BlendState OneInverseSourceColor = new()
+        {
+            ColorBlendFunction = BlendFunction.Add,
+            ColorSourceBlend = Blend.One,
+            ColorDestinationBlend = Blend.InverseSourceColor,
+            AlphaBlendFunction = BlendFunction.Add,
+            AlphaSourceBlend = Blend.One,
+            AlphaDestinationBlend = Blend.InverseSourceColor
+        };
+
         public static readonly BlendState Negative = new()
         {
             ColorSourceBlend = Blend.Zero,

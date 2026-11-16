@@ -8,7 +8,9 @@ namespace Client.Main.Objects.Effects
     /// <summary>
     /// SourceMain5.2 RenderMeshEffect approximation for Blood Castle gates
     /// and saint statues. The original emits short-lived Gate/StoneCoffin
-    /// model fragments from mesh vertices when the NPC dies.
+    /// model fragments from mesh vertices when the NPC dies and sets Live = false on the
+    /// same frame (ZzzObject.cpp:1415): the NPC vanishes and the fragments live on their own,
+    /// so this effect sits at the world root, not under the dying NPC.
     /// </summary>
     internal sealed class BloodCastleDeathFragmentEffect : EffectObject
     {
@@ -24,7 +26,21 @@ namespace Client.Main.Objects.Effects
         private float _lifeFrames = LifetimeFrames;
         private bool _started;
 
-        public BloodCastleDeathFragmentEffect(
+        /// <summary>Spawns the fragments where the owner stands, independent of the owner's lifetime.</summary>
+        public static void Spawn(MonsterObject owner, string firstModelPath, string secondModelPath)
+        {
+            if (owner?.World is not { } world)
+                return;
+
+            var effect = new BloodCastleDeathFragmentEffect(owner, firstModelPath, secondModelPath)
+            {
+                Position = owner.WorldPosition.Translation
+            };
+            world.Objects.Add(effect);
+            _ = effect.Load();
+        }
+
+        private BloodCastleDeathFragmentEffect(
             MonsterObject owner,
             string firstModelPath,
             string secondModelPath)
@@ -53,7 +69,7 @@ namespace Client.Main.Objects.Effects
             if (Status != GameControlStatus.Ready)
                 return;
 
-            if (!_started && (_owner.IsDead || _owner.CurrentAction == (int)MonsterActionType.Die))
+            if (!_started)
                 StartFragments();
 
             if (!_started)
@@ -62,16 +78,17 @@ namespace Client.Main.Objects.Effects
             _lifeFrames -= (float)gameTime.ElapsedGameTime.TotalSeconds * 25f;
             if (_lifeFrames <= 0f)
             {
-                Parent?.Children.Remove(this);
+                if (Parent != null)
+                    Parent.Children.Remove(this);
+                else
+                    World?.RemoveObject(this);
                 Dispose();
             }
         }
 
         private void StartFragments()
         {
-            // The original sets Live = false on the first death frame: the body vanishes at once.
             _started = true;
-            _owner.HiddenMesh = -2;
 
             if (_firstModel == null || _secondModel == null)
                 return;

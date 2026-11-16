@@ -81,6 +81,17 @@ namespace Client.Main.Controls.UI.Game.Inventory
         public int ItemValue { get; set; } // Legacy value fallback if Money is missing
         public int DropLevel { get; set; } // Drop level from BMD, used as a proxy for price curve
 
+        // Additional raw ITEM_ATTRIBUTE fields (SourceMain5.2 _struct.h) used by the item tooltip port.
+        public int SkillIndex { get; set; }          // m_wSkillIndex
+        public int MagicDefense { get; set; }        // MagicDefense (item.bmd MagicResistance)
+        public int RequiredVitality { get; set; }    // RequireVitality
+        public int RequiredCommand { get; set; }     // RequireCharisma
+        public int SetAttribute { get; set; }        // AttType (ancient stamina option type)
+        /// <summary>RequireClass[MAX_CLASS]: 0 = no, 1..3 = required class step (DW, DK, FE, MG, DL, SU, RF).</summary>
+        public byte[] RequireClass { get; set; } = new byte[7];
+        /// <summary>Resistance[MAX_RESISTANCE] (ice, poison, lightning, fire, earth, wind, water).</summary>
+        public byte[] Resistance { get; set; } = new byte[7];
+
         // Classes which can equip this item
         public List<string> AllowedClasses { get; set; } = new();
 

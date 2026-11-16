@@ -5,9 +5,9 @@ using Microsoft.Xna.Framework;
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Flame skill visual effect (Skill ID 5 - Scroll of Flame).
+    /// Factory for Flame (AT_SKILL_FLAME = 5): BITMAP_FLAME sub 5 at the target (to->Position, terrain height).
     /// </summary>
-    [SkillVisualEffect(5)] // Flame / Scroll of Flame
+    [SkillVisualEffect(5)] // Flame
     public sealed class FlameSkillEffect : ISkillVisualEffect
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
@@ -15,31 +15,12 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            var world = context.World;
-            Vector3 center;
-
+            // ReceiveMagic (target): sub 5 at to->Position; ReceiveMagicContinue (area): sub 0 at the tile centre.
             if (context.TargetPosition.HasValue)
-            {
-                center = context.TargetPosition.Value;
-            }
-            else if (context.TargetId != 0 && world.TryGetWalkerById(context.TargetId, out var target))
-            {
-                center = target.WorldPosition.Translation;
-            }
-            else
-            {
-                center = context.Caster.WorldPosition.Translation;
-            }
-
-            if (world.Terrain != null)
-            {
-                float groundZ = world.Terrain.RequestTerrainHeight(center.X, center.Y);
-                center = new Vector3(center.X, center.Y, groundZ);
-            }
-
-            bool isTargeted = context.TargetId != 0;
-            bool dealsDamage = context.Caster.IsMainWalker;
-            return new ScrollOfFlameEffect(center, isTargeted, dealsDamage, context.Caster.Angle.Z);
+                return new FlameEffect(context.Caster, context.TargetPosition.Value, area: true);
+            if (context.TargetId != 0 && context.World.TryGetWalkerById(context.TargetId, out var target))
+                return new FlameEffect(context.Caster, target.WorldPosition.Translation, area: false);
+            return null;
         }
     }
 }

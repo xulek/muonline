@@ -40,6 +40,21 @@ namespace Client.Main.Controls.UI.Game.Skills
             CommandTexturePath
         ];
 
+        /// <summary>CNewUISkillList IMAGE_NON_*: the atlas of a skill whose demands are not met.</summary>
+        public static readonly string[] DisabledTexturePaths =
+        [
+            "Interface/newui_non_skill.jpg",
+            "Interface/newui_non_skill2.jpg",
+            "Interface/newui_non_skill3.jpg",
+            "Interface/newui_non_command.jpg"
+        ];
+
+        /// <summary>Tint for an unusable skill: the grey non-skill atlas drawn red.</summary>
+        public static readonly Color UnusableTint = new(255, 80, 80);
+
+        /// <summary>Normal and non-skill atlases, for preloading.</summary>
+        public static readonly string[] AllTexturePaths = [.. TexturePaths, .. DisabledTexturePaths];
+
         public static Rectangle ScaleToTexture(Rectangle source, Texture2D texture)
         {
             return new Rectangle(

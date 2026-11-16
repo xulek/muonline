@@ -235,9 +235,12 @@ namespace Client.Main.Controls.UI.Game.Buffs
             if (remaining.HasValue)
             {
                 var value = remaining.Value;
+                string approx = buff.DurationFromServer ? string.Empty : "~";
+                if (!buff.DurationFromServer && value <= TimeSpan.Zero)
+                    return "Ending soon";
                 return value.TotalSeconds < 60
-                    ? $"{Math.Ceiling(value.TotalSeconds)}s remaining"
-                    : $"{Math.Ceiling(value.TotalMinutes)}m remaining";
+                    ? $"{approx}{Math.Ceiling(value.TotalSeconds)}s remaining"
+                    : $"{approx}{(int)value.TotalMinutes}m {value.Seconds:00}s remaining";
             }
 
             var elapsed = DateTime.UtcNow - buff.ActivatedAt;
@@ -259,13 +262,12 @@ namespace Client.Main.Controls.UI.Game.Buffs
             // Color based on buff type
             Color barColor = _buff.EffectId switch
             {
-                0 => new Color(255, 60, 40),   // Greater Damage - red
-                1 => new Color(40, 200, 60),   // Greater Defense - green
-                2 => new Color(40, 80, 255),   // Mana Shield - blue
-                4 => new Color(255, 200, 40),  // Swell - gold
-                20 => new Color(255, 150, 40), // Elf Attack - orange
-                21 => new Color(40, 200, 60),  // Elf Defense - green
-                22 => new Color(40, 220, 200), // Elf Heal - teal
+                1 => new Color(255, 60, 40),   // Greater Damage - red
+                2 => new Color(40, 200, 60),   // Greater Defense - green
+                4 => new Color(40, 80, 255),   // Soul Barrier - blue
+                8 => new Color(255, 200, 40),  // Swell Life - gold
+                5 => new Color(255, 150, 40),  // Critical Damage - orange
+                81 => new Color(200, 60, 255), // Berserker - purple
                 _ => new Color(160, 160, 160)  // default gray
             };
 

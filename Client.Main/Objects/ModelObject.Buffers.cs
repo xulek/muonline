@@ -37,6 +37,8 @@ namespace Client.Main.Objects
             return null;
         }
 
+        protected virtual IVertexDeformer GetVertexDeformerForMesh(int meshIndex) => GetVertexDeformer();
+
         // The last full buffer pass found only GPU-skinned meshes (no CPU buffer, no pending texture). Valid only
         // for the shader configuration it was computed with: switching the quality preset or a shader option at
         // runtime can move meshes back to CPU buffers, which a stale flag would never build (invisible actors).
@@ -227,7 +229,7 @@ namespace Client.Main.Objects
                             ref _meshes[meshIndex].CpuVertexBuffer,
                             ref _meshes[meshIndex].CpuIndexBuffer,
                             skipSharedMeshCache,
-                            vertexDeformer,
+                            GetVertexDeformerForMesh(meshIndex),
                             RuntimeHelpers.GetHashCode(this),
                             _animationPoseVersion);
 

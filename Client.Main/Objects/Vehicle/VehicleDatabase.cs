@@ -12,14 +12,20 @@ public static class VehicleDatabase
                 Name = "Dark Horse",
                 TexturePath = "DarkHorse.bmd",
                 RiderHeightOffset = 0f,
+                // GOBoid.cpp:339 velocities for the 1.20.61 DarkHorse.bmd layout (11 actions): 0 stand 0.3, 2 run 0.34,
+                // 5 ride attack 0.34, 6 Earthshake 0.34, 8 / 9 idle variants 1.0. VehicleObject.UpdateDarkHorseAction
+                // maps the rider action every frame.
                 IdleActionIndex = 0,
                 RunActionIndex = 2,
                 SkillActionIndex = 6,
                 ActionPlaySpeedOverrides = new Dictionary<int, float>
                 {
-                    [0] = 0.3f,  // default
-                    [2] = 0.34f, // run
-                    [6] = 0.34f, // horse attack
+                    [0] = 0.3f,
+                    [2] = 0.34f,
+                    [5] = 0.34f,
+                    [6] = 0.34f,
+                    [8] = 1.0f,
+                    [9] = 1.0f,
                 },
             }
         },

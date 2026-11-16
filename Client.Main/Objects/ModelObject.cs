@@ -864,6 +864,16 @@ namespace Client.Main.Objects
         }
 
         /// <summary>
+        /// Rebuilds dirty vertex buffers outside <see cref="Update"/> (renderers drawn several times per frame
+        /// with different BlendMeshLight / UV values). No-op when nothing is invalidated.
+        /// </summary>
+        internal void EnsureDynamicBuffers()
+        {
+            if (_contentLoaded && !_dynamicBuffersFrozen)
+                SetDynamicBuffers();
+        }
+
+        /// <summary>
         /// Replaces a mesh texture at runtime without modifying the shared BMD definition.
         /// The override remains active across buffer refreshes until explicitly replaced or cleared.
         /// </summary>

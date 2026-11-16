@@ -57,6 +57,8 @@ namespace Client.Main.Controllers
         }
 
         private readonly Dictionary<string, ManagedLoopData> _managedLoopingInstances = new Dictionary<string, ManagedLoopData>();
+        private readonly Dictionary<string, SoundEffectInstance> _singleChannelInstances = new Dictionary<string, SoundEffectInstance>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _singleChannelLoads = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private ILogger _logger = MuGame.AppLoggerFactory?.CreateLogger<SoundController>();
         private readonly Stopwatch _playStopwatch = Stopwatch.StartNew();
         private readonly Dictionary<string, RecentPlayInfo> _recentOneShots = new Dictionary<string, RecentPlayInfo>(StringComparer.OrdinalIgnoreCase);
@@ -390,6 +392,68 @@ namespace Client.Main.Controllers
 
             string fullPath = Path.Combine(Constants.DataPath, relativePath);
             PlayOneShot(fullPath, 1f, throttle: false);
+        }
+
+        /// <summary>
+        /// PlayBuffer on a sound loaded with one channel (LoadWaveFile(..., 1)): DirectSound Play() on a buffer that
+        /// is still playing does nothing, so repeated calls while it plays are ignored instead of stacking.
+        /// </summary>
+        public void PlayBufferSingleChannel(string relativePath)
+        {
+            if (_disposed || !Constants.SOUND_EFFECTS || Constants.SOUND_EFFECTS_VOLUME <= 0 || string.IsNullOrEmpty(relativePath)) return;
+
+            if (_singleChannelInstances.TryGetValue(relativePath, out SoundEffectInstance instance) && !instance.IsDisposed)
+            {
+                if (instance.State == SoundState.Playing)
+                    return;
+            }
+            else
+            {
+                string fullPath = Path.Combine(Constants.DataPath, relativePath);
+                SoundEffect cached = GetCachedSoundEffect(fullPath.ToLowerInvariant());
+                if (cached == null || cached.IsDisposed)
+                {
+                    if (_singleChannelLoads.Add(relativePath))
+                        _ = PlaySingleChannelAfterLoadAsync(relativePath, fullPath, Volatile.Read(ref _cacheGeneration));
+                    return;
+                }
+                instance = cached.CreateInstance();
+                _singleChannelInstances[relativePath] = instance;
+            }
+
+            try
+            {
+                instance.Volume = MathHelper.Clamp(Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
+                instance.Play();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Unable to play single-channel sound {Path}", relativePath);
+            }
+        }
+
+        private async Task PlaySingleChannelAfterLoadAsync(string relativePath, string fullPath, int generation)
+        {
+            try
+            {
+                SoundEffect sound = await LoadSoundEffectDataAsync(fullPath).ConfigureAwait(false);
+                MuGame.ScheduleOnMainThread(() =>
+                {
+                    if (generation != Volatile.Read(ref _cacheGeneration)) return;
+                    _singleChannelLoads.Remove(relativePath);
+                    if (sound != null && !_disposed)
+                        PlayBufferSingleChannel(relativePath);
+                }, MainThreadDispatcher.WorkPriority.High, "SoundController.PlaySingleChannel");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Unable to load single-channel sound {Path}", fullPath);
+                MuGame.ScheduleOnMainThread(() =>
+                {
+                    if (generation == Volatile.Read(ref _cacheGeneration))
+                        _singleChannelLoads.Remove(relativePath);
+                }, MainThreadDispatcher.WorkPriority.High, "SoundController.ClearSingleChannelLoad");
+            }
         }
 
         private void PlayOneShot(string fullPath, float attenuation, bool throttle)
@@ -747,6 +811,13 @@ namespace Client.Main.Controllers
                 }
             }
             _managedLoopingInstances.Clear();
+            foreach (var instance in _singleChannelInstances.Values)
+            {
+                instance.Stop(true);
+                instance.Dispose();
+            }
+            _singleChannelInstances.Clear();
+            _singleChannelLoads.Clear();
             lock (_recentOneShotsLock)
                 _recentOneShots.Clear();
 

@@ -330,7 +330,8 @@ namespace Client.Main.Objects.Effects
             for (int i = 0; i < monsters.Count && count < targetBuffer.Length; i++)
             {
                 var monster = monsters[i];
-                if (monster == null || monster.IsDead)
+                // Summoned monsters are hit like players: never by the hero's area skills.
+                if (monster == null || monster.IsDead || monster.IsSummoned)
                     continue;
 
                 float dx = monster.Position.X - _center.X;

@@ -1238,6 +1238,11 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 Matrix worldViewProjection = world * view * projection;
                 Vector3 eyePosition = new(0f, 0f, 40f);
 
+                // Dark-textured models disappear on the dark slot background: draw a soft light
+                // silhouette behind them (not in the original client, readability only).
+                if (IsDarkPreviewModel(bmd))
+                    RenderDarkModelOutline(gd, bmd, pose, world, view, projection, height);
+
                 bool useItemMaterial = props.ShouldUseItemMaterial &&
                                        Constants.ENABLE_ITEM_MATERIAL_SHADER &&
                                        GraphicsManager.Instance.ItemMaterialEffect != null;
@@ -1357,6 +1362,148 @@ namespace Client.Main.Controls.UI.Game.Inventory
                     gd.RasterizerState = originalRasterizerState;
                     gd.SamplerStates[0] = originalSamplerState;
                 }
+            }
+        }
+
+        // ---- dark item outline ------------------------------------------------------------------------------
+
+        private const float DarkModelLuminance = 0.22f;
+        private static readonly Vector3 DarkOutlineColor = new(0.78f, 0.72f, 0.6f);
+        private const float DarkOutlineAlpha = 0.5f;
+        private static readonly Dictionary<string, float> _textureLuminance = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<BMD, bool> _darkModels = new(ReferenceComparer<BMD>.Instance);
+
+        /// <summary>Mean luminance of the model's opaque textures (decoded CPU data, cached) below the threshold.</summary>
+        private static bool IsDarkPreviewModel(BMD bmd)
+        {
+            if (_darkModels.TryGetValue(bmd, out bool dark))
+                return dark;
+
+            float sum = 0f;
+            int count = 0;
+            for (int i = 0; i < bmd.Meshes.Length; i++)
+            {
+                string path = BMDLoader.Instance.GetTexturePath(bmd, bmd.Meshes[i].TexturePath);
+                if (string.IsNullOrEmpty(path))
+                    continue;
+                if (!TryGetTextureLuminance(path, out float luminance))
+                    return false; // texture data not decoded yet: decide on a later preview
+                sum += luminance;
+                count++;
+            }
+
+            dark = count > 0 && sum / count < DarkModelLuminance;
+            _darkModels[bmd] = dark;
+            return dark;
+        }
+
+        private static bool TryGetTextureLuminance(string path, out float luminance)
+        {
+            if (_textureLuminance.TryGetValue(path, out luminance))
+                return true;
+
+            var info = TextureLoader.Instance.Get(path);
+            if (info?.Data == null || info.Data.Length == 0 || info.IsCompressed || (info.Components != 3 && info.Components != 4))
+            {
+                luminance = 0f;
+                return false;
+            }
+
+            int comps = info.Components;
+            int pixels = info.Data.Length / comps;
+            int step = Math.Max(1, pixels / 4096);
+            double total = 0d;
+            int samples = 0;
+            for (int p = 0; p < pixels; p += step)
+            {
+                int o = p * comps;
+                if (comps == 4 && info.Data[o + 3] < 128)
+                    continue; // cut-out texels are not visible
+                total += (0.299 * info.Data[o] + 0.587 * info.Data[o + 1] + 0.114 * info.Data[o + 2]) / 255.0;
+                samples++;
+            }
+
+            luminance = samples > 0 ? (float)(total / samples) : 1f;
+            _textureLuminance[path] = luminance;
+            return true;
+        }
+
+        /// <summary>
+        /// Light silhouette of the opaque meshes offset about one pixel in eight directions, drawn without depth so the
+        /// model rendered afterwards covers its centre.
+        /// </summary>
+        private static void RenderDarkModelOutline(
+            GraphicsDevice gd,
+            BMD bmd,
+            PreviewPoseGeometry pose,
+            Matrix world,
+            Matrix view,
+            Matrix projection,
+            int height)
+        {
+            var effect = GraphicsManager.Instance.BasicEffect3D;
+            Matrix oldV = effect.View, oldP = effect.Projection, oldW = effect.World;
+            float oldAlpha = effect.Alpha;
+            Vector3 oldDiffuse = effect.DiffuseColor;
+            bool oldTexture = effect.TextureEnabled, oldVertexColor = effect.VertexColorEnabled;
+            bool oldLighting = effect.LightingEnabled, oldFog = effect.FogEnabled;
+            var oldDepth = gd.DepthStencilState;
+            var oldBlend = gd.BlendState;
+
+            try
+            {
+                effect.TextureEnabled = false;
+                effect.VertexColorEnabled = true;
+                effect.LightingEnabled = false;
+                effect.FogEnabled = false;
+                effect.DiffuseColor = DarkOutlineColor;
+                effect.Alpha = DarkOutlineAlpha;
+                effect.View = view;
+                effect.Projection = projection;
+                gd.DepthStencilState = DepthStencilState.None;
+                gd.BlendState = BlendState.AlphaBlend;
+
+                // View: eye at z = 40 looking at the origin, 30 degree vertical field of view.
+                float pixel = 2f * 40f * MathF.Tan(MathHelper.ToRadians(15f)) / Math.Max(1, height);
+                for (int d = 0; d < 8; d++)
+                {
+                    float a = d * MathHelper.PiOver4;
+                    effect.World = world * Matrix.CreateTranslation(MathF.Cos(a) * pixel * 1.2f, MathF.Sin(a) * pixel * 1.2f, 0f);
+                    for (int i = 0; i < pose.MeshOrder.Length; i++)
+                    {
+                        int meshIndex = pose.MeshOrder[i];
+                        var geometry = pose.Meshes[meshIndex];
+                        if (geometry == null || geometry.Skip || !geometry.IsValid)
+                            continue;
+                        var mesh = bmd.Meshes[meshIndex];
+                        BlendState meshBlend = GetBlendStateForMesh(mesh);
+                        if (meshBlend != null && meshBlend != BlendState.Opaque)
+                            continue;
+                        string path = BMDLoader.Instance.GetTexturePath(bmd, mesh.TexturePath);
+                        var info = string.IsNullOrEmpty(path) ? null : TextureLoader.Instance.Get(path);
+                        if (info == null || info.Components == 4)
+                            continue; // cut-out textures would outline their whole quads
+
+                        gd.SetVertexBuffer(geometry.VertexBuffer);
+                        gd.Indices = geometry.IndexBuffer;
+                        effect.CurrentTechnique.Passes[0].Apply();
+                        gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, geometry.IndexBuffer.IndexCount / 3);
+                    }
+                }
+            }
+            finally
+            {
+                effect.View = oldV;
+                effect.Projection = oldP;
+                effect.World = oldW;
+                effect.Alpha = oldAlpha;
+                effect.DiffuseColor = oldDiffuse;
+                effect.TextureEnabled = oldTexture;
+                effect.VertexColorEnabled = oldVertexColor;
+                effect.LightingEnabled = oldLighting;
+                effect.FogEnabled = oldFog;
+                gd.DepthStencilState = oldDepth;
+                gd.BlendState = oldBlend;
             }
         }
 

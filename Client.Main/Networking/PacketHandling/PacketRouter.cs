@@ -62,6 +62,8 @@ namespace Client.Main.Networking.PacketHandling
         // ───────────────────────── Properties ─────────────────────────
         public TargetProtocolVersion TargetVersion { get; }
 
+        public BuffManager BuffManager => _buffManager;
+
         public void UpdateBuffs() => _buffManager.Update();
 
         // ───────────────────────── Constructors ─────────────────────────
@@ -161,6 +163,7 @@ namespace Client.Main.Networking.PacketHandling
             // Requests sent before the connection dropped will never be answered.
             if (!_isConnectServerRouting)
             {
+                _buffManager.Clear();
                 _characterState?.ResetAfterDisconnect();
                 _networkManager?.GetGuildManager()?.Reset();
                 _networkManager?.GetFriendManager()?.Reset();

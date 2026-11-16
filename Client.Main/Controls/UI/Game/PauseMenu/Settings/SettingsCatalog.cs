@@ -408,6 +408,13 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 Get = () => Constants.SMOOTH_CAMERA_HEIGHT,
                 Set = v => Constants.SMOOTH_CAMERA_HEIGHT = v
             },
+            new SettingToggle
+            {
+                Label = "Inventory Camera Zoom",
+                Description = "Opening the inventory in a safe zone moves the camera in to show off the character's equipment.",
+                Get = () => Constants.INVENTORY_CAMERA_SHOWCASE,
+                Set = v => Constants.INVENTORY_CAMERA_SHOWCASE = v
+            },
             new SettingHeader { Label = "Information" },
             new SettingToggle
             {

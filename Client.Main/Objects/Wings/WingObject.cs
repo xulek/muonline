@@ -2,6 +2,7 @@ using Client.Main.Content;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
 using Client.Main.Objects.Effects;
+using Client.Main.Objects.Player;
 using Client.Data.BMD;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -427,6 +428,8 @@ namespace Client.Main.Objects.Wings
 
         public override void Draw(GameTime gameTime)
         {
+            if (Parent is PlayerObject { IsCloaked: true })
+                return;
             bool ready = !_isCapeLike && !Hidden && Visible && Model?.Meshes != null && Status == GameControlStatus.Ready;
 
             // Wings of Darkness: RENDER_BRIGHT | RENDER_CHROME (bab2, BodyLight 0.8/0.6/1.0) is drawn
@@ -478,6 +481,16 @@ namespace Client.Main.Objects.Wings
                     break;
             }
         }
+
+        public override void DrawAfter(GameTime gameTime)
+        {
+            if (Parent is PlayerObject { IsCloaked: true })
+                return;
+            base.DrawAfter(gameTime);
+        }
+
+        public override int DrawShadowCaster(Effect shadowEffect, Matrix lightViewProjection) =>
+            Parent is PlayerObject { IsCloaked: true } ? 0 : base.DrawShadowCaster(shadowEffect, lightViewProjection);
 
 
         internal void UpdateCapePhysics(GameTime gameTime)

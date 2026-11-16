@@ -21,7 +21,7 @@ namespace Client.Main.Objects.Effects.Skills
                 targetPosition = target.WorldPosition.Translation;
             }
 
-            return new ScrollOfAquaBeamEffect(context.Caster, targetPosition);
+            return new AquaBeamEffect(context.Caster);
         }
     }
 }

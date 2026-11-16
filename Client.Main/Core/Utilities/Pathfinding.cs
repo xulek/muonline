@@ -110,6 +110,18 @@ namespace Client.Main.Core.Utilities
             Vector2 goal,
             WorldControl world,
             CancellationToken cancellationToken)
+            => FindPath(start, goal, world, cancellationToken, int.MaxValue);
+
+        /// <summary>
+        /// A* limited to <paramref name="maxExpandedNodes"/> expansions; returns null when the goal is not reached
+        /// within the budget (an unreachable goal would otherwise flood the whole 256 x 256 map).
+        /// </summary>
+        public static List<Vector2> FindPath(
+            Vector2 start,
+            Vector2 goal,
+            WorldControl world,
+            CancellationToken cancellationToken,
+            int maxExpandedNodes)
         {
             ArgumentNullException.ThrowIfNull(world);
             if (cancellationToken.IsCancellationRequested)
@@ -131,6 +143,9 @@ namespace Client.Main.Core.Utilities
                 while (ctx.OpenSet.Count > 0)
                 {
                     if ((expandedNodes++ & 63) == 0 && cancellationToken.IsCancellationRequested)
+                        return null;
+
+                    if (expandedNodes > maxExpandedNodes)
                         return null;
 
                     PathNode currentNode = ctx.OpenSet.Dequeue();
@@ -201,6 +216,25 @@ namespace Client.Main.Core.Utilities
 
             path.Reverse(); // Reverse the path to go from start to goal
             return path;
+        }
+
+        /// <summary>
+        /// True when every tile of <see cref="BuildDirectPath"/> from start to goal is walkable (no allocation).
+        /// </summary>
+        public static bool IsDirectPathWalkable(Vector2 start, Vector2 goal, WorldControl world)
+        {
+            Vector2 current = start;
+            while (current != goal)
+            {
+                if (current.X != goal.X)
+                    current.X += (float)Math.Sign(goal.X - current.X);
+                if (current.Y != goal.Y)
+                    current.Y += (float)Math.Sign(goal.Y - current.Y);
+                if (!IsWithinMapBounds(current, world) || !world.IsWalkable(current))
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>

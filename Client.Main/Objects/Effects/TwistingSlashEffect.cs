@@ -1,12 +1,8 @@
 #nullable enable
 using System;
 using System.Threading.Tasks;
-using Client.Main.Content;
-using Client.Main.Controls;
-using Client.Main.Controllers;
 using Client.Main.Graphics;
-using Client.Main.Helpers;
-using Client.Main.Models;
+using Client.Main.Objects.Effects.Joints;
 using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -14,454 +10,293 @@ using Microsoft.Xna.Framework.Graphics;
 namespace Client.Main.Objects.Effects
 {
     /// <summary>
-    /// Twisting Slash visual effect: rotating slash arcs, sparks, and dynamic lighting.
-    /// Inspired by original MU wheel skill visuals.
+    /// Twisting Slash (AT_SKILL_WHEEL = 41, masters AT_SKILL_TORNADO_SWORDA/B_UP..+4), SourceMain5.2:
+    /// packet  WSclient.cpp:4883      PLAYER_ATTACK_SKILL_WHEEL, AttackTime = 1
+    /// gate    ZzzCharacter.cpp:2876  AttackStage default: AnimationFrame >= 5 -> AttackTime = 15 (else 14 ticks)
+    /// release ZzzCharacter.cpp:4252  MODEL_SKILL_WHEEL1 at the caster, SOUND_SKILL_SWORD4
+    /// wheel1  ZzzEffect.cpp:1922 (init), 9767 (move: one MODEL_SKILL_WHEEL2 per tick), not rendered
+    /// wheel2  ZzzEffect.cpp:1926 (init), 9770 (move), 17993 RenderWheelWeapon (caster weapon model)
+    /// spark   ZzzEffectJoint.cpp:902 (BITMAP_JOINT_SPARK sub 0); particles ZzzEffectParticle.cpp:2027/6589
+    ///         (BITMAP_SPARK sub 0), 1261/5361 (BITMAP_SMOKE sub 3); sprite BITMAP_LIGHT
     /// </summary>
-    public sealed class TwistingSlashEffect : EffectObject
+    internal sealed class TwistingSlashEffect : SourceSkillEffectBase
     {
-        private const string SlashTexturePath = "Effect/flare01.jpg";
-        private const string GlowTexturePath = "Effect/flare.jpg";
-        private const string CoreTexturePath = "Effect/Shiny05.jpg";
-        private const string SparkTexturePath = "Effect/Spark03.jpg";
+        private const string SmokeTexturePath = "Effect/smoke01.jpg";      // BITMAP_SMOKE
+        private const string LightTexturePath = "Effect/flare01.jpg";      // BITMAP_LIGHT
+        private const string SoundPath = "Sound/sKnightSkill4.wav";        // SOUND_SKILL_SWORD4
 
-        private const int MaxSparks = 80;
-        private const float SparkSpawnInterval = 0.008f;
-        private const int BurstSparkCount = 24;
-        private const float SparkScaleBoost = 1.9f;
-        private const float WeaponShadowInnerRadiusScale = 0.78f;
-        private const float WeaponShadowSpinSpeed = 18f;
-        private const float WeaponShadowBaseAlpha = 0.35f;
-        private static readonly float WeaponShadowTilt = MathHelper.PiOver2;
+        private const int SkillId = 41;
+        private const float ReleaseDelaySeconds = 14f * 0.04f;
+        private const int MaxWheels = 16;
+        private const int MaxSparkJoints = 384;
+        private const int MaxSparks = 256;
+        private const int MaxSmokes = 128;
+        private const int GroupSpear = 3;
 
-        private readonly WalkerObject _caster;
-        private readonly float _duration;
-        private float _remaining;
-        private float _time;
-        private float _spin;
-        private float _sparkTimer;
+        private static readonly Vector3 LightSpriteLight = new(1f, 0.8f, 0.6f);
 
-        private Vector3 _center;
-        private Vector3 _orbitPosition;
-        private float _orbitRadius = 150f;
-        private float _orbitHeight = 55f;
-        private float _spinSpeed = 14f;
-
-        private SpriteBatch _spriteBatch = null!;
-        private Texture2D _slashTexture = null!;
-        private Texture2D _glowTexture = null!;
-        private Texture2D _coreTexture = null!;
-        private Texture2D _sparkTexture = null!;
-
-        private readonly SparkParticle[] _sparks = new SparkParticle[MaxSparks];
-        private readonly DynamicLight _centerLight;
-        private readonly DynamicLight _orbitLight;
-        private bool _lightsAdded;
-        private bool _weaponShadowInitialized;
-
-        private readonly TwistingSlashWeaponShadow? _weaponShadow;
-        private readonly string? _weaponModelPath;
-        private readonly int _weaponItemLevel;
-        private readonly bool _weaponExcellent;
-        private readonly bool _weaponAncient;
-
-        private readonly Color _slashColor = new Color(1f, 0.62f, 0.32f, 1f);
-        private readonly Color _glowColor = new Color(1f, 0.4f, 0.2f, 0.85f);
-        private readonly Color _coreColor = new Color(1f, 0.85f, 0.45f, 1f);
-        private readonly Color _sparkColor = new Color(1f, 0.85f, 0.25f, 1f);
-        private readonly Color _sparkHotColor = new Color(1f, 0.25f, 0.05f, 1f);
-
-        private struct SparkParticle
+        private struct Wheel
         {
+            public bool Live;
             public Vector3 Position;
+            public Vector3 Angle;      // degrees
+            public float Alpha;
+            public float Direction2;   // RenderWheelWeapon spin accumulator
+            public float LifeTime;
+        }
+
+        private struct Particle
+        {
+            public bool Live;
+            public Vector3 Position;
+            public Vector3 Angle;
             public Vector3 Velocity;
-            public float Life;
-            public float MaxLife;
-            public float Rotation;
+            public Vector3 Light;
             public float Scale;
+            public float Gravity;
+            public float LifeTime;
         }
 
-        public TwistingSlashEffect(WalkerObject caster, float durationSeconds = 0.65f)
+        private readonly Wheel[] _wheels = new Wheel[MaxWheels];
+        private readonly SourceSparkPool _sparkPool = new(MaxSparkJoints, MaxSparks);
+        private readonly Particle[] _smokes = new Particle[MaxSmokes];
+
+        private Texture2D? _sparkJointTexture;
+        private Texture2D? _sparkTexture;
+        private Texture2D? _smokeTexture;
+        private Texture2D? _lightTexture;
+        private SourceModelRenderer? _weapon;
+
+        private Vector3 _emitterPosition;
+        private Vector3 _emitterAngle;
+        private float _emitterLifeTime;
+        private float _wheelRadius = 150f;
+
+        public TwistingSlashEffect(WalkerObject caster)
+            : base(caster, 5f, ReleaseDelaySeconds, 2048)
         {
-            _caster = caster ?? throw new ArgumentNullException(nameof(caster));
-            _duration = MathHelper.Clamp(durationSeconds, 0.2f, 1.5f);
-            _remaining = _duration;
+        }
 
-            IsTransparent = true;
-            AffectedByTransparency = true;
-            BlendState = BlendState.Additive;
-            DepthState = DepthStencilState.DepthRead;
+        protected override async Task LoadEffectContent()
+        {
+            _sparkJointTexture = await LoadTexture(SourceSparkPool.JointTexturePath);
+            _sparkTexture = await LoadTexture(SourceSparkPool.ParticleTexturePath);
+            _smokeTexture = await LoadTexture(SmokeTexturePath);
+            _lightTexture = await LoadTexture(LightTexturePath);
 
-            BoundingBoxLocal = new BoundingBox(
-                new Vector3(-220f, -220f, -40f),
-                new Vector3(220f, 220f, 220f));
-
-            _center = _caster.WorldPosition.Translation + new Vector3(0f, 0f, 55f);
-            _orbitPosition = _center + new Vector3(_orbitRadius, 0f, 0f);
-
-            _centerLight = new DynamicLight
+            // o->Weapon = c->Weapon[0].Type - MODEL_SWORD; RenderWheelWeapon draws that item model.
+            if (Caster is PlayerObject player && player.Weapon1?.Model != null)
             {
-                Owner = this,
-                Position = _center,
-                Color = new Vector3(1.0f, 0.6f, 0.25f),
-                Radius = 260f,
-                Intensity = 1.25f
-            };
-
-            _orbitLight = new DynamicLight
-            {
-                Owner = this,
-                Position = _orbitPosition,
-                Color = new Vector3(1.0f, 0.7f, 0.35f),
-                Radius = 180f,
-                Intensity = 1.4f
-            };
-
-            for (int i = 0; i < MaxSparks; i++)
-            {
-                _sparks[i].Life = 0f;
-            }
-
-            for (int i = 0; i < BurstSparkCount; i++)
-            {
-                SpawnSpark();
-            }
-
-            if (_caster is PlayerObject player)
-            {
-                var weapon = GetWeaponSource(player);
-                if (weapon != null && (!string.IsNullOrEmpty(weapon.TexturePath) || weapon.Model != null))
+                WeaponObject weapon = player.Weapon1;
+                var renderer = new SourceModelRenderer(weapon.Model)
                 {
-                    _weaponModelPath = weapon.TexturePath;
-                    _weaponItemLevel = weapon.ItemLevel;
-                    _weaponExcellent = weapon.IsExcellentItem;
-                    _weaponAncient = weapon.IsAncientItem;
+                    ItemLevel = weapon.ItemLevel,
+                    MaterialItemGroup = weapon.MaterialItemGroup,
+                    MaterialItemIndex = weapon.MaterialItemIndex,
+                };
+                if (await renderer.LoadInto(World))
+                    _weapon = renderer;
 
-                    _weaponShadow = new TwistingSlashWeaponShadow();
-                    Children.Add(_weaponShadow);
-                }
+                if (weapon.MaterialItemGroup == GroupSpear)
+                    _wheelRadius = 180f;
             }
         }
 
-        public override async Task LoadContent()
+        protected override void OnStart()
         {
-            await base.LoadContent();
-
-            _ = await TextureLoader.Instance.Prepare(SlashTexturePath);
-            _ = await TextureLoader.Instance.Prepare(GlowTexturePath);
-            _ = await TextureLoader.Instance.Prepare(CoreTexturePath);
-            _ = await TextureLoader.Instance.Prepare(SparkTexturePath);
-
-            _spriteBatch = GraphicsManager.Instance.Sprite;
-            _slashTexture = await TextureLoader.Instance.PrepareAndGetTexture(SlashTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _glowTexture = await TextureLoader.Instance.PrepareAndGetTexture(GlowTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _coreTexture = TextureLoader.Instance.GetTexture2D(CoreTexturePath) ?? GraphicsManager.Instance.Pixel;
-            _sparkTexture = TextureLoader.Instance.GetTexture2D(SparkTexturePath) ?? GraphicsManager.Instance.Pixel;
-
-            if (_weaponShadow != null && !_weaponShadowInitialized)
-            {
-                _weaponShadowInitialized = true;
-
-                if (!string.IsNullOrEmpty(_weaponModelPath))
-                {
-                    _weaponShadow.Model = await BMDLoader.Instance.Prepare(_weaponModelPath);
-                    _weaponShadow.ItemLevel = _weaponItemLevel;
-                    _weaponShadow.IsExcellentItem = _weaponExcellent;
-                    _weaponShadow.IsAncientItem = _weaponAncient;
-                }
-                else
-                {
-                    _weaponShadow.Hidden = true;
-                }
-            }
-
-            if (World?.Terrain != null && !_lightsAdded)
-            {
-                World.Terrain.AddDynamicLight(_centerLight);
-                World.Terrain.AddDynamicLight(_orbitLight);
-                _lightsAdded = true;
-            }
+            _emitterPosition = CasterPosition;
+            _emitterAngle = new Vector3(0f, 0f, CasterYawDegrees);
+            _emitterLifeTime = 5f;
+            PlayUnmappedSound(SkillId, SoundPath);
         }
 
-        public override void Update(GameTime gameTime)
+        protected override void OnTick(float factor)
         {
-            base.Update(gameTime);
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            if (_caster == null || _caster.Status == GameControlStatus.Disposed || _caster.World == null)
+            // MODEL_SKILL_WHEEL1: CreateEffectFpsChecked(MODEL_SKILL_WHEEL2, ..., SubType = 4 - LifeTime).
+            if (_emitterLifeTime > 0f)
             {
-                RemoveSelf();
-                return;
+                if (FpsCheck(1, factor))
+                    SpawnWheel((int)(4f - _emitterLifeTime));
+                _emitterLifeTime -= factor;
             }
 
-            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
-            _remaining -= dt;
-            _time += dt;
-
-            if (_remaining <= 0f)
+            Vector3 owner = CasterPosition;
+            for (int i = 0; i < MaxWheels; i++)
             {
-                RemoveSelf();
-                return;
-            }
-
-            _center = _caster.WorldPosition.Translation + new Vector3(0f, 0f, _orbitHeight);
-
-            float facing = _caster.Angle.Z;
-            _spin -= dt * _spinSpeed;
-
-            float orbitAngle = facing + _spin;
-            float orbitBob = MathF.Sin(_time * 6.0f) * 12f;
-            _orbitPosition = _center + new Vector3(MathF.Cos(orbitAngle) * _orbitRadius, MathF.Sin(orbitAngle) * _orbitRadius, orbitBob);
-
-            UpdateWeaponShadow(orbitAngle);
-            UpdateSparks(dt);
-            UpdateDynamicLights();
-
-            Position = _center;
-        }
-
-        public override void Draw(GameTime gameTime)
-        {
-            base.Draw(gameTime);
-
-            if (!Visible || _spriteBatch == null || _slashTexture == null)
-                return;
-
-            float lifeAlpha = MathHelper.Clamp(_remaining / _duration, 0f, 1f);
-
-            if (!SpriteBatchScope.BatchIsBegun)
-            {
-                using (new SpriteBatchScope(_spriteBatch, SpriteSortMode.Deferred, BlendState.Additive, SamplerState.LinearClamp, DepthState))
-                {
-                    DrawLayers(lifeAlpha);
-                }
-            }
-            else
-            {
-                DrawLayers(lifeAlpha);
-            }
-        }
-
-        private void DrawLayers(float lifeAlpha)
-        {
-            float pulse = 0.85f + 0.15f * MathF.Sin(_time * 10f);
-
-            float coreScale = MathHelper.Lerp(0.9f, 1.35f, pulse);
-            DrawSprite(_coreTexture, _center, _coreColor * (lifeAlpha * pulse), _time * 2.5f, new Vector2(coreScale, coreScale));
-
-            float glowScale = MathHelper.Lerp(1.2f, 2.0f, 1f - lifeAlpha);
-            DrawSprite(_glowTexture, _center, _glowColor * (lifeAlpha * 0.6f), _time * 1.2f, new Vector2(glowScale, glowScale));
-
-            const int arcCount = 3;
-            float facing = _caster.Angle.Z;
-            for (int i = 0; i < arcCount; i++)
-            {
-                float arcAngle = facing + _spin + i * (MathHelper.TwoPi / arcCount);
-                float radius = _orbitRadius * (0.92f + 0.08f * MathF.Sin(_time * 6f + i));
-                float bob = MathF.Sin(_time * 8f + i) * 12f;
-                Vector3 pos = _center + new Vector3(MathF.Cos(arcAngle) * radius, MathF.Sin(arcAngle) * radius, bob);
-                float rotation = arcAngle + MathHelper.PiOver2;
-                float arcAlpha = lifeAlpha * (0.8f - i * 0.15f);
-                Vector2 arcScale = new Vector2(2.2f, 0.55f);
-                DrawSprite(_slashTexture, pos, _slashColor * arcAlpha, rotation, arcScale);
-            }
-
-            DrawSprite(_glowTexture, _orbitPosition, _glowColor * (lifeAlpha * 0.75f), _time * 3.5f, new Vector2(0.7f, 0.7f));
-
-            for (int i = 0; i < MaxSparks; i++)
-            {
-                if (_sparks[i].Life <= 0f)
+                ref Wheel w = ref _wheels[i];
+                if (!w.Live)
                     continue;
 
-                float t = _sparks[i].Life / _sparks[i].MaxLife;
-                float alpha = MathHelper.Clamp(t * 1.25f, 0f, 1f);
-                Vector2 sparkScale = new Vector2(_sparks[i].Scale, _sparks[i].Scale)
-                    * MathHelper.Lerp(0.6f, 1.15f, t)
-                    * SparkScaleBoost;
-                Color sparkColor = Color.Lerp(_sparkHotColor, _sparkColor, t);
-                DrawSprite(_sparkTexture, _sparks[i].Position, sparkColor * (alpha * lifeAlpha), _sparks[i].Rotation, sparkScale);
-            }
-        }
+                w.Position = owner + SourceJointMath.Rotate(new Vector3(0f, -_wheelRadius, 0f), w.Angle);
+                w.Angle.Z -= 18f * factor;
 
-        private void UpdateSparks(float dt)
-        {
-            _sparkTimer += dt;
-            while (_sparkTimer >= SparkSpawnInterval)
-            {
-                _sparkTimer -= SparkSpawnInterval;
-                SpawnSpark();
-            }
+                if (FpsCheck(1, factor) && FpsCheck(1, factor))
+                    SpawnSmoke(w.Position, w.Angle);
 
-            int extraSpawns = (int)MathHelper.Clamp(dt * 120f, 0f, 5f);
-            for (int i = 0; i < extraSpawns; i++)
-            {
-                SpawnSpark();
-            }
-
-            for (int i = 0; i < MaxSparks; i++)
-            {
-                if (_sparks[i].Life <= 0f)
-                    continue;
-
-                _sparks[i].Life -= dt;
-                if (_sparks[i].Life <= 0f)
-                    continue;
-
-                _sparks[i].Position += _sparks[i].Velocity * dt;
-                _sparks[i].Velocity.Z -= 160f * dt;
-                _sparks[i].Velocity *= 1f - MathHelper.Clamp(dt * 1.1f, 0f, 0.2f);
-                _sparks[i].Rotation += dt * 6f;
-            }
-        }
-
-        private void SpawnSpark()
-        {
-            int index = -1;
-            for (int i = 0; i < MaxSparks; i++)
-            {
-                if (_sparks[i].Life <= 0f)
+                for (int j = 0; j < 4; j++)
                 {
-                    index = i;
-                    break;
+                    if (!FpsCheck(1, factor))
+                        continue;
+
+                    var angle = new Vector3(
+                        MuGame.Random.Next(60) + 60 - 90 + w.Angle.X,
+                        w.Angle.Y,
+                        MuGame.Random.Next(30) + 90 + w.Angle.Z);
+                    var pos = new Vector3(
+                        w.Position.X + MuGame.Random.Next(20) - 10,
+                        w.Position.Y + MuGame.Random.Next(20) - 10,
+                        w.Position.Z);
+                    if (FpsCheck(1, factor))
+                        _sparkPool.SpawnJoint(pos, angle);
+                    if (FpsCheck(4, factor) && FpsCheck(1, factor))
+                        _sparkPool.SpawnSpark(pos, angle);
+                }
+
+                w.LifeTime -= factor;
+                if (w.LifeTime <= 0f)
+                    w.Live = false;
+            }
+
+            _sparkPool.Move(factor, World?.Terrain);
+            MoveSmokes(factor);
+        }
+
+        private void SpawnWheel(int subType)
+        {
+            for (int i = 0; i < MaxWheels; i++)
+            {
+                ref Wheel w = ref _wheels[i];
+                if (w.Live)
+                    continue;
+
+                w.Live = true;
+                w.Position = _emitterPosition;
+                w.Angle = _emitterAngle;
+                w.Direction2 = 0f;
+                w.LifeTime = 25f;
+                w.Alpha = subType switch { 1 => 0.6f, 2 => 0.5f, 3 => 0.4f, 4 => 0.3f, _ => 1f };
+                return;
+            }
+        }
+
+        // ------------------------------------------------------------------ BITMAP_SMOKE sub 3
+
+        private void SpawnSmoke(Vector3 position, Vector3 angle)
+        {
+            for (int i = 0; i < MaxSmokes; i++)
+            {
+                ref Particle p = ref _smokes[i];
+                if (p.Live)
+                    continue;
+
+                p.Live = true;
+                p.Position = position;
+                p.LifeTime = 10f;
+                p.Scale = (MuGame.Random.Next(32) + 80) * 0.01f;
+                p.Angle = new Vector3(MuGame.Random.Next(90) - 45, angle.Y, MuGame.Random.Next(360));
+                p.Velocity = new Vector3(0f, -(MuGame.Random.Next(8) + 40), 0f);
+                p.Light = Vector3.One;
+                return;
+            }
+        }
+
+        private void MoveSmokes(float factor)
+        {
+            for (int i = 0; i < MaxSmokes; i++)
+            {
+                ref Particle p = ref _smokes[i];
+                if (!p.Live)
+                    continue;
+
+                p.LifeTime -= factor;
+                if (p.LifeTime <= 0f)
+                {
+                    p.Live = false;
+                    continue;
+                }
+
+                p.Position += SourceJointMath.Rotate(p.Velocity, p.Angle) * factor;
+
+                float luminosity = p.LifeTime / 8f;
+                p.Light = new Vector3(luminosity * 0.8f, luminosity * 0.8f, luminosity);
+                p.Velocity *= 0.4f; // per frame, not scaled by the factor
+                p.Scale += factor * 0.1f;
+            }
+        }
+
+        // ------------------------------------------------------------------ lifecycle / draw
+
+        protected override bool HasActiveContent()
+        {
+            if (_emitterLifeTime > 0f)
+                return true;
+            for (int i = 0; i < MaxWheels; i++)
+                if (_wheels[i].Live) return true;
+            if (_sparkPool.HasLive)
+                return true;
+            for (int i = 0; i < MaxSmokes; i++)
+                if (_smokes[i].Live) return true;
+            return false;
+        }
+
+        protected override void OnDraw()
+        {
+            float factor = SourceJointMath.FrameFactor;
+
+            _sparkPool.DrawJoints(Batch, _sparkJointTexture);
+
+            // RenderWheelWeapon: Direction[2] -= 30 per render, Angle[1] = 90, Position[2] += 100 (both factor-scaled).
+            if (_weapon != null)
+            {
+                for (int i = 0; i < MaxWheels; i++)
+                {
+                    ref Wheel w = ref _wheels[i];
+                    if (!w.Live)
+                        continue;
+
+                    w.Direction2 -= 30f * factor;
+                    var angle = new Vector3(
+                        MathHelper.ToRadians(w.Angle.X),
+                        MathHelper.ToRadians(90f),
+                        MathHelper.ToRadians(w.Angle.Z + w.Direction2));
+                    Vector3 position = w.Position + new Vector3(0f, 0f, 100f * factor);
+                    Vector3 light = (World?.Terrain?.EvaluateTerrainLight(position.X, position.Y) ?? Vector3.Zero) + Vector3.One;
+                    _weapon.DrawInstance(position, angle, 1f, light, 1f, w.Alpha);
                 }
             }
 
-            if (index < 0)
-                return;
-
-            float randA = (float)MuGame.Random.NextDouble();
-            float randB = (float)MuGame.Random.NextDouble();
-            float randC = (float)MuGame.Random.NextDouble();
-
-            Vector3 outward = _orbitPosition - _center;
-            if (outward.LengthSquared() < 0.001f)
-                outward = Vector3.UnitX;
-            else
-                outward.Normalize();
-
-            Vector3 tangent = new Vector3(-outward.Y, outward.X, 0f);
-            float tangentScale = MathHelper.Lerp(-0.6f, 0.6f, randA);
-            Vector3 dir = outward + tangent * tangentScale + Vector3.UnitZ * MathHelper.Lerp(0.15f, 0.45f, randB);
-            if (dir.LengthSquared() < 0.001f)
-                dir = Vector3.UnitX;
-            dir.Normalize();
-
-            float speed = MathHelper.Lerp(220f, 420f, randC);
-            Vector3 velocity = dir * speed;
-            velocity.Z += MathHelper.Lerp(80f, 220f, (float)MuGame.Random.NextDouble());
-
-            Vector3 jitter = new Vector3(
-                MathHelper.Lerp(-8f, 8f, (float)MuGame.Random.NextDouble()),
-                MathHelper.Lerp(-8f, 8f, (float)MuGame.Random.NextDouble()),
-                MathHelper.Lerp(-4f, 12f, (float)MuGame.Random.NextDouble()));
-
-            float life = MathHelper.Lerp(0.45f, 0.85f, (float)MuGame.Random.NextDouble());
-            _sparks[index] = new SparkParticle
+            if (Batch.Begin(_lightTexture, Blendings.OneOneAdditive, DepthStencilState.DepthRead, SamplerState.LinearClamp))
             {
-                Position = _orbitPosition + jitter,
-                Velocity = velocity,
-                Life = life,
-                MaxLife = life,
-                Rotation = MathHelper.Lerp(0f, MathHelper.TwoPi, (float)MuGame.Random.NextDouble()),
-                Scale = MathHelper.Lerp(1.1f, 2.0f, (float)MuGame.Random.NextDouble())
-            };
-        }
-
-        private void UpdateDynamicLights()
-        {
-            float lifeAlpha = MathHelper.Clamp(_remaining / _duration, 0f, 1f);
-            float pulse = 0.7f + 0.3f * MathF.Sin(_time * 12f);
-
-            _centerLight.Position = _center;
-            _centerLight.Intensity = 1.2f * lifeAlpha * pulse;
-            _centerLight.Radius = MathHelper.Lerp(260f, 180f, 1f - lifeAlpha);
-
-            _orbitLight.Position = _orbitPosition;
-            _orbitLight.Intensity = 1.4f * lifeAlpha * (0.8f + 0.2f * MathF.Sin(_time * 18f));
-            _orbitLight.Radius = 160f + 20f * MathF.Sin(_time * 6f);
-        }
-
-        private void UpdateWeaponShadow(float orbitAngle)
-        {
-            if (_weaponShadow == null)
-                return;
-
-            float lifeAlpha = MathHelper.Clamp(_remaining / _duration, 0f, 1f);
-            _weaponShadow.Alpha = WeaponShadowBaseAlpha * lifeAlpha;
-
-            Vector3 localOffset = (_orbitPosition - _center) * WeaponShadowInnerRadiusScale;
-            _weaponShadow.Position = localOffset;
-
-            float wobble = MathF.Sin(_time * 6.0f) * 0.08f;
-            float selfSpin = _time * WeaponShadowSpinSpeed;
-            _weaponShadow.Angle = new Vector3(selfSpin, WeaponShadowTilt + wobble, orbitAngle + MathHelper.PiOver2);
-        }
-
-        private void DrawSprite(Texture2D texture, Vector3 worldPos, Color color, float rotation, Vector2 scale)
-        {
-            if (texture == null)
-                return;
-
-            var viewport = GraphicsDevice.Viewport;
-            Vector3 projected = viewport.Project(worldPos, Camera.Instance.Projection, Camera.Instance.View, Matrix.Identity);
-            if (projected.Z < 0f || projected.Z > 1f)
-                return;
-
-            float baseScale = ComputeScreenScale(worldPos, 1f);
-            Vector2 finalScale = scale * baseScale;
-            float depth = MathHelper.Clamp(projected.Z, 0f, 1f);
-
-            _spriteBatch.Draw(
-                texture,
-                new Vector2(projected.X, projected.Y),
-                null,
-                color,
-                rotation,
-                new Vector2(texture.Width * 0.5f, texture.Height * 0.5f),
-                finalScale,
-                SpriteEffects.None,
-                depth);
-        }
-
-        private static float ComputeScreenScale(Vector3 worldPos, float baseScale)
-        {
-            float distance = Vector3.Distance(Camera.Instance.Position, worldPos);
-            float scale = baseScale / (MathF.Max(distance, 0.1f) / Constants.TERRAIN_SIZE);
-            return scale * Constants.RENDER_SCALE;
-        }
-
-        private static WeaponObject? GetWeaponSource(PlayerObject player)
-        {
-            var left = player.Weapon1;
-            if (left != null && (left.Model != null || !string.IsNullOrEmpty(left.TexturePath)))
-                return left;
-
-            var right = player.Weapon2;
-            if (right != null && (right.Model != null || !string.IsNullOrEmpty(right.TexturePath)))
-                return right;
-
-            return null;
-        }
-
-        private void RemoveSelf()
-        {
-            if (Parent != null)
-                Parent.Children.Remove(this);
-            else
-                World?.RemoveObject(this);
-
-            Dispose();
-        }
-
-        public override void Dispose()
-        {
-            if (World?.Terrain != null)
-            {
-                World.Terrain.RemoveDynamicLight(_centerLight);
-                World.Terrain.RemoveDynamicLight(_orbitLight);
+                for (int i = 0; i < MaxWheels; i++)
+                {
+                    ref Wheel w = ref _wheels[i];
+                    if (w.Live)
+                        Batch.AddSprite(w.Position + new Vector3(0f, 0f, 20f), 2f, LightSpriteLight);
+                }
+                Batch.End();
             }
 
-            base.Dispose();
+            DrawParticles(_smokeTexture, _smokes);
+            _sparkPool.DrawSparks(Batch, _sparkTexture);
+        }
+
+        private void DrawParticles(Texture2D? texture, Particle[] particles)
+        {
+            if (!Batch.Begin(texture, Blendings.OneOneAdditive, DepthStencilState.DepthRead, SamplerState.LinearClamp))
+                return;
+
+            for (int i = 0; i < particles.Length; i++)
+            {
+                ref Particle p = ref particles[i];
+                if (p.Live)
+                    Batch.AddSprite(p.Position, p.Scale, p.Light);
+            }
+            Batch.End();
+        }
+
+        protected override void DisposeEffect()
+        {
+            _weapon?.Dispose();
         }
     }
 }

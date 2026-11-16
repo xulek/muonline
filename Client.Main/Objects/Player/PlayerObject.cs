@@ -53,6 +53,9 @@ namespace Client.Main.Objects.Player
         public PlayerGloveObject Gloves { get; private set; }
         public PlayerBootObject Boots { get; private set; }
         public WeaponObject Weapon1 { get; private set; }
+        internal bool IsCloaked => MuGame.Network?.GetBuffManager()?.HasBuff(
+            (ushort)(NetworkId & 0x7FFF), BuffEffectId.Invisible) == true;
+        private readonly PlayerWeaponBlur _weaponBlur;
         public WeaponObject Weapon2 { get; private set; }
         public WingObject EquippedWings { get; private set; }
         public FlyingHelperObject EquippedHelper { get; private set; }
@@ -75,6 +78,13 @@ namespace Client.Main.Objects.Player
         // Vehicle/mount state
         private bool _isRiding;
         private short _currentVehicleIndex = -1;
+        internal int FenrirSkillVariant => _currentVehicleIndex switch
+        {
+            11 or 15 => 0, // black
+            12 or 16 => 2, // blue
+            13 or 17 => 3, // gold
+            _ => 1,  // red / default
+        };
         public bool IsRidingFenrir => _isRiding && IsFenrirVehicle(_currentVehicleIndex);
         public bool SuppressesHitReaction =>
             (_isRiding && _currentVehicleIndex is 0 or 7 or 8) ||
@@ -325,8 +335,9 @@ namespace Client.Main.Objects.Player
             Pants = new PlayerPantObject { LinkParentAnimation = true };
             Gloves = new PlayerGloveObject { LinkParentAnimation = true };
             Boots = new PlayerBootObject { LinkParentAnimation = true };
-            Weapon1 = new WeaponObject { };
-            Weapon2 = new WeaponObject { };
+            Weapon1 = new WeaponObject(monsterBlur: false);
+            Weapon2 = new WeaponObject(monsterBlur: false);
+            _weaponBlur = new PlayerWeaponBlur(this);
             EquippedWings = new WingObject { LinkParentAnimation = true, Hidden = true };
             EquippedHelper = new FlyingHelperObject();
             Vehicle = new VehicleObject { Hidden = true };
@@ -1614,6 +1625,11 @@ namespace Client.Main.Objects.Player
 
             base.Update(gameTime); // movement, camera for main walker, etc.
 
+            // CreateWeaponBlur + MoveBlurs run after the animation step of this frame.
+            if (GraphicsDevice != null)
+                _weaponBlur.Initialize(GraphicsDevice);
+            _weaponBlur.Update();
+
             UpdateNextGradeOrnaments();
             UpdateEquipmentAnimationStride();
 
@@ -1709,15 +1725,166 @@ namespace Client.Main.Objects.Player
             return EquippedWings.Type > 0 ? EquippedWings.Type : (short)-1;
         }
 
+        private int _swordCount;
+
+        /// <summary>
+        /// ReceiveMagic AT_SKILL_SWORD5 (Slash): SwordCount % 2 == 0 plays PLAYER_ATTACK_SKILL_SWORD5,
+        /// otherwise PLAYER_ATTACK_TWO_HAND_SWORD1 + 2; SwordCount++ on every cast.
+        /// </summary>
+        internal int ApplySlashSwordCount(int skillId, int animationId)
+        {
+            if (skillId != 23)
+                return animationId;
+
+            int action = _swordCount % 2 == 0 ? animationId : (int)PlayerAction.PlayerAttackTwoHandSword3;
+            _swordCount++;
+            return action;
+        }
+
+        private ushort _localCastSkillId;
+        private int _localCastAction = -1;
+        private double _localCastAtMs;
+        private ushort _localVisualSkillId;
+        private int _localVisualPending;
+        private double _localVisualAtMs;
+
+        /// <summary>
+        /// Hero cast animation started at request time, as SourceMain5.2 does (UseSkillWizard / AttackElf ...:
+        /// SendRequestMagic + SetPlayerMagic); the server echo then only restarts AttackTime (WSclient.cpp:3930).
+        /// </summary>
+        internal void BeginLocalCast(ushort skillId, int animationId)
+        {
+            _localCastSkillId = skillId;
+            _localCastAction = animationId;
+            _localCastAtMs = MuGame.Instance?.GameTime?.TotalGameTime.TotalMilliseconds ?? Environment.TickCount64;
+            TriggerVehicleSkillAnimation();
+            PlayAction((ushort)animationId);
+        }
+
+        /// <summary>True when the echo of a local cast arrives while its animation is still playing: do not restart it.</summary>
+        internal bool ConsumeLocalCast(ushort skillId)
+        {
+            if (_localCastAction < 0 || _localCastSkillId != skillId)
+                return false;
+
+            double now = MuGame.Instance?.GameTime?.TotalGameTime.TotalMilliseconds ?? Environment.TickCount64;
+            bool match = now - _localCastAtMs <= 2000 && (int)CurrentAction == _localCastAction;
+            _localCastAction = -1;
+            return match;
+        }
+
+        /// <summary>
+        /// The skill visual of a local cast was created at request time: MoveCharacter releases it from the hero's own
+        /// Skill / AttackTime state, without waiting for the server echo.
+        /// </summary>
+        internal void NoteLocalSkillVisual(ushort skillId)
+        {
+            double now = MuGame.Instance?.GameTime?.TotalGameTime.TotalMilliseconds ?? Environment.TickCount64;
+            if (_localVisualSkillId != skillId || now - _localVisualAtMs > 2000)
+                _localVisualPending = 0;
+            _localVisualSkillId = skillId;
+            _localVisualAtMs = now;
+            _localVisualPending++;
+        }
+
+        /// <summary>True when the echo belongs to a cast whose visual already exists: do not spawn it again.</summary>
+        internal bool ConsumeLocalSkillVisual(ushort skillId)
+        {
+            if (_localVisualPending <= 0 || _localVisualSkillId != skillId)
+                return false;
+
+            double now = MuGame.Instance?.GameTime?.TotalGameTime.TotalMilliseconds ?? Environment.TickCount64;
+            if (now - _localVisualAtMs > 2000)
+            {
+                _localVisualPending = 0;
+                return false;
+            }
+
+            _localVisualPending--;
+            return true;
+        }
+
+        /// <summary>
+        /// Animation id for a skill packet (0x19 / 0x1E): Dark Lord skills whose action depends on the mount
+        /// (ReceiveMagic Helper.Type / SafeZone) go through <see cref="GetSkillAction"/>, the rest use the table.
+        /// </summary>
+        public int GetPacketSkillAnimation(ushort skillId)
+        {
+            if (skillId is 60 or 66 or 61 or 74 or 508 or 514 or 78 or 518 or 63 or 64 or 65 or 76 or 214 or 458 or 215 or 216 or 219 or 221 or 222 or (>= 67 and <= 72))
+            {
+                bool isInSafeZone = false;
+                if (World is WalkableWorldControl world)
+                    isInSafeZone = world.Terrain.RequestTerrainFlag((int)Location.X, (int)Location.Y).HasFlag(TWFlags.SafeZone);
+                return (int)GetSkillAction(skillId, isInSafeZone);
+            }
+            return SkillDatabase.GetSkillAnimation(skillId);
+        }
+
         public PlayerAction GetSkillAction(ushort skillId, bool isInSafeZone)
         {
-            // Fire Burst (61/508/514) and Fire Scream (78/518) use the Dark Lord strike
+            // ReceiveMagicContinue: Drain Life selects a distinct animation for each mount.
+            if (skillId is 214 or 458)
+            {
+                if (_isRiding)
+                {
+                    if (_currentVehicleIndex == 7) return PlayerAction.PlayerSkillDrainLifeUni;
+                    if (_currentVehicleIndex == 8) return PlayerAction.PlayerSkillDrainLifeDino;
+                    if (IsFenrirVehicle(_currentVehicleIndex)) return PlayerAction.PlayerSkillDrainLifeFenrir;
+                }
+                return PlayerAction.PlayerSkillDrainLife;
+            }
+            // ReceiveMagic (Sleep) / ReceiveMagicContinue (Weakness, Enervation): PLAYER_SKILL_SLEEP per mount.
+            if (skillId is 219 or 221 or 222)
+            {
+                if (_isRiding)
+                {
+                    if (_currentVehicleIndex == 7) return PlayerAction.PlayerSkillSleepUni;
+                    if (_currentVehicleIndex == 8) return PlayerAction.PlayerSkillSleepDino;
+                    if (IsFenrirVehicle(_currentVehicleIndex)) return PlayerAction.PlayerSkillSleepFenrir;
+                }
+                return PlayerAction.PlayerSkillSleep;
+            }
+            // ReceiveChainMagic: Chain Lightning selects a distinct animation for each mount.
+            if (skillId == 215)
+            {
+                if (_isRiding)
+                {
+                    if (_currentVehicleIndex == 7) return PlayerAction.PlayerSkillChainLightningUni;
+                    if (_currentVehicleIndex == 8) return PlayerAction.PlayerSkillChainLightningDino;
+                    if (IsFenrirVehicle(_currentVehicleIndex)) return PlayerAction.PlayerSkillChainLightningFenrir;
+                }
+                return PlayerAction.PlayerSkillChainLightning;
+            }
+            // ReceiveMagicContinue / UseSkillSummon: Lightning Orb selects a distinct animation for each mount.
+            if (skillId == 216)
+            {
+                if (_isRiding)
+                {
+                    if (_currentVehicleIndex == 7) return PlayerAction.PlayerSkillLightningOrbUni;
+                    if (_currentVehicleIndex == 8) return PlayerAction.PlayerSkillLightningOrbDino;
+                    if (IsFenrirVehicle(_currentVehicleIndex)) return PlayerAction.PlayerSkillLightningOrbFenrir;
+                }
+                return PlayerAction.PlayerSkillLightningOrb;
+            }
+            if (skillId == 76)
+            {
+                bool right = Weapon2?.Model != null;
+                bool left = Weapon1?.Model != null;
+                if (IsRageFighterClass(CharacterClass))
+                    return right && left ? PlayerAction.PlayerRageFenrirTwoSword :
+                        right ? PlayerAction.PlayerRageFenrirOneRight :
+                        left ? PlayerAction.PlayerRageFenrirOneLeft : PlayerAction.PlayerRageFenrir;
+                return right && left ? PlayerAction.PlayerFenrirSkillTwoSword :
+                    right ? PlayerAction.PlayerFenrirSkillOneRight :
+                    left ? PlayerAction.PlayerFenrirSkillOneLeft : PlayerAction.PlayerFenrirSkill;
+            }
+            // Force (60/66), Fire Burst (61/508/514) and Fire Scream (78/518) use the Dark Lord strike
             // family rather than the generic magic cast. SourceMain5.2 sets
             // PLAYER_ATTACK_STRIKE / PLAYER_ATTACK_RIDE_STRIKE /
             // PLAYER_FENRIR_ATTACK_DARKLORD_STRIKE for both skills (ZzzCharacter.cpp,
             // WSclient.cpp), which is why they are not part of the SkillDefinitions
             // animation table.
-            if (skillId is 61 or 508 or 514 or 78 or 518)
+            if (skillId is 60 or 66 or 61 or 74 or 508 or 514 or 78 or 518)
             {
                 if (_isRiding && !isInSafeZone)
                 {
@@ -1728,6 +1895,55 @@ namespace Client.Main.Objects.Player
                 }
 
                 return PlayerAction.PlayerAttackStrike;
+            }
+
+            // Increase Critical Damage (64): PLAYER_SKILL_HAND1 / Dark Horse PLAYER_ATTACK_RIDE_ATTACK_MAGIC /
+            // Fenrir PLAYER_FENRIR_ATTACK_MAGIC (WSclient.cpp:4417; the ride action only for the Dark Horse).
+            if (skillId == 64)
+            {
+                if (_isRiding && !isInSafeZone)
+                {
+                    if (IsFenrirVehicle(_currentVehicleIndex))
+                        return PlayerAction.PlayerFenrirAttackMagic;
+                    if (IsDarkHorseVehicle(_currentVehicleIndex))
+                        return PlayerAction.PlayerAttackRideAttackMagic;
+                }
+                return PlayerAction.PlayerSkillHand1;
+            }
+
+            // Electric Spike (65): PLAYER_SKILL_FLASH / Fenrir PLAYER_FENRIR_ATTACK_DARKLORD_FLASH (WSclient.cpp:4928).
+            if (skillId == 65)
+                return _isRiding && IsFenrirVehicle(_currentVehicleIndex)
+                    ? PlayerAction.PlayerFenrirAttackDarklordFlash
+                    : PlayerAction.PlayerSkillFlash;
+
+            // Stun .. Abolish Magic (67-72): Dark Horse PLAYER_ATTACK_RIDE_ATTACK_MAGIC, Uniria PLAYER_SKILL_RIDER,
+            // Dinorant PLAYER_SKILL_RIDER_FLY, Fenrir PLAYER_FENRIR_ATTACK_MAGIC, else PLAYER_SKILL_VITALITY
+            // (PLAYER_ATTACK_REMOVAL for the cancel skills 68 / 71) (WSclient.cpp:4218-4400).
+            if (skillId is >= 67 and <= 72)
+            {
+                if (_isRiding && !isInSafeZone)
+                {
+                    if (IsDarkHorseVehicle(_currentVehicleIndex))
+                        return PlayerAction.PlayerAttackRideAttackMagic;
+                    if (_currentVehicleIndex == 7)
+                        return PlayerAction.PlayerSkillRider;
+                    if (_currentVehicleIndex == 8)
+                        return PlayerAction.PlayerSkillRiderFly;
+                    if (IsFenrirVehicle(_currentVehicleIndex))
+                        return PlayerAction.PlayerFenrirAttackMagic;
+                }
+                return skillId is 68 or 71 ? PlayerAction.PlayerAttackRemoval : PlayerAction.PlayerSkillVitality;
+            }
+
+            // Summon party (63): PLAYER_ATTACK_TELEPORT / _RIDE_ / PLAYER_FENRIR_ATTACK_DARKLORD_TELEPORT (WSclient.cpp:4436).
+            if (skillId == 63)
+            {
+                if (_isRiding && !isInSafeZone)
+                    return IsFenrirVehicle(_currentVehicleIndex)
+                        ? PlayerAction.PlayerFenrirAttackDarklordTeleport
+                        : PlayerAction.PlayerAttackRideTeleport;
+                return PlayerAction.PlayerAttackTeleport;
             }
 
             int animationId = SkillDatabase.GetSkillAnimation(skillId);
@@ -2010,6 +2226,8 @@ namespace Client.Main.Objects.Player
 
         private static bool IsUnderwaterRunMap(short worldIndex) =>
             worldIndex == 8 || worldIndex == 68; // Atlans + Doppelganger Underwater
+
+        private static bool IsDarkHorseVehicle(short vehicleIndex) => vehicleIndex == 0; // VehicleDatabase: Dark Horse
 
         private static bool IsFenrirVehicle(short vehicleIndex) =>
             vehicleIndex >= 11 && vehicleIndex <= 18;
@@ -3216,7 +3434,7 @@ namespace Client.Main.Objects.Player
             if (IsDead) return;
 
             // Don't attack dead monsters
-            if (target.IsDead) return;
+            if (target.IsDead || target.IsSummoned) return;
 
             float rangeTiles = GetAttackRangeTiles();
             if (Vector2.Distance(Location, target.Location) > rangeTiles)
@@ -3239,7 +3457,10 @@ namespace Client.Main.Objects.Player
             int dx = (int)(target.Location.X - Location.X);
             int dy = (int)(target.Location.Y - Location.Y);
             if (dx != 0 || dy != 0)
-                Direction = DirectionExtensions.GetDirectionFromMovementDelta(dx, dy);
+                Direction = DirectionExtensions.GetDirectionFromMovementDelta(dx, dy); // server direction byte only
+            // AttackCharacter: o->Angle[2] = CreateAngle2D(o->Position, c->TargetPosition), set before the arrow is
+            // created along o->Angle (the 8-way Direction would aim up to 22.5 degrees aside, and eased too late).
+            FaceTowardsObject(target, immediate: true);
 
             var attackAction = GetAttackAnimation();
             PlayAction((ushort)attackAction);
@@ -3284,7 +3505,10 @@ namespace Client.Main.Objects.Player
             int dx = (int)(target.Location.X - Location.X);
             int dy = (int)(target.Location.Y - Location.Y);
             if (dx != 0 || dy != 0)
-                Direction = DirectionExtensions.GetDirectionFromMovementDelta(dx, dy);
+                Direction = DirectionExtensions.GetDirectionFromMovementDelta(dx, dy); // server direction byte only
+            // AttackCharacter: o->Angle[2] = CreateAngle2D(o->Position, c->TargetPosition), set before the arrow is
+            // created along o->Angle (the 8-way Direction would aim up to 22.5 degrees aside, and eased too late).
+            FaceTowardsObject(target, immediate: true);
 
             var attackAction = GetAttackAnimation();
             PlayAction((ushort)attackAction);
@@ -3572,6 +3796,7 @@ namespace Client.Main.Objects.Player
         public override void Dispose()
         {
             CancelPendingNpcApproach();
+            _weaponBlur.Dispose();
             base.Dispose();
         }
 
@@ -3830,6 +4055,8 @@ namespace Client.Main.Objects.Player
         public override void DrawAfter(GameTime gameTime)
         {
             base.DrawAfter(gameTime);
+            if (Visible)
+                _weaponBlur.Draw();
             DrawPartyHealthBar();
         }
 

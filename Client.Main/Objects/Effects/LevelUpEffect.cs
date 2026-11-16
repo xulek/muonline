@@ -192,6 +192,7 @@ namespace Client.Main.Objects.Effects
                 }
 
                 _lifeFrames -= frameDelta;
+                Alpha = MathHelper.Clamp(_lifeFrames / 10f, 0f, 1f); // fade out instead of vanishing
                 if (_lifeFrames <= 0f)
                 {
                     World?.RemoveObject(this);

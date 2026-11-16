@@ -413,6 +413,45 @@ namespace Client.Main.Objects
                 cancellation);
         }
 
+        // A server walk covers at most 15 steps; this budget finds any detour of that length and bounds the cost of
+        // an unreachable target.
+        private const int ServerWalkSearchNodes = 2048;
+        // Farther than this from the walk's source tile the visual position has lost track of the server: resync.
+        private const int ServerWalkResyncTiles = 3;
+
+        /// <summary>
+        /// Walk of another object reported by the server (ObjectWalked). ReceiveMoveCharacter follows the server path
+        /// tile by tile; walking a straight line to the target instead crosses walls whenever the server path bends.
+        /// The path is rebuilt around blocked tiles here, synchronously and with a bounded search.
+        /// </summary>
+        public void MoveFromServerWalk(Vector2 target, Vector2? source = null)
+        {
+            if (World == null || !this.IsAlive())
+                return;
+
+            if (source.HasValue)
+            {
+                Vector2 s = source.Value;
+                float drift = MathF.Max(MathF.Abs((int)Location.X - s.X), MathF.Abs((int)Location.Y - s.Y));
+                if (drift > ServerWalkResyncTiles)
+                    Location = s;
+            }
+
+            if (target == Location)
+                return;
+
+            _movementIntent = true;
+            Vector2 startPos = new((int)Location.X, (int)Location.Y);
+            uint requestVersion = unchecked(++_moveRequestVersion);
+            CancelPendingPathRequest();
+
+            List<Vector2> path = Pathfinding.IsDirectPathWalkable(startPos, target, World)
+                ? Pathfinding.BuildDirectPath(startPos, target)
+                : Pathfinding.FindPath(startPos, target, World, CancellationToken.None, ServerWalkSearchNodes)
+                  ?? Pathfinding.BuildDirectPath(startPos, target);
+            ApplyPathOnMainThread(path, sendToServer: false, World, startPos, requestVersion);
+        }
+
         private async Task ComputePathAsync(
             Vector2 startPos,
             Vector2 targetLocation,
@@ -557,6 +596,27 @@ namespace Client.Main.Objects
         public void FaceTowards(Vector2 targetLocation, bool immediate = false)
         {
             UpdateFacingFromVector(targetLocation - Location, immediate);
+        }
+
+        /// <summary>
+        /// o->Angle[2] = CreateAngle2D(o->Position, target->Position): continuous facing to another object's world
+        /// position (not one of the 8 tile directions).
+        /// </summary>
+        public void FaceTowardsObject(WorldObject target, bool immediate = false)
+        {
+            Vector3 from = WorldPosition.Translation;
+            Vector3 to = target.WorldPosition.Translation;
+            UpdateFacingFromVector(new Vector2(to.X - from.X, to.Y - from.Y), immediate);
+        }
+
+        /// <summary>Sets the facing (yaw, degrees, C++ o->Angle[2]) at once.</summary>
+        public void SetFacingYawDegrees(float yawDegrees) => SetFacingAngleZ(MathHelper.ToRadians(yawDegrees), immediate: true);
+
+        /// <summary>ReceiveAction: c->Object.Angle[2] = (Angle - 1) * 45 is applied at once, not eased.</summary>
+        public void SnapFacingToDirection()
+        {
+            Vector3 angle = _direction.ToAngle();
+            SetFacingAngleZ(angle.Z, immediate: true);
         }
 
         private static byte[] BuildServerDirections(List<Vector2> path, Vector2 startPos)

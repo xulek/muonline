@@ -21,6 +21,7 @@ namespace Client.Main.Controls.UI.Game.Skills
     {
         private SkillEntryState? _skill;
         private Texture2D? _iconTexture;
+        private string? _iconPath;
         private Rectangle _iconSource;
         private bool _isSelected;
         private bool _wasHovered;
@@ -71,7 +72,7 @@ namespace Client.Main.Controls.UI.Game.Skills
 
         public override async Task Load()
         {
-            foreach (var texturePath in SkillIconAtlas.TexturePaths)
+            foreach (var texturePath in SkillIconAtlas.AllTexturePaths)
             {
                 await TextureLoader.Instance.Prepare(texturePath);
             }
@@ -320,7 +321,12 @@ namespace Client.Main.Controls.UI.Game.Skills
                 drawW,
                 drawH);
 
-            spriteBatch.Draw(_iconTexture, iconRect, _iconSource, Color.White * Alpha);
+            bool unusable = !SkillManager.MeetsDemandConditions(_skill.SkillId);
+            Texture2D iconTexture = _iconTexture;
+            Color iconTint = Color.White;
+            if (unusable && _iconPath != null)
+                iconTexture = SkillIconRenderer.GetIconTexture(_iconPath, true, out iconTint) ?? _iconTexture;
+            spriteBatch.Draw(iconTexture, iconRect, _iconSource, iconTint * Alpha);
 
             // Cooldown overlay (dark fill from top to bottom proportional to remaining time)
             DrawCooldownOverlay(spriteBatch, iconRect);
@@ -509,12 +515,7 @@ namespace Client.Main.Controls.UI.Game.Skills
                     if (skillDef.RequiredDexterity > 0)
                         tooltip += $"\nDex: {skillDef.RequiredDexterity}";
                     if (skillDef.RequiredEnergy > 0)
-                    {
-                        int baseEnergy = 20;
-                        int level = skillDef.RequiredLevel > 0 ? skillDef.RequiredLevel : 1;
-                        int reqEnergy = baseEnergy + (skillDef.RequiredEnergy * level * 4 / 100);
-                        tooltip += $"\nEne: {reqEnergy}";
-                    }
+                        tooltip += $"\nEne: {skillDef.RequiredEnergy}"; // checked as is (SkillManager.GetUnmetDemand)
                     if (skillDef.RequiredLeadership > 0)
                         tooltip += $"\nCmd: {skillDef.RequiredLeadership}";
                 }
@@ -545,6 +546,7 @@ namespace Client.Main.Controls.UI.Game.Skills
             }
 
             _iconTexture = TextureLoader.Instance.GetTexture2D(frame.TexturePath);
+            _iconPath = frame.TexturePath;
             _iconSource = frame.SourceRectangle;
         }
 

@@ -433,6 +433,25 @@ namespace Client.Main.Content
             return false;
         }
 
+        /// <summary>Path a loaded model was requested with (linear scan; call on model change, not per frame).</summary>
+        public bool TryGetModelPath(BMD bmd, out string path)
+        {
+            lock (_bmds)
+            {
+                foreach (var pair in _bmds)
+                {
+                    if (pair.Value.IsCompletedSuccessfully && ReferenceEquals(pair.Value.Result, bmd))
+                    {
+                        path = pair.Key;
+                        return true;
+                    }
+                }
+            }
+
+            path = null;
+            return false;
+        }
+
         public Task<BMD> Prepare(string path, string textureFolder = null)
         {
             lock (_bmds)

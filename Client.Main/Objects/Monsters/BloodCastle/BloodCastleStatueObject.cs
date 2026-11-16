@@ -34,10 +34,34 @@ namespace Client.Main.Objects.Monsters.BloodCastle
         {
             Scale = scale;
             RenderShadow = false;
-            Children.Add(new Effects.BloodCastleDeathFragmentEffect(
-                this,
-                "Object12/StoneCoffin01.bmd",
-                "Object12/StoneCoffin02.bmd"));
+        }
+
+        private bool _destroyed;
+
+        /// <summary>The statue vanishes on its first death frame and breaks into stone fragments.</summary>
+        public override void OnDeathAnimationStart()
+        {
+            base.OnDeathAnimationStart();
+            if (_destroyed)
+                return;
+
+            _destroyed = true;
+            HiddenMesh = -2;
+            Hidden = true;
+            Interactive = false;
+            Effects.BloodCastleDeathFragmentEffect.Spawn(this, "Object12/StoneCoffin01.bmd", "Object12/StoneCoffin02.bmd");
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            if (_destroyed)
+            {
+                World?.RemoveObject(this);
+                Dispose();
+                return;
+            }
+
+            base.Update(gameTime);
         }
 
         public override async Task Load()

@@ -41,7 +41,9 @@ namespace Client.Main.Objects.Effects
 
             float lifeFrames = MathHelper.Clamp(_life * SourceFrameRate, 0f, LifetimeFrames);
             Scale = (LifetimeFrames - lifeFrames) * 0.15f;
-            Alpha = lifeFrames < 5f ? lifeFrames / 5f : 1f;
+            // Fade over the last 8 frames (additive: the colour carries the fade, alpha is ignored by One/One).
+            float fade = lifeFrames < 8f ? lifeFrames / 8f : 1f;
+            Alpha = fade * fade;
 
             Angle = Vector3.Zero;
         }
@@ -80,8 +82,8 @@ namespace Client.Main.Objects.Effects
                 effect.Projection = Camera.Instance.Projection;
                 effect.Texture = SpriteTexture;
                 effect.VertexColorEnabled = false;
-                effect.DiffuseColor = new Vector3(0.4f, 0.6f, 1f);
-                effect.Alpha = this.Alpha;
+                effect.DiffuseColor = new Vector3(0.4f, 0.6f, 1f) * this.Alpha;
+                effect.Alpha = 1f;
 
                 foreach (var pass in effect.CurrentTechnique.Passes)
                 {

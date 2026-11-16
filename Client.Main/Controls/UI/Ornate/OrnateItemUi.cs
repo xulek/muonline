@@ -272,7 +272,13 @@ namespace Client.Main.Controls.UI.Ornate
                 if (text.Length == 0)
                     Rule(sb, rect.X + 10, rect.Right - 10, y + (int)measured.Y / 2, rarity * 0.35f);
                 else
-                    OrnateDraw.Text(sb, text, new Vector2(rect.X + (rect.Width - measured.X) / 2f, y), size, i == 0 ? rarity : color, 1f, bold: i == 0);
+                {
+                    var style = Client.Main.Controls.UI.Game.Common.ItemTooltipLines.StyleOf(lines, i);
+                    if (style.Background is Color bg)
+                        sb.Draw(Pixel, new Rectangle(rect.X + 4, y, rect.Width - 8, (int)MathF.Ceiling(measured.Y)), bg);
+                    OrnateDraw.Text(sb, text, new Vector2(rect.X + (rect.Width - measured.X) / 2f, y), size, color, 1f,
+                        bold: lines is Client.Main.Controls.UI.Game.Common.ItemTooltipLines ? style.Bold : i == 0);
+                }
 
                 y += (int)MathF.Ceiling(measured.Y) + spacing;
                 if (i == 0)

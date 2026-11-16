@@ -403,7 +403,25 @@ namespace Client.Main.Objects
         /// RenderMesh calls of single meshes). Must stay constant, or the buffers must be invalidated.
         /// </summary>
         protected virtual Vector3 GetMeshBodyLight(int mesh) =>
-            PcRoomEffect && mesh == 0 ? new Vector3(0.9f, 0.7f, 1f) : Vector3.One;
+            (PcRoomEffect && mesh == 0 ? new Vector3(0.9f, 0.7f, 1f) : Vector3.One) * _statusBodyLight;
+
+        private Vector3 _statusBodyLight = Vector3.One;
+
+        /// <summary>
+        /// b-&gt;BodyLight of debuffed characters (RenderPartObject, ZzzObject.cpp:1097: poison / freeze tints).
+        /// Applies to this model only; callers propagate it to equipment parts.
+        /// </summary>
+        internal Vector3 StatusBodyLight
+        {
+            get => _statusBodyLight;
+            set
+            {
+                if (_statusBodyLight == value)
+                    return;
+                _statusBodyLight = value;
+                InvalidateBuffers(MeshDirtyFlags.Lighting | MeshDirtyFlags.Material);
+            }
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsHiddenMesh(int mesh) => IsMeshExcludedFromBuffers(mesh) || IsOverlayOnlyMesh(mesh);

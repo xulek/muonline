@@ -74,6 +74,7 @@ namespace Client.Main.Networking
         public bool IsConnected => _connectionManager.IsConnected;
         public CharacterState GetCharacterState() => _characterState;
         public void UpdateBuffs() => _packetRouter.UpdateBuffs();
+        public BuffManager GetBuffManager() => _packetRouter.BuffManager;
         public Task SendClientReadyAfterMapChangeAsync()
             => _characterService.SendClientReadyAfterMapChangeAsync();
 

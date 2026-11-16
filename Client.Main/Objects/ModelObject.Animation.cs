@@ -248,6 +248,7 @@ namespace Client.Main.Objects
             int f1 = (f0 + 1) % totalFrames;
             float t = (float)(framePos - f0);
             CurrentFrame = f0;
+            _animationFramePos = framePos;
 
             GenerateBoneMatrix(currentActionIndex, f0, f1, t);
 
@@ -270,7 +271,7 @@ namespace Client.Main.Objects
                     // blending
                     for (int i = 0; i < BoneTransform.Length; i++)
                     {
-                        Matrix.Lerp(ref _blendFromBones[i], ref BoneTransform[i], blendFactor, out BoneTransform[i]);
+                        BlendRigid(in _blendFromBones[i], ref BoneTransform[i], blendFactor);
                     }
                 }
 
@@ -651,6 +652,51 @@ namespace Client.Main.Objects
             return false;
         }
 
+        /// <summary>
+        /// Cross-fade of one bone: rotation by nlerp, translation and scale linearly. Matrix.Lerp of two rotations
+        /// shrinks the bone along the axes between them (the model looked flattened while turning between actions).
+        /// </summary>
+        private static void BlendRigid(in Matrix from, ref Matrix to, float t)
+        {
+            Vector3 fromScale = new(
+                MathF.Sqrt(from.M11 * from.M11 + from.M12 * from.M12 + from.M13 * from.M13),
+                MathF.Sqrt(from.M21 * from.M21 + from.M22 * from.M22 + from.M23 * from.M23),
+                MathF.Sqrt(from.M31 * from.M31 + from.M32 * from.M32 + from.M33 * from.M33));
+            Vector3 toScale = new(
+                MathF.Sqrt(to.M11 * to.M11 + to.M12 * to.M12 + to.M13 * to.M13),
+                MathF.Sqrt(to.M21 * to.M21 + to.M22 * to.M22 + to.M23 * to.M23),
+                MathF.Sqrt(to.M31 * to.M31 + to.M32 * to.M32 + to.M33 * to.M33));
+            if (fromScale.X < 1e-6f || fromScale.Y < 1e-6f || fromScale.Z < 1e-6f ||
+                toScale.X < 1e-6f || toScale.Y < 1e-6f || toScale.Z < 1e-6f)
+            {
+                Matrix degenerate = from;
+                Matrix.Lerp(ref degenerate, ref to, t, out to);
+                return;
+            }
+
+            Matrix fromRot = from;
+            fromRot.M11 /= fromScale.X; fromRot.M12 /= fromScale.X; fromRot.M13 /= fromScale.X;
+            fromRot.M21 /= fromScale.Y; fromRot.M22 /= fromScale.Y; fromRot.M23 /= fromScale.Y;
+            fromRot.M31 /= fromScale.Z; fromRot.M32 /= fromScale.Z; fromRot.M33 /= fromScale.Z;
+            Matrix toRot = to;
+            toRot.M11 /= toScale.X; toRot.M12 /= toScale.X; toRot.M13 /= toScale.X;
+            toRot.M21 /= toScale.Y; toRot.M22 /= toScale.Y; toRot.M23 /= toScale.Y;
+            toRot.M31 /= toScale.Z; toRot.M32 /= toScale.Z; toRot.M33 /= toScale.Z;
+
+            Quaternion q = Nlerp(Quaternion.CreateFromRotationMatrix(fromRot), Quaternion.CreateFromRotationMatrix(toRot), t);
+            Vector3 scale = Vector3.Lerp(fromScale, toScale, t);
+            Vector3 translation = Vector3.Lerp(from.Translation, to.Translation, t);
+
+            Matrix result = Matrix.CreateFromQuaternion(q);
+            result.M11 *= scale.X; result.M12 *= scale.X; result.M13 *= scale.X;
+            result.M21 *= scale.Y; result.M22 *= scale.Y; result.M23 *= scale.Y;
+            result.M31 *= scale.Z; result.M32 *= scale.Z; result.M33 *= scale.Z;
+            result.M41 = translation.X;
+            result.M42 = translation.Y;
+            result.M43 = translation.Z;
+            to = result;
+        }
+
         private static Quaternion Nlerp(in Quaternion q1, in Quaternion q2, float t)
         {
             var target = q2;
@@ -669,6 +715,125 @@ namespace Client.Main.Objects
                 q1.W + (target.W - q1.W) * t);
 
             return Quaternion.Normalize(blended);
+        }
+
+        private double _animationFramePos;
+
+        /// <summary>Fractional animation frame of <see cref="CurrentAction"/> after the last animation step
+        /// (C++ o-&gt;AnimationFrame).</summary>
+        internal double AnimationFramePosition => _animationFramePos;
+
+        /// <summary>
+        /// Model-space matrix of one bone at a fractional frame of an action, evaluating only the bone's
+        /// parent chain (C++ BMD::Animation into a scratch BoneTransform, as CreateWeaponBlur does).
+        /// </summary>
+        internal bool TryComputeBoneAt(int actionIdx, double framePos, int boneIndex, out Matrix result)
+        {
+            result = Matrix.Identity;
+            var bones = Model?.Bones;
+            var actions = Model?.Actions;
+            if (bones == null || actions == null || actions.Length == 0 || boneIndex < 0 || boneIndex >= bones.Length)
+                return false;
+
+            if (actionIdx < 0 || actionIdx >= actions.Length)
+                actionIdx = 0;
+
+            var action = actions[actionIdx];
+            if (action == null)
+                return false;
+
+            int totalFrames = Math.Max(action.LockPositions ? action.NumAnimationKeys - 1 : action.NumAnimationKeys, 1);
+            if (framePos < 0)
+                framePos = 0;
+            framePos %= totalFrames;
+            int frame0 = (int)framePos;
+            int frame1 = (frame0 + 1) % totalFrames;
+            float t = (float)(framePos - frame0);
+
+            Span<int> chain = stackalloc int[64];
+            int count = 0;
+            for (int b = boneIndex; b >= 0 && b < bones.Length && count < chain.Length; b = bones[b].Parent)
+                chain[count++] = b;
+
+            Matrix accumulated = Matrix.Identity;
+            for (int k = count - 1; k >= 0; k--)
+            {
+                int i = chain[k];
+                var bone = bones[i];
+                if (bone == BMDTextureBone.Dummy || bone.Matrixes == null || actionIdx >= bone.Matrixes.Length)
+                    return false;
+
+                var bm = bone.Matrixes[actionIdx];
+                int keys = Math.Min(bm.Position?.Length ?? 0, bm.Quaternion?.Length ?? 0);
+                if (keys == 0)
+                    return false;
+
+                int k0 = Math.Min(frame0, keys - 1);
+                int k1 = Math.Min(frame1, keys - 1);
+                float kt = k0 == k1 ? 0f : t;
+
+                Matrix m = Matrix.CreateFromQuaternion(Nlerp(bm.Quaternion[k0], bm.Quaternion[k1], kt));
+                Vector3 p0 = bm.Position[k0];
+                Vector3 p1 = bm.Position[k1];
+                m.M41 = p0.X + (p1.X - p0.X) * kt;
+                m.M42 = p0.Y + (p1.Y - p0.Y) * kt;
+                m.M43 = p0.Z + (p1.Z - p0.Z) * kt;
+
+                if (i == 0 && action.LockPositions)
+                    m.Translation = new Vector3(bm.Position[0].X, bm.Position[0].Y, m.M43 + BodyHeight);
+
+                accumulated = k == count - 1 ? m : m * accumulated;
+            }
+
+            result = accumulated;
+            return true;
+        }
+
+        /// <summary>Samples BMD::Animation(frame, (int)frame - 1) for an effect's object blur.</summary>
+        internal bool TryComputeSourceBlurBoneAt(int actionIdx, double framePos, int boneIndex, out Matrix result)
+        {
+            result = Matrix.Identity;
+            var bones = Model?.Bones;
+            var actions = Model?.Actions;
+            if (bones == null || actions == null || actionIdx < 0 || actionIdx >= actions.Length ||
+                boneIndex < 0 || boneIndex >= bones.Length || actions[actionIdx] == null)
+                return false;
+
+            var action = actions[actionIdx];
+            int current = (int)framePos;
+            float t = (float)(framePos - current);
+            int prior = Math.Max(0, current - 1);
+            if (current < 0 || current >= action.NumAnimationKeys)
+                current = 0;
+            if (prior >= action.NumAnimationKeys)
+                prior = 0;
+
+            Span<int> chain = stackalloc int[64];
+            int count = 0;
+            for (int b = boneIndex; b >= 0 && b < bones.Length && count < chain.Length; b = bones[b].Parent)
+                chain[count++] = b;
+
+            Matrix accumulated = Matrix.Identity;
+            for (int k = count - 1; k >= 0; k--)
+            {
+                int i = chain[k];
+                var bone = bones[i];
+                if (bone == BMDTextureBone.Dummy || bone.Matrixes == null || actionIdx >= bone.Matrixes.Length)
+                    return false;
+                var frames = bone.Matrixes[actionIdx];
+                int keys = Math.Min(frames.Position?.Length ?? 0, frames.Quaternion?.Length ?? 0);
+                if (current >= keys || prior >= keys)
+                    return false;
+
+                Matrix m = Matrix.CreateFromQuaternion(Quaternion.Slerp(frames.Quaternion[prior], frames.Quaternion[current], t));
+                Vector3 p = Vector3.Lerp(frames.Position[prior], frames.Position[current], t);
+                if (i == 0 && action.LockPositions)
+                    p = new Vector3(frames.Position[0].X, frames.Position[0].Y, p.Z + BodyHeight);
+                m.Translation = p;
+                accumulated = k == count - 1 ? m : m * accumulated;
+            }
+            result = accumulated;
+            return true;
         }
 
         private void ComputeBoneMatrixTo(int actionIdx, int frame0, int frame1, float t, Matrix[] output)

@@ -137,16 +137,11 @@ namespace Client.Main.Controls.UI.Game
             if (_hoveredItem == null)
                 return;
 
-            var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem);
-            int buyPrice = ItemPriceCalculator.CalculateBuyPrice(_hoveredItem);
-            if (buyPrice > 0)
+            var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem, new Core.Utilities.ItemTooltip.ItemTooltipContext
             {
-                lines.Add((string.Empty, Color.White));
-                long zen = _characterState?.InventoryZen ?? 0;
-                lines.Add(($"Price: {OrnateItemUi.FormatZen(buyPrice)} Zen", buyPrice <= zen ? OrnateStyle.Gold : OrnateStyle.Danger));
-                if (buyPrice > zen)
-                    lines.Add(($"Not enough Zen (missing {OrnateItemUi.FormatZen(buyPrice - zen)})", OrnateStyle.Danger));
-            }
+                Type = Core.Utilities.ItemTooltip.ItemTooltipType.NpcShop,
+                NpcShopOpen = true,
+            });
 
             var itemRect = new Rectangle(
                 DisplayRectangle.X + _gridRect.X + _hoveredItem.GridPosition.X * SHOP_SQUARE_WIDTH,

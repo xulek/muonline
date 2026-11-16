@@ -1,13 +1,12 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Inferno skill visual effect (Skill ID 14).
+    /// Factory for Inferno (AT_SKILL_INFERNO = 14): CreateInferno ring + MODEL_SKILL_INFERNO at the caster.
     /// </summary>
-    [SkillVisualEffect(14)]
+    [SkillVisualEffect(14)] // Inferno
     public sealed class InfernoSkillEffect : ISkillVisualEffect
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
@@ -15,8 +14,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            Vector3 center = context.Caster.WorldPosition.Translation;
-            return new ScrollOfInfernoEffect(context.Caster, center);
+            return new InfernoEffect(context.Caster);
         }
     }
 }

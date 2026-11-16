@@ -12,6 +12,7 @@ namespace Client.Main.Objects.Effects
     /// Legacy BITMAP_FLARE joint used by the level-up packet.
     /// The original effect is a 25 Hz tail, not a screen-space sprite: normal level-up uses
     /// subtype 0, while master level-up uses subtype 45/46 and their short secondary flashes.
+    /// Subtype 47 (Recovery) shares the 45/46 motion without the secondary sprites.
     /// </summary>
     public sealed class LevelUpFlare : EffectObject
     {
@@ -19,6 +20,8 @@ namespace Client.Main.Objects.Effects
         private const int NormalTailLimit = 20;
         private const int MasterTailLimit = 15;
         private const int MaxTransientSprites = 64;
+        // Additive tail: dim it over its last frames instead of cutting it off at LifeTime 0.
+        private const float FadeOutFrames = 12f;
 
         private const int ShinySprite = 0;
         private const int LightSprite = 1;
@@ -98,7 +101,8 @@ namespace Client.Main.Objects.Effects
                 _direction1 = 0f;
                 _direction2 = 0f;
                 _velocity = 0f;
-                Light = new Vector3(0.2f, 0.2f, 1f);
+                // Sub45/46: master level-up; sub47: Recovery (AT_SKILL_RECOVER) swirl.
+                Light = variant == 47 ? new Vector3(0.7f, 0.7f, 1f) : new Vector3(0.2f, 0.2f, 1f);
             }
 
             _lifeFrames = _maxLifeFrames;
@@ -149,7 +153,7 @@ namespace Client.Main.Objects.Effects
                 Position = CalculatePosition(gameTime);
                 PushTail(Position);
 
-                if (_variant != 0)
+                if (_variant == 45 || _variant == 46)
                     EmitMasterSubEffects();
 
                 _lifeFrames -= 1f;
@@ -187,7 +191,7 @@ namespace Client.Main.Objects.Effects
 
                 DrawTail();
 
-                if (_variant != 0)
+                if (_variant == 45 || _variant == 46)
                     DrawMasterSubEffects();
             }
             finally
@@ -268,6 +272,10 @@ namespace Client.Main.Objects.Effects
             int indexCount = 0;
             int numberOfTails = _tailCount - 1;
             Matrix angleMatrix = Matrix.CreateRotationZ(_angle.Z);
+            float remainingFrames = _lifeFrames - _legacyAccumulator;
+            float fade = MathHelper.Clamp(remainingFrames / FadeOutFrames, 0f, 1f);
+            fade *= fade; // ease out
+            Color color = ToColor(Light * fade);
 
             for (int segment = 0; segment < _tailCount - 1; segment++)
             {
@@ -275,7 +283,6 @@ namespace Client.Main.Objects.Effects
                 Vector3 next = _tails[segment + 1];
                 float light1 = (numberOfTails - segment) / (float)(_tailLimit - 1);
                 float light2 = (numberOfTails - segment - 1) / (float)(_tailLimit - 1);
-                Color color = ToColor(Light);
 
                 Vector3 current0 = TransformTailOffset(current, new Vector3(-_scale * 0.5f, 0f, 0f), angleMatrix);
                 Vector3 current1 = TransformTailOffset(current, new Vector3(_scale * 0.5f, 0f, 0f), angleMatrix);

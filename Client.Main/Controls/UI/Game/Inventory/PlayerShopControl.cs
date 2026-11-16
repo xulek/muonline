@@ -344,16 +344,14 @@ namespace Client.Main.Controls.UI.Game.Inventory
             var sb = GraphicsManager.Instance.Sprite;
             if (sb == null) return;
 
-            var lines = ItemUiHelper.BuildTooltipLines(_hovered.Item);
-            uint zen = CurrentZen;
-            lines.Add((string.Empty, Color.White));
-            lines.Add(($"Price: {PlayerShopUi.FormatZen(_hovered.Price)} Zen", PlayerShopUi.GetPriceColor(_hovered.Price)));
+            // TOOLTIP_TYPE_PURCHASE_SHOP: price (GlobalText 63) and "short of Zen" (423) come from the tooltip.
+            var lines = ItemUiHelper.BuildTooltipLines(_hovered.Item, new Core.Utilities.ItemTooltip.ItemTooltipContext
+            {
+                Type = Core.Utilities.ItemTooltip.ItemTooltipType.PurchaseShop,
+                PersonalShopPrice = _hovered.Price,
+            });
             if (!_hovered.Known)
                 lines.Add(("Unknown item - cannot be bought", ModernHudTheme.Danger));
-            else if (_hovered.Price > zen)
-                lines.Add(($"Not enough Zen (missing {PlayerShopUi.FormatZen(_hovered.Price - zen)})", ModernHudTheme.Danger));
-            else
-                lines.Add(("Click to buy", ModernHudTheme.Success));
 
             var item = _hovered.Item;
             var avoid = PlayerShopUi.CellRect(Grid, item.GridPosition, item.Definition.Width, item.Definition.Height);

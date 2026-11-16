@@ -68,6 +68,12 @@ namespace Client.Main.Core.Client
 
         public DateTime? ExpiresAt { get; set; }
 
+        /// <summary>
+        /// The duration was sent by the server (item effects): the buff may expire locally. Otherwise it is an
+        /// estimate for display only and the buff stays until the server ends it.
+        /// </summary>
+        public bool DurationFromServer { get; set; }
+
         public TimeSpan? GetRemainingTime(DateTime now)
         {
             if (!ExpiresAt.HasValue)
@@ -141,8 +147,16 @@ namespace Client.Main.Core.Client
         public ushort LastAreaSkillId { get; set; } = 0;
         public byte LastAreaSkillTargetX { get; set; } = 0;
         public byte LastAreaSkillTargetY { get; set; } = 0;
+        public ushort LastAreaSkillTargetId { get; set; } = 0;
         public byte LastAreaSkillAnimationCounter { get; set; } = 0;
         public double LastAreaSkillSentAtMs { get; set; } = 0;
+
+        public ushort GetRecentAreaSkillTarget(ushort skillId, double nowMs)
+        {
+            double elapsedMs = nowMs - LastAreaSkillSentAtMs;
+            return LastAreaSkillId == skillId && elapsedMs >= 0 && elapsedMs <= 1500
+                ? LastAreaSkillTargetId : (ushort)0;
+        }
 
         // Core Stats (HP, Mana, SD, AG)
         public uint CurrentHealth { get; set; } = 0;
@@ -1853,6 +1867,17 @@ namespace Client.Main.Core.Client
 
         // --- Active Buffs/Effects Methods ---
 
+        private static readonly TimeSpan LocalCastBuffWindow = TimeSpan.FromSeconds(3);
+        private ushort _lastLocalSkillCastId;
+        private DateTime _lastLocalSkillCastAt = DateTime.MinValue;
+
+        /// <summary>The hero sent a skill request: a buff it applies within a moment uses the hero's energy.</summary>
+        public void NoteLocalSkillCast(ushort skillId)
+        {
+            _lastLocalSkillCastId = skillId;
+            _lastLocalSkillCastAt = DateTime.UtcNow;
+        }
+
         /// <summary>
         /// Adds or activates a buff/effect.
         /// </summary>
@@ -1869,7 +1894,11 @@ namespace Client.Main.Core.Client
             var key = (effectId, maskedId);
             var definition = BuffDefinitionRegistry.Get((BuffEffectId)effectId);
             var activatedAt = DateTime.UtcNow;
-            var effectiveDuration = duration ?? definition.Duration;
+            ushort? heroCast = maskedId == (ushort)(Id & 0x7FFF) && activatedAt - _lastLocalSkillCastAt <= LocalCastBuffWindow
+                ? _lastLocalSkillCastId
+                : null;
+            var effectiveDuration = duration ??
+                BuffDefinitionRegistry.EstimateDuration((BuffEffectId)effectId, heroCast, TotalEnergy);
             _activeBuffs[key] = new ActiveBuffState
             {
                 EffectId = effectId,
@@ -1879,7 +1908,8 @@ namespace Client.Main.Core.Client
                 Name = string.IsNullOrEmpty(name) ? definition.Name : name,
                 ValueText = definition.ValueText,
                 Duration = effectiveDuration,
-                ExpiresAt = effectiveDuration.HasValue ? activatedAt + effectiveDuration.Value : null
+                ExpiresAt = effectiveDuration.HasValue ? activatedAt + effectiveDuration.Value : null,
+                DurationFromServer = duration.HasValue
             };
             ActiveBuffsChanged?.Invoke();
             _logger.LogDebug("Buff activated. Effect ID: {EffectId}, Player ID: {PlayerId} (masked {MaskedId})", effectId, playerId, maskedId);
@@ -1926,7 +1956,8 @@ namespace Client.Main.Core.Client
             foreach (var kv in _activeBuffs)
             {
                 var buff = kv.Value;
-                if (!buff.ExpiresAt.HasValue || buff.ExpiresAt.Value > now)
+                // Estimated durations are only shown: the server ends those effects itself.
+                if (!buff.DurationFromServer || !buff.ExpiresAt.HasValue || buff.ExpiresAt.Value > now)
                     continue;
 
                 changed |= _activeBuffs.TryRemove(kv.Key, out _);

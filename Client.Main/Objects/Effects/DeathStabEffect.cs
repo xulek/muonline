@@ -1,426 +1,590 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-using Client.Main.Content;
+using Client.Data.BMD;
 using Client.Main.Controllers;
 using Client.Main.Controls;
-using Client.Main.Core.Utilities;
-using Client.Main.Graphics;
 using Client.Main.Models;
-using Client.Main.Objects;
+using Client.Main.Graphics;
+using Client.Main.Objects.Effects.Joints;
+using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
 namespace Client.Main.Objects.Effects
 {
     /// <summary>
-    /// Death Stab (Orb of Blow) visual effect (Skill ID 43) using original MU assets.
-    /// Three-phase effect: energy charge-up, spike attack, and victim lightning impact.
+    /// Death Stab (AT_SKILL_DEATHSTAB = 43, masters AT_SKILL_BLOW_UP..+4), SourceMain5.2:
+    /// packet  WSclient.cpp:4067       PLAYER_ATTACK_DEATHSTAB, AttackTime = 1
+    /// stage   ZzzCharacter.cpp:2439   charge joints, m_vPosSword, MODEL_SPEAR x2, hurt = 35, release at AttackTime 12
+    /// charge  ZzzEffectJoint.cpp:1528 (MODEL_SPEARSKILL sub 2 init), 4235 (move), 6957 (colour)
+    /// spear   ZzzEffect.cpp:642 (init), 7387 (move: BITMAP_FLARE sub 12); not rendered (item model)
+    /// flare   ZzzEffectJoint.cpp:1836 (init), 5520 (move), 6883 (re-entry), 7038/7198 (U, colour)
+    /// hurt    ZzzCharacter.cpp:3915   BITMAP_JOINT_THUNDER sub 7 bone to parent while m_byHurtByDeathstab &gt; 0
+    /// thunder ZzzEffectJoint.cpp:1117 (init), 4688 (move), 7026 (U)
     /// </summary>
-    public sealed class DeathStabEffect : EffectObject
+    internal sealed class DeathStabEffect : SourceSkillEffectBase
     {
-        private const string EnergyParticleBaseName = "RidingSpear";
-        private const string SpikeBaseName = "Spear";
-        private const string SoundAttack = "Sound/sKnightSkill2.wav";
+        private const string ChargeTexturePath = "Effect/NSkill.jpg";          // BITMAP_FLARE_FORCE
+        private const string FlareTexturePath = "Effect/Flare.jpg";            // BITMAP_FLARE
+        private const string ThunderTexturePath = "Effect/JointThunder01.jpg"; // BITMAP_JOINT_THUNDER (GL_REPEAT)
+        private const string SoundPath = "Sound/sKnightSkill2.wav";            // SOUND_SKILL_SWORD2
 
-        private const float EnergySpawnDistance = 600f;
-        private const float EnergyTargetDistance = 300f;
-        private const float EnergySpawnRandomRadius = 300f;
-        private const float EnergyParticleLifeFrames = 20f;
+        private const int SkillId = 43;
+        private const int WeaponBone = 33;      // c->Weapon[0].LinkBone (GetHandOfWeapon = 0)
+        private const float LimitAttackTime = 15f;
+        private const byte HurtFrames = 35;
 
-        private const float SpikeBaseDistance = 100f;
-        private const float SpikeLifeFrames = 10f;
-        private const float TotalLifeFrames = 20f;
+        private const int MaxCharges = 64;
+        private const int MaxSpears = 32;
+        private const int MaxFlares = 128;
+        private const int MaxThunders = 512;
 
-        private readonly WalkerObject _caster;
+        private static readonly Vector3 ChargeLight = new(1f, 0.3f, 0.3f);
+        private static readonly Vector3 FlareLight = new(0.1f, 0.1f, 1f);
+        private static readonly Vector3 ThunderLight = new(0.5f, 0.5f, 1f);
+
+        // m_byHurtByDeathstab lives on the target: the latest Death Stab on a target owns it.
+        private static readonly Dictionary<WalkerObject, DeathStabEffect> HurtOwners = new();
+
+        private struct Charge
+        {
+            public bool Live;
+            public Vector3 Position;
+            public Vector3 TargetPosition;
+            public Vector3 Right;
+            public Vector3 Up;
+            public float LifeTime;
+            public float Scale;
+            public SourceTrail Trail;
+        }
+
+        private struct Spear
+        {
+            public bool Live;
+            public Vector3 Position;
+            public float Yaw;
+            public float LifeTime;
+        }
+
+        private struct Flare
+        {
+            public bool Live;
+            public Vector3 Position;
+            public Vector3 TargetPosition;
+            public Vector3 Right;
+            public Vector3 Up;
+            public float Yaw;
+            public float Direction0;
+            public float Direction1;
+            public float Direction2;
+            public float LifeTime;
+            public SourceTrail Trail;
+        }
+
+        private struct Thunder
+        {
+            public bool Live;
+            public Vector3 Position;
+            public Vector3 StartPosition;
+            public Vector3 TargetPosition;
+            public Vector3 Angle;
+            public float LifeTime;
+            public SourceTrail Trail;
+        }
+
         private readonly WalkerObject? _target;
-        private float _lifeTimeFrames = TotalLifeFrames;
-        private Vector3 _weaponTipPosition;
-        private bool _soundPlayed;
-        private bool _impactApplied;
+        private readonly Charge[] _charges = new Charge[MaxCharges];
+        private readonly Spear[] _spears = new Spear[MaxSpears];
+        private readonly Flare[] _flares = new Flare[MaxFlares];
+        private readonly Thunder[] _thunders = new Thunder[MaxThunders];
 
-        private string _energyPath = "Skill/RidingSpear01.bmd";
-        private string _spikePath = "Item/Spear02.bmd";
-        private bool _pathsResolved;
+        private Texture2D? _chargeTexture;
+        private Texture2D? _flareTexture;
+        private Texture2D? _thunderTexture;
 
-        private readonly DynamicLight _chargeLight;
-        private readonly DynamicLight _impactLight;
-        private bool _lightsAdded;
-        private float _time;
+        private float _attackTime = 1f;
+        private int _lastAttackEffectTime = -1;
+        private bool _stageActive;
+        private Vector3 _posSword;
+        private int _hurt;
 
         public DeathStabEffect(WalkerObject caster, WalkerObject? target)
+            : base(caster, 0f, 0f, 2048)
         {
-            _caster = caster ?? throw new ArgumentNullException(nameof(caster));
             _target = target;
-
-            IsTransparent = true;
-            AffectedByTransparency = true;
-            BlendState = BlendState.Additive;
-            DepthState = DepthStencilState.DepthRead;
-
-            BoundingBoxLocal = new BoundingBox(
-                new Vector3(-200f, -200f, -80f),
-                new Vector3(200f, 200f, 200f));
-
-            _chargeLight = new DynamicLight
-            {
-                Owner = this,
-                Position = caster.WorldPosition.Translation + new Vector3(0f, 0f, 120f),
-                Color = new Vector3(0.65f, 0.85f, 1.0f),
-                Radius = 220f,
-                Intensity = 1.2f
-            };
-
-            _impactLight = new DynamicLight
-            {
-                Owner = this,
-                Position = (target?.WorldPosition.Translation ?? caster.WorldPosition.Translation) + new Vector3(0f, 0f, 80f),
-                Color = new Vector3(0.8f, 0.95f, 1.0f),
-                Radius = 200f,
-                Intensity = 0f
-            };
         }
 
-        public override async Task LoadContent()
+        protected override async Task LoadEffectContent()
         {
-            await base.LoadContent();
-            await ResolvePaths();
-
-            if (World?.Terrain != null && !_lightsAdded)
-            {
-                World.Terrain.AddDynamicLight(_chargeLight);
-                World.Terrain.AddDynamicLight(_impactLight);
-                _lightsAdded = true;
-            }
+            _chargeTexture = await LoadTexture(ChargeTexturePath);
+            _flareTexture = await LoadTexture(FlareTexturePath);
+            _thunderTexture = await LoadTexture(ThunderTexturePath);
         }
 
-        public override void Update(GameTime gameTime)
+        protected override void OnStart()
         {
-            base.Update(gameTime);
-
-            if (Status == GameControlStatus.NonInitialized)
-                _ = Load();
-
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            if (_caster.Status == GameControlStatus.Disposed || _caster.World == null)
-            {
-                RemoveSelf();
-                return;
-            }
-
-            _time += (float)gameTime.ElapsedGameTime.TotalSeconds;
-            UpdateWeaponTipPosition();
-
-            int lifeInt = (int)_lifeTimeFrames;
-
-            // Phase 1: Energy Charge (frames 12-18, counting down from 20)
-            if (lifeInt >= 12 && lifeInt <= 18)
-            {
-                UpdateWeaponTipPosition();
-                SpawnEnergyParticles();
-            }
-
-            // Phase 2: Spike Attack (frames 8-14)
-            if (lifeInt >= 8 && lifeInt <= 14)
-            {
-                SpawnSpikeEffects();
-            }
-
-            if (lifeInt <= 12 && !_soundPlayed)
-            {
-                SoundController.Instance.PlayBuffer(SoundAttack);
-                _soundPlayed = true;
-            }
-
-            // Phase 3: Target Impact (frame 10)
-            if (lifeInt == 10 && !_impactApplied && _target != null)
-            {
-                ApplyVictimEffect();
-                _impactApplied = true;
-            }
-
-            _lifeTimeFrames -= FPSCounter.Instance.FPS_ANIMATION_FACTOR;
-
-            if (_lifeTimeFrames <= 0f)
-            {
-                RemoveSelf();
-            }
-
-            UpdateDynamicLights(lifeInt);
+            // AttackStage breaks out for a missing weapon link bone; only players carry bone 33.
+            _stageActive = Caster is PlayerObject;
+            _posSword = SwordPoint();
         }
 
-        private async Task ResolvePaths()
+        protected override void OnTick(float factor)
         {
-            if (_pathsResolved)
-                return;
+            // Frame order of the original: MoveCharacters (AttackStage, hurt) -> MoveEffects -> MoveJoints.
+            if (_stageActive)
+                TickAttackStage(factor);
 
-            _energyPath = await ResolveModelPath(EnergyParticleBaseName, "Skill/", "Skill/RidingSpear01.bmd");
-            _spikePath = await ResolveModelPath(SpikeBaseName, "Item/", "Item/Spear02.bmd");
+            TickHurt(factor);
 
-            _pathsResolved = true;
-        }
-
-        private static async Task<string> ResolveModelPath(string baseName, string folder, string fallback)
-        {
-            string path01 = $"{folder}{baseName}01.bmd";
-            if (await BMDLoader.Instance.AssestExist(path01))
-                return path01;
-
-            string pathPlain = $"{folder}{baseName}.bmd";
-            if (await BMDLoader.Instance.AssestExist(pathPlain))
-                return pathPlain;
-
-            if (await BMDLoader.Instance.AssestExist(fallback))
-                return fallback;
-
-            return path01;
-        }
-
-        private void UpdateWeaponTipPosition()
-        {
-            Vector3 weaponOffset = new Vector3(
-                EnergyTargetDistance * MathF.Sin(_caster.Angle.Z),
-                -EnergyTargetDistance * MathF.Cos(_caster.Angle.Z),
-                120f
-            );
-
-            _weaponTipPosition = _caster.Position + weaponOffset;
-        }
-
-        private void UpdateDynamicLights(int lifeInt)
-        {
-            float pulse = 0.8f + 0.2f * MathF.Sin(_time * 14f);
-            bool chargeActive = lifeInt >= 8 && lifeInt <= 18;
-
-            _chargeLight.Position = _weaponTipPosition;
-            _chargeLight.Intensity = chargeActive ? 1.2f * pulse : 0f;
-            _chargeLight.Radius = chargeActive ? 220f : 140f;
-
-            if (_impactApplied && _target != null)
+            for (int i = 0; i < MaxSpears; i++)
             {
-                _impactLight.Position = _target.Position + new Vector3(0f, 0f, 80f);
-                float impactAlpha = MathHelper.Clamp(_lifeTimeFrames / 10f, 0f, 1f);
-                _impactLight.Intensity = 1.4f * impactAlpha;
-                _impactLight.Radius = 200f + 40f * (1f - impactAlpha);
+                ref Spear spear = ref _spears[i];
+                if (!spear.Live)
+                    continue;
+
+                if (FpsCheck(1, factor))
+                    SpawnFlare(spear.Position, spear.Yaw);
+
+                spear.LifeTime -= factor;
+                if (spear.LifeTime <= 0f)
+                    spear.Live = false;
             }
-            else
-            {
-                _impactLight.Intensity = 0f;
-            }
+
+            MoveCharges(factor);
+            MoveFlares(factor);
+            MoveThunders(factor);
         }
 
-        private void SpawnEnergyParticles()
+        // ------------------------------------------------------------------ AttackStage
+
+        private void TickAttackStage(float factor)
         {
-            if (World == null || !FPSCounter.Instance.RandFPSCheck(1))
-                return;
+            float yaw = CasterYawDegrees;
+            float rad = MathHelper.ToRadians(yaw);
+            float sin = MathF.Sin(rad);
+            float cos = MathF.Cos(rad);
 
-            for (int i = 0; i < 3; i++)
+            if ((int)_attackTime == 8 && _lastAttackEffectTime != 8)
             {
-                Vector3 startPos = _caster.Position;
-                startPos.Z += 120f;
+                PlayUnmappedSound(SkillId, SoundPath);
+                _lastAttackEffectTime = 8;
+            }
 
-                Vector3 randomOffset = new Vector3(
-                    MuGame.Random.Next(-(int)EnergySpawnRandomRadius, (int)EnergySpawnRandomRadius),
-                    MuGame.Random.Next(-(int)EnergySpawnRandomRadius, (int)EnergySpawnRandomRadius),
-                    0f
-                );
-                startPos += randomOffset;
-
-                Vector3 behindOffset = new Vector3(
-                    -EnergySpawnDistance * MathF.Sin(_caster.Angle.Z),
-                    EnergySpawnDistance * MathF.Cos(_caster.Angle.Z),
-                    0f
-                );
-                startPos += behindOffset;
-
-                var particle = new DeathStabEnergyParticle(_energyPath, startPos, _weaponTipPosition, EnergyParticleLifeFrames)
+            if (_attackTime >= 2f && _attackTime <= 8f && FpsCheck(1, factor))
+            {
+                for (int j = 0; j < 3; j++)
                 {
-                    Angle = _caster.Angle
-                };
-
-                World.Objects.Add(particle);
-                _ = particle.Load();
+                    Vector3 pos = NearRandom(CasterPosition + new Vector3(0f, 0f, 120f), 300);
+                    pos.X += -1400f * sin;
+                    pos.Y += 1400f * cos;
+                    SpawnCharge(pos, yaw);
+                }
             }
-        }
 
-        private void SpawnSpikeEffects()
-        {
-            if (World == null || !FPSCounter.Instance.RandFPSCheck(2))
-                return;
+            if (_attackTime <= 8f && FpsCheck(1, factor))
+                _posSword = SwordPoint();
 
-            int frameIntoSpike = 14 - (int)_lifeTimeFrames;
-            float distance = SpikeBaseDistance + (frameIntoSpike * 10f);
-
-            Vector3 spikePosition = _caster.Position;
-            spikePosition.X += distance * MathF.Sin(_caster.Angle.Z);
-            spikePosition.Y += -distance * MathF.Cos(_caster.Angle.Z);
-            spikePosition.Z += 120f;
-
-            for (int i = 0; i < 2; i++)
+            if (_attackTime >= 6f && _attackTime <= 12f)
             {
-                var spike = new DeathStabSpikeEffect(_spikePath, SpikeLifeFrames)
+                if (FpsCheck(2, factor))
                 {
-                    Position = spikePosition,
-                    Angle = _caster.Angle
-                };
+                    Vector3 pos = GetCasterBonePosition(WeaponBone);
+                    float distance = 100f + (_attackTime - 8f) * 10f;
+                    pos.X += distance * sin;
+                    pos.Y += -distance * cos;
+                    SpawnSpear(pos, yaw);
+                    SpawnSpear(pos, yaw);
+                }
 
-                World.Objects.Add(spike);
-                _ = spike.Load();
+                if (_attackTime >= 10f && IsAlive(_target))
+                {
+                    HurtOwners[_target!] = this;
+                    _hurt = HurtFrames;
+                }
             }
+
+            if (_attackTime >= 12f)
+                _attackTime = LimitAttackTime;
+
+            _attackTime += factor;
+            if ((int)_attackTime >= LimitAttackTime)
+                _stageActive = false;
         }
 
-        private void ApplyVictimEffect()
+        private Vector3 SwordPoint()
         {
-            if (_target == null || World == null)
+            float rad = MathHelper.ToRadians(CasterYawDegrees);
+            Vector3 pos = GetCasterBonePosition(WeaponBone);
+            pos.X += 300f * MathF.Sin(rad);
+            pos.Y += -300f * MathF.Cos(rad);
+            return pos;
+        }
+
+        // ------------------------------------------------------------------ hurt (target side)
+
+        private bool OwnsHurt => _hurt > 0 && _target != null
+            && HurtOwners.TryGetValue(_target, out var owner) && ReferenceEquals(owner, this);
+
+        private void TickHurt(float factor)
+        {
+            if (!OwnsHurt)
                 return;
 
-            if (_target.Status == GameControlStatus.Disposed)
+            if (!IsAlive(_target))
+            {
+                ReleaseHurt();
+                return;
+            }
+
+            if (FpsCheck(2, factor) && _target is ModelObject model)
+                SpawnBoneThunders(model);
+
+            // BYTE -= float: the result is truncated toward zero.
+            _hurt = Math.Max(0, (int)(_hurt - factor));
+            if (_hurt == 0)
+                ReleaseHurt();
+        }
+
+        private void SpawnBoneThunders(ModelObject model)
+        {
+            BMD? bmd = model.Model;
+            Matrix[]? bones = model.GetBoneTransforms();
+            if (bmd?.Bones == null || bones == null)
                 return;
 
-            var victimEffect = new DeathStabVictimEffect(_target);
-            World.Objects.Add(victimEffect);
-            _ = victimEffect.Load();
-        }
+            Matrix world = model.WorldPosition;
+            int numBones = Math.Min(bmd.Bones.Length, bones.Length);
+            Vector3 angle = new(
+                MathHelper.ToDegrees(model.Angle.X),
+                MathHelper.ToDegrees(model.Angle.Y),
+                MathHelper.ToDegrees(model.Angle.Z));
 
-        private void RemoveSelf()
-        {
-            if (Parent != null)
-                Parent.Children.Remove(this);
-            else
-                World?.RemoveObject(this);
-
-            Dispose();
-        }
-
-        public override void Dispose()
-        {
-            if (_lightsAdded && World?.Terrain != null)
+            for (int i = 0; i < numBones; i++)
             {
-                World.Terrain.RemoveDynamicLight(_chargeLight);
-                World.Terrain.RemoveDynamicLight(_impactLight);
-                _lightsAdded = false;
-            }
+                BMDTextureBone bone = bmd.Bones[i];
+                if (bone == BMDTextureBone.Dummy)
+                    continue;
 
-            base.Dispose();
-        }
+                int parent = bone.Parent;
+                if (parent <= -1 || parent >= numBones)
+                    continue;
 
-        private sealed class DeathStabEnergyParticle : ModelObject
-        {
-            private readonly string _path;
-            private readonly Vector3 _startPosition;
-            private readonly Vector3 _targetPosition;
-            private float _lifeFrames;
-            private readonly float _maxLife;
-
-            public DeathStabEnergyParticle(string path, Vector3 start, Vector3 target, float life)
-            {
-                _path = path;
-                _startPosition = start;
-                _targetPosition = target;
-                _lifeFrames = life;
-                _maxLife = life;
-
-                Position = start;
-                ContinuousAnimation = true;
-                AnimationSpeed = 5f;
-                LightEnabled = true;
-                IsTransparent = true;
-                BlendState = BlendState.Additive;
-                DepthState = DepthStencilState.DepthRead;
-                BlendMeshState = BlendState.Additive;
-                BlendMesh = -2;
-                Scale = 4.5f;
-                Alpha = 0.1f;
-            }
-
-            public override async Task Load()
-            {
-                Model = await BMDLoader.Instance.Prepare(_path);
-                await base.Load();
-            }
-
-            public override void Update(GameTime gameTime)
-            {
-                base.Update(gameTime);
-                if (Status != GameControlStatus.Ready)
+                Vector3 pos1 = NearRandom(Vector3.Transform(bones[i].Translation, world), 20);
+                Vector3 pos2 = NearRandom(Vector3.Transform(bones[parent].Translation, world), 20);
+                if (!SpawnThunder(pos1, pos2, angle))
                     return;
-
-                float factor = FPSCounter.Instance.FPS_ANIMATION_FACTOR;
-
-                float progress = 1f - (_lifeFrames / _maxLife);
-                Position = Vector3.Lerp(_startPosition, _targetPosition, progress);
-
-                BlendMeshLight = (1f - progress) * 2f;
-
-                _lifeFrames -= factor;
-                if (_lifeFrames <= 0f)
-                    RemoveSelf();
-            }
-
-            private void RemoveSelf()
-            {
-                if (Parent != null)
-                    Parent.Children.Remove(this);
-                else
-                    World?.RemoveObject(this);
-
-                Dispose();
             }
         }
 
-        private sealed class DeathStabSpikeEffect : ModelObject
+        private void ReleaseHurt()
         {
-            private readonly string _path;
-            private float _lifeFrames;
+            _hurt = 0;
+            if (_target != null && HurtOwners.TryGetValue(_target, out var owner) && ReferenceEquals(owner, this))
+                HurtOwners.Remove(_target);
+        }
 
-            public DeathStabSpikeEffect(string path, float life)
+        // ------------------------------------------------------------------ MODEL_SPEARSKILL sub 2
+
+        private void SpawnCharge(Vector3 position, float yaw)
+        {
+            for (int i = 0; i < MaxCharges; i++)
             {
-                _path = path;
-                _lifeFrames = life;
+                ref Charge c = ref _charges[i];
+                if (c.Live)
+                    continue;
 
-                ContinuousAnimation = true;
-                AnimationSpeed = 4f;
-                LightEnabled = true;
-                IsTransparent = true;
-                BlendState = BlendState.Additive;
-                DepthState = DepthStencilState.DepthRead;
-                BlendMeshState = BlendState.Additive;
-                BlendMesh = 0;
-                Scale = 1.2f;
+                c.Live = true;
+                c.Position = position;
+                c.TargetPosition = position;
+                c.LifeTime = 20f;
+                c.Scale = 40f;
+                c.Trail = PrepareTrail(c.Trail, SourceJointMath.ScaledMaxTails(5));
+                Basis(yaw, out c.Right, out c.Up);
+                c.Trail.Push(position, c.Right, c.Up, c.Scale);
+                return;
+            }
+        }
+
+        private void MoveCharges(float factor)
+        {
+            for (int i = 0; i < MaxCharges; i++)
+            {
+                ref Charge c = ref _charges[i];
+                if (!c.Live)
+                    continue;
+
+                if (IsAlive(Caster))
+                {
+                    c.Scale = c.LifeTime * 3f;
+                    float rate1 = MathHelper.Clamp((c.LifeTime - 10f) / 10f, 0f, 1f);
+                    float rate2 = 1f - rate1;
+                    Vector3 magic = SourceJointMath.MagicScrew(i * 17721, 1.4f) + c.TargetPosition;
+                    c.Position = rate2 * _posSword + rate1 * magic;
+                }
+
+                c.Trail.Push(c.Position, c.Right, c.Up, c.Scale);
+
+                c.LifeTime -= factor;
+                if (c.LifeTime < 0f)
+                    c.Live = false;
+            }
+        }
+
+        // ------------------------------------------------------------------ MODEL_SPEAR sub 1
+
+        private void SpawnSpear(Vector3 position, float yaw)
+        {
+            for (int i = 0; i < MaxSpears; i++)
+            {
+                ref Spear s = ref _spears[i];
+                if (s.Live)
+                    continue;
+
+                s.Live = true;
+                s.Position = position;
+                s.Yaw = yaw;
+                s.LifeTime = 10f;
+                return;
+            }
+        }
+
+        // ------------------------------------------------------------------ BITMAP_FLARE sub 12
+
+        private void SpawnFlare(Vector3 position, float yaw)
+        {
+            for (int i = 0; i < MaxFlares; i++)
+            {
+                ref Flare f = ref _flares[i];
+                if (f.Live)
+                    continue;
+
+                float rad = MathHelper.ToRadians(yaw);
+                Basis(yaw, out Vector3 right, out Vector3 up);
+
+                f.Live = true;
+                f.Position = position;
+                // The original never assigns TargetPosition for this joint (stale pool data);
+                // the spear position is the only defined origin.
+                f.TargetPosition = position;
+                f.Right = right;
+                f.Up = up;
+                f.Yaw = yaw;
+                f.LifeTime = 70f;
+                f.Direction0 = MuGame.Random.Next(360);
+                f.Direction1 = -4f * MathF.Sin(-rad);
+                f.Direction2 = -4f * MathF.Cos(-rad);
+                f.Trail = PrepareTrail(f.Trail, SourceJointMath.ScaledMaxTails(50));
+                f.Trail.Push(position, right, up, 100f);
+                return;
+            }
+        }
+
+        private void MoveFlares(float factor)
+        {
+            for (int i = 0; i < MaxFlares; i++)
+            {
+                ref Flare f = ref _flares[i];
+                if (!f.Live)
+                    continue;
+
+                float rad = MathHelper.ToRadians(90f - f.Yaw);
+                float sx = MathF.Sin(rad);
+                float cx = MathF.Cos(rad);
+
+                // MoveJoint re-enters itself while (int)LifeTime % 12 != 0.
+                for (int guard = 0; guard < 256; guard++)
+                {
+                    float count = (f.Direction0 + f.LifeTime) * 0.1f;
+                    float vx = -MathF.Cos(count) * (40f * 0.65f);
+                    float vz = MathF.Sin(count) * (40f * 0.65f) - (90f - f.LifeTime) * 0.3f;
+
+                    f.TargetPosition.X += f.Direction1 * factor;
+                    f.TargetPosition.Y += f.Direction2 * factor;
+                    f.Position = new Vector3(
+                        vx * sx + f.TargetPosition.X,
+                        vx * cx + f.TargetPosition.Y,
+                        vz + f.TargetPosition.Z);
+
+                    f.Trail.Push(f.Position, f.Right, f.Up, 100f);
+
+                    f.LifeTime -= factor;
+                    if (f.LifeTime < 0f)
+                    {
+                        f.Live = false;
+                        break;
+                    }
+
+                    if ((int)f.LifeTime % 12 == 0)
+                        break;
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ BITMAP_JOINT_THUNDER sub 7
+
+        private bool SpawnThunder(Vector3 from, Vector3 to, Vector3 angle)
+        {
+            for (int i = 0; i < MaxThunders; i++)
+            {
+                ref Thunder t = ref _thunders[i];
+                if (t.Live)
+                    continue;
+
+                t.Live = true;
+                t.Position = from;
+                t.StartPosition = from;
+                t.TargetPosition = to;
+                t.Angle = angle;
+                t.LifeTime = 1f;
+                t.Trail = PrepareTrail(t.Trail, SourceJointMath.ScaledMaxTails(3));
+                t.Trail.Push(from, angle, 20f);
+                SourceJointMath.MoveHumming(ref t.Position, ref t.Angle, t.TargetPosition, 360f, SourceJointMath.FrameFactor);
+                return true;
             }
 
-            public override async Task Load()
+            return false;
+        }
+
+        private void MoveThunders(float factor)
+        {
+            const float velocity = 5f;
+            for (int i = 0; i < MaxThunders; i++)
             {
-                Model = await BMDLoader.Instance.Prepare(_path);
-                await base.Load();
+                ref Thunder t = ref _thunders[i];
+                if (!t.Live)
+                    continue;
+
+                // Prologue matrix (angle before this frame's humming) is the one the epilogue tail uses.
+                SourceJointMath.AngleBasis(t.Angle, out Vector3 endRight, out _, out Vector3 endUp);
+
+                t.Position = t.StartPosition;
+                int steps = t.Trail.MaxTails;
+                for (int j = 0; j < steps; j++)
+                {
+                    SourceJointMath.MoveHumming(ref t.Position, ref t.Angle, t.TargetPosition, MuGame.Random.Next(100) + 50, factor);
+
+                    var angle = new Vector3(
+                        t.Angle.X + (MuGame.Random.Next(100) + 20) * factor,
+                        t.Angle.Y,
+                        t.Angle.Z + (MuGame.Random.Next(100) + 20) * factor);
+                    SourceJointMath.AngleBasis(angle, out Vector3 right, out Vector3 forward, out Vector3 up);
+                    t.Trail.Push(t.Position, right, up, 20f);
+
+                    t.Position += -forward * (velocity * factor * factor);
+                }
+
+                t.Position = t.TargetPosition;
+                t.Trail.Push(t.Position, endRight, endUp, 20f);
+
+                t.LifeTime -= factor;
+                if (t.LifeTime < 0f)
+                    t.Live = false;
+            }
+        }
+
+        // ------------------------------------------------------------------ helpers
+
+        private static SourceTrail PrepareTrail(SourceTrail? trail, int maxTails)
+        {
+            if (trail == null || trail.MaxTails != maxTails)
+                return new SourceTrail(maxTails);
+
+            trail.Clear();
+            return trail;
+        }
+
+        private static void Basis(float yaw, out Vector3 right, out Vector3 up)
+            => SourceJointMath.AngleBasis(new Vector3(0f, 0f, yaw), out right, out _, out up);
+
+        // GetNearRandomPos (ZzzEffect.h)
+        private static Vector3 NearRandom(Vector3 pos, int range)
+        {
+            int span = range * 2 + 1;
+            return new Vector3(
+                pos.X + MuGame.Random.Next(span) - range,
+                pos.Y + MuGame.Random.Next(span) - range,
+                pos.Z + MuGame.Random.Next(span) - range);
+        }
+
+        private static bool IsAlive(WalkerObject? walker)
+            => walker != null && walker.Status != GameControlStatus.Disposed && walker.World != null;
+
+        protected override bool HasActiveContent()
+        {
+            if (_stageActive || OwnsHurt)
+                return true;
+            for (int i = 0; i < MaxCharges; i++)
+                if (_charges[i].Live) return true;
+            for (int i = 0; i < MaxSpears; i++)
+                if (_spears[i].Live) return true;
+            for (int i = 0; i < MaxFlares; i++)
+                if (_flares[i].Live) return true;
+            for (int i = 0; i < MaxThunders; i++)
+                if (_thunders[i].Live) return true;
+            return false;
+        }
+
+        protected override void OnDraw()
+        {
+            float scroll = (float)((long)FPSCounter.Instance.WorldTime % 1000) * 0.001f;
+
+            if (Batch.Begin(_chargeTexture, Blendings.OneOneAdditive, DepthStencilState.DepthRead, SamplerState.LinearClamp))
+            {
+                for (int i = 0; i < MaxCharges; i++)
+                {
+                    ref Charge c = ref _charges[i];
+                    if (!c.Live)
+                        continue;
+
+                    float alpha = MathF.Min(c.LifeTime, 20f) * 0.05f;
+                    Batch.AddTrail(c.Trail, SourceQuadBatch.TrailFaces.Both, ChargeLight * alpha,
+                        SourceQuadBatch.TrailShade.Flat, c.Trail.MaxTails - 1);
+                }
+                Batch.End();
             }
 
-            public override void Update(GameTime gameTime)
+            // SubType 11..13 takes the BITMAP_FLARE_FORCE U and colour branches for any joint type.
+            if (Batch.Begin(_flareTexture, Blendings.OneOneAdditive, DepthStencilState.DepthRead, SamplerState.LinearClamp))
             {
-                base.Update(gameTime);
-                if (Status != GameControlStatus.Ready)
-                    return;
+                for (int i = 0; i < MaxFlares; i++)
+                {
+                    ref Flare f = ref _flares[i];
+                    if (!f.Live)
+                        continue;
 
-                float factor = FPSCounter.Instance.FPS_ANIMATION_FACTOR;
-
-                BlendMeshLight = (_lifeFrames / SpikeLifeFrames) * 1.5f;
-
-                _lifeFrames -= factor;
-                if (_lifeFrames <= 0f)
-                    RemoveSelf();
+                    Batch.AddTrail(f.Trail, SourceQuadBatch.TrailFaces.Both, FlareLight,
+                        SourceQuadBatch.TrailShade.FlareForce, (f.Trail.MaxTails - 1) / 2, scroll);
+                }
+                Batch.End();
             }
 
-            private void RemoveSelf()
+            if (Batch.Begin(_thunderTexture, Blendings.OneOneAdditive, DepthStencilState.DepthRead, SamplerState.LinearWrap))
             {
-                if (Parent != null)
-                    Parent.Children.Remove(this);
-                else
-                    World?.RemoveObject(this);
+                // bTileMapping + thunder: U = (NumTails - j) / 16 * 4^F - 2 * Scroll * 2^F,
+                // face TWO adds Scroll * 2^F * 2 back.
+                float factor = SourceJointMath.FrameFactor;
+                float pow2 = MathF.Pow(2f, factor);
+                float denominator = 16f / (pow2 * pow2);
+                float uScroll = 2f * scroll * pow2;
 
-                Dispose();
+                for (int i = 0; i < MaxThunders; i++)
+                {
+                    ref Thunder t = ref _thunders[i];
+                    if (!t.Live)
+                        continue;
+
+                    Batch.AddTrail(t.Trail, SourceQuadBatch.TrailFaces.Both, ThunderLight,
+                        SourceQuadBatch.TrailShade.Flat, denominator, uScroll, false, uScroll);
+                }
+                Batch.End();
             }
+        }
+
+        protected override void DisposeEffect()
+        {
+            ReleaseHurt();
         }
     }
 }

@@ -33,7 +33,13 @@ namespace Client.Main.Controllers
 
         public AnimationController(WalkerObject owner) => _owner = owner;
 
-        public bool IsOneShotPlaying => _currentOneShot.HasValue && !_oneShotEnded && !_forceReturnToIdle;
+        public bool IsOneShotPlaying =>
+            (_currentOneShot.HasValue && !_oneShotEnded && !_forceReturnToIdle) ||
+            (_heldLoop.HasValue && _owner.CurrentAction == _heldLoop.Value);
+
+        // Nova charge (HELL_BEGIN) loops until an explicit release; while it is held the movement / idle logic must
+        // not replace it (SourceMain5.2 keeps PLAYER_SKILL_HELL_BEGIN until the release, ZzzCharacter.cpp:3315 / 3323).
+        private ushort? _heldLoop;
 
         public void NotifyAnimationCompleted()
         {
@@ -67,6 +73,7 @@ namespace Client.Main.Controllers
             ClearTimer();
             _oneShotEnded = false;
             _forceReturnToIdle = false;
+            _heldLoop = null;
 
             _serverControlled = false;
             _currentOneShot = actionIndex;
@@ -108,9 +115,11 @@ namespace Client.Main.Controllers
             _owner.CurrentAction = idx;
             _owner.InvalidateBuffers();
 
+            _heldLoop = null;
             if (ShouldLoopWithoutAutoReturn(idx, kind))
             {
                 _currentOneShot = null;
+                _heldLoop = idx;
             }
             else if (IsReturnable(kind))
             {
@@ -139,6 +148,7 @@ namespace Client.Main.Controllers
             _oneShotEnded = false;
             _forceReturnToIdle = false;
             _currentOneShot = null;
+            _heldLoop = null;
             _serverControlled = false;
             _returnActionOverride = null;
             _onOneShotComplete = null;

@@ -93,6 +93,8 @@ namespace Client.Main.Scenes
         private UiThemeId _lastAppliedUiTheme;
         private CurrentLocationControl _currentLocationControl; // Current map + coordinates (top-left)
         private ActiveBuffsPanel _activeBuffsPanel; // Active buffs display (top-left corner)
+        private Client.Main.Effects.BuffEffectController _buffEffectController;
+        internal Client.Main.Effects.BuffEffectController BuffEffects => _buffEffectController;
         private Texture2D _backgroundTexture;
         private LoadingScreenView _loadingView;
         private GameSceneSkillController _skillController;
@@ -853,6 +855,7 @@ namespace Client.Main.Scenes
             var currentKeyboardState = MuGame.Instance.Keyboard;
             var previousKeyboardState = MuGame.Instance.PrevKeyboard;
 
+            Objects.Effects.Joints.SourceParticleWind.Update(FPSCounter.Instance.FPS_ANIMATION_FACTOR);
             base.Update(gameTime);
             if (Status != GameControlStatus.Ready)
                 return;
@@ -860,7 +863,11 @@ namespace Client.Main.Scenes
             UpdateLowHealthHeartbeat(gameTime);
 
             long buffsStarted = UpdatePassProfiler.Start();
+            if (_buffEffectController == null && MuGame.Network != null)
+                _buffEffectController = new Client.Main.Effects.BuffEffectController(
+                    MuGame.Network.GetBuffManager(), MuGame.AppLoggerFactory ?? NullLoggerFactory.Instance);
             MuGame.Network?.UpdateBuffs();
+            _buffEffectController?.EnsureLocalManaShield(this, _hero.NetworkId);
             MuGame.Network?.GetCharacterState()?.ExpireActiveBuffs();
             _hotkeys?.HandleGlobal(currentKeyboardState, previousKeyboardState);
             UpdatePassProfiler.AddGameBuffs(buffsStarted);
@@ -1482,6 +1489,8 @@ namespace Client.Main.Scenes
 
         public override void Dispose()
         {
+            _buffEffectController?.Dispose();
+            _buffEffectController = null;
             UiThemeManager.ThemeChanged -= HandleUiThemeChanged;
             if (_friendManager != null)
             {

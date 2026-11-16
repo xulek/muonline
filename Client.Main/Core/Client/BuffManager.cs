@@ -10,20 +10,20 @@ namespace Client.Main.Core.Client
     /// </summary>
     public enum BuffEffectId : byte
     {
-        GreaterDamage = 0,
-        GreaterDefense = 1,
-        ManaShield = 2,
+        GreaterDamage = 1,
+        GreaterDefense = 2,
+        ManaShield = 4,
         ElfSoldier = 3,
-        SwellLife = 4,
+        SwellLife = 8,
         CriticalDamage = 5,
         HealOverTime = 6,
 
-        Poison = 8,
-        Ice = 9,
+        Poison = 55,
+        Ice = 56,
         Slow = 10,
         Weaken = 11,
 
-        Invisible = 12,
+        Invisible = 18,
         Invincible = 13,
         Berserk = 14,
         Reflection = 15,
@@ -38,6 +38,24 @@ namespace Client.Main.Core.Client
         /// spinning rings debuff.
         /// </summary>
         Stun = 61,
+        /// <summary>SourceMain5.2 eBuff_Thorns (_enum.h:3768) / eBuff_Berserker (3778): Summoner buffs.</summary>
+        Thorns = 71,
+        Berserker = 81,
+        /// <summary>SourceMain5.2 eDeBuff_Sleep / eDeBuff_Blind (_enum.h:3769): Summoner curses.</summary>
+        Sleep = 72,
+        Blind = 73,
+        /// <summary>SourceMain5.2 eDeBuff_AttackDown / eDeBuff_DefenseDown (_enum.h:3773): Weakness / Enervation.</summary>
+        AttackDown = 76,
+        DefenseDown = 77,
+        /// <summary>SourceMain5.2 eDeBuff_NeilDOT (_enum.h:3771): Requiem damage over time.</summary>
+        NeilDot = 74,
+        /// <summary>SourceMain5.2 eDeBuff_SahamuttDOT (_enum.h:3772): Explosion damage over time.</summary>
+        SahamuttDot = 75,
+        LightningShockDamage = 85,
+        /// <summary>SourceMain5.2 eBuff_Att / Hp / Def_up_Ourforces (_enum.h:3815): Rage Fighter party buffs.</summary>
+        IgnoreDefense = 129,
+        IncreaseHealth = 130,
+        IncreaseBlock = 131,
     }
 
     public class BuffStateChangedEventArgs : EventArgs
@@ -87,6 +105,7 @@ namespace Client.Main.Core.Client
 
         public void ProcessMagicEffectStatus(ushort playerId, byte effectId, bool isActive)
         {
+            playerId = (ushort)(playerId & 0x7FFF);
             var typedEffectId = (BuffEffectId)effectId;
             var key = (playerId, typedEffectId);
 
@@ -96,9 +115,9 @@ namespace Client.Main.Core.Client
                 var definition = BuffDefinitionRegistry.Get(typedEffectId);
                 var activatedAt = DateTime.UtcNow;
 
-                DateTime? expiresAt = definition.Duration.HasValue
-                    ? activatedAt + definition.Duration.Value
-                    : null;
+                // MagicEffectStatus has no time and the duration depends on the caster's energy: never end the
+                // visual effect on a guess, the server sends the deactivation.
+                DateTime? expiresAt = null;
                 _states[key] = new ActiveBuffState
                 {
                     IsActive = true,
@@ -214,6 +233,17 @@ namespace Client.Main.Core.Client
             _nextExpirationUtcTicks = 0L;
             foreach (var effectId in changed)
                 RaiseBuffChanged(playerId, effectId, isActive: false);
+        }
+
+        public void Clear()
+        {
+            foreach (var entry in _states)
+            {
+                if (entry.Value.IsActive)
+                    RaiseBuffChanged(entry.Key.PlayerId, entry.Key.EffectId, isActive: false);
+            }
+            _states.Clear();
+            _nextExpirationUtcTicks = long.MaxValue;
         }
 
         public static string GetBuffName(BuffEffectId effectId) => BuffDefinitionRegistry.GetName(effectId);

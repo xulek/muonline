@@ -21,7 +21,7 @@ namespace Client.Main.Objects.Effects.Skills
                 return null;
 
             Vector3 center = context.TargetPosition ?? context.Caster.WorldPosition.Translation;
-            return new ScrollOfIceStormEffect(context.Caster, center);
+            return new IceStormEffect(context.Caster, center);
         }
     }
 }

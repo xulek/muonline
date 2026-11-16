@@ -579,7 +579,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
             if (Scene is Client.Main.Scenes.GameScene { Hero: { } hero })
             {
                 var heroState = _networkManager?.GetCharacterState();
-                hero.CameraShowcase = Visible && heroState != null && IsHeroInSafeZone(heroState);
+                hero.CameraShowcase = Constants.INVENTORY_CAMERA_SHOWCASE && Visible && heroState != null && IsHeroInSafeZone(heroState);
             }
 
             if (!Visible)
@@ -664,7 +664,9 @@ namespace Client.Main.Controls.UI.Game.Inventory
 
             if (_pickedItemRenderer.Item != null && !_itemDragMoved)
             {
-                var current = MuGame.Instance.UiMouseState.Position;
+                // _pickedAtMousePos is in layout units (hit-test space): compare in the same space, otherwise a
+                // scaled window counts a plain click as a drag and drops an equipped item straight back.
+                var current = ToLayout(MuGame.Instance.UiMouseState.Position);
                 if (Vector2.Distance(current.ToVector2(), _pickedAtMousePos.ToVector2()) > 2f)
                 {
                     _itemDragMoved = true;
@@ -2885,6 +2887,32 @@ namespace Client.Main.Controls.UI.Game.Inventory
         /// Dark Raven (13,5) and Dark Horse (13,4): level, experience and health from PetInfoResponse (0xA9),
         /// requested on hover like giPetManager::RequestPetInfo in the original client.
         /// </summary>
+        /// <summary>
+        /// giPetManager::RequestPetInfo (GIPetManager.cpp:258): asks the server for the Dark Horse / Dark Raven info (0xA9)
+        /// and returns the received PET_INFO for the tooltip (RenderPetItemInfo), or null while it is not known yet.
+        /// </summary>
+        private Core.Utilities.ItemTooltip.SourcePetInfo GetPetInfo(InventoryItem item)
+        {
+            if (item?.Definition == null || item.Definition.Group != 13 || item.Definition.Id is not (4 or 5)) return null;
+            byte slot = _hoveredEquipSlot >= 0
+                ? (byte)_hoveredEquipSlot
+                : (byte)(12 + item.GridPosition.Y * Columns + item.GridPosition.X);
+            var state = _networkManager?.GetCharacterState();
+            if (state == null) return null;
+
+            if (state.ShouldRequestPetInfo(0, slot))
+                _ = _networkManager.GetCharacterService()?.SendPetInfoRequestAsync(item.Definition.Id == 5 ? (byte)0 : (byte)1, 0, slot);
+
+            if (!state.TryGetPetInfo(0, slot, out var info)) return null;
+            return new Core.Utilities.ItemTooltip.SourcePetInfo
+            {
+                m_dwPetType = item.Definition.Id == 5 ? Core.Utilities.ItemTooltip.SourcePetInfo.PET_TYPE_DARK_SPIRIT : Core.Utilities.ItemTooltip.SourcePetInfo.PET_TYPE_DARK_HORSE,
+                m_wLevel = info.Level,
+                m_dwExp1 = info.Experience,
+                m_wLife = info.Health,
+            };
+        }
+
         private void AppendPetInfo(List<(string text, Color color)> lines, InventoryItem item)
         {
             if (item?.Definition == null || item.Definition.Group != 13 || item.Definition.Id is not (4 or 5)) return;
@@ -2910,30 +2938,22 @@ namespace Client.Main.Controls.UI.Game.Inventory
             if (_pickedItem_renderer_item() != null || _hoveredItem == null || _font == null)
                 return;
 
-            var lines = ItemUiHelper.BuildTooltipLines(_hoveredItem);
-            AppendPetInfo(lines, _hoveredItem);
-            if (NpcShopControl.IsOpen)
+            var tooltipContext = new Core.Utilities.ItemTooltip.ItemTooltipContext
             {
-                int sellPrice = ItemPriceCalculator.CalculateSellPrice(_hoveredItem);
-                if (sellPrice > 0)
-                {
-                    lines.Add(($"Sell Price: {sellPrice} Zen", Theme.TextGold));
-                }
-            }
-            else if (_isRepairMode)
+                Type = Core.Utilities.ItemTooltip.ItemTooltipType.Inventory,
+                NpcShopOpen = NpcShopControl.IsOpen,
+                IsEquipped = _hoveredEquipSlot >= 0,
+                PetInfo = GetPetInfo(_hoveredItem),
+            };
+            // Self repair (inventory repair button): TOOLTIP_TYPE_REPAIR -> RenderRepairInfo; otherwise RenderItemInfo.
+            var lines = _isRepairMode && !NpcShopControl.IsOpen
+                ? ItemUiHelper.BuildRepairTooltipLines(_hoveredItem, npcRepairShop: false, tooltipContext)
+                : ItemUiHelper.BuildTooltipLines(_hoveredItem, tooltipContext);
+            if (lines.Count == 0)
+                return;
+            if (_isRepairMode || NpcShopControl.IsOpen)
             {
-                if (Core.Utilities.ItemPriceCalculator.IsRepairable(_hoveredItem))
-                {
-                    int repairCost = (int)(Core.Utilities.ItemPriceCalculator.CalculateRepairPrice(_hoveredItem, false) * 2.5);
-                    if (repairCost > 0)
-                    {
-                        lines.Add(($"Self Repair Cost: {repairCost} Zen", Theme.TextGold));
-                    }
-                }
-                else
-                {
-                    lines.Add(("Cannot be repaired", new Color(255, 100, 100)));
-                }
+                // Prices and repair costs are part of the original tooltip rows.
             }
             else if (_hoveredEquipSlot < 0 && OwnPlayerShopEditor != null)
             {
@@ -3060,8 +3080,9 @@ namespace Client.Main.Controls.UI.Game.Inventory
             int textY = tooltipRect.Y + paddingY;
             bool isFirstLine = true;
 
-            foreach (var (text, color) in lines)
+            for (int row = 0; row < lines.Count; row++)
             {
+                var (text, color) = lines[row];
                 Vector2 textSize = _font.MeasureString(text) * scale;
                 int textX = tooltipRect.X + (tooltipRect.Width - (int)textSize.X) / 2;
 
@@ -3069,9 +3090,9 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 spriteBatch.DrawString(_font, text, new Vector2(textX + 1, textY + 1), Color.Black * 0.7f,
                                        0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
                 // Text
-                Color lineColor = isFirstLine ? borderColor : color;
-                spriteBatch.DrawString(_font, text, new Vector2(textX, textY), lineColor,
-                                       0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                Color lineColor = color;
+                ItemUiHelper.DrawTooltipRow(spriteBatch, _font, lines, row, text, new Vector2(textX, textY), lineColor, scale,
+                    new Rectangle(tooltipRect.X + 4, textY, tooltipRect.Width - 8, (int)MathF.Ceiling(textSize.Y)));
 
                 textY += (int)textSize.Y + lineSpacing;
 

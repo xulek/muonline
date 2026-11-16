@@ -155,6 +155,8 @@ namespace Client.Main.Core.Models
         /// </summary>
         public ushort TypeNumber { get; set; }
         public byte Direction { get; set; }
+        /// <summary>Received through the summoned-monster viewport packet (0x1F).</summary>
+        public bool IsSummoned { get; set; }
 
         /// <inheritdoc />
         public override ScopeObjectType ObjectType => ScopeObjectType.Npc; // Could differentiate based on TypeNumber range if needed (e.g., for monsters vs NPCs)
@@ -187,6 +189,7 @@ namespace Client.Main.Core.Models
             TypeNumber = typeNumber;
             Name = name;
             Direction = 0;
+            IsSummoned = false;
             LastUpdate = DateTime.UtcNow;
         }
 

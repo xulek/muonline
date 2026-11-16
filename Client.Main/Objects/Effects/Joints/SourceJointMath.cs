@@ -89,10 +89,36 @@ namespace Client.Main.Objects.Effects.Joints
             float sr = MathF.Sin(angleDeg.X * MathHelper.Pi / 180f);
             float cr = MathF.Cos(angleDeg.X * MathHelper.Pi / 180f);
 
-            // Columns of the C++ matrix (VectorRotate contracts against rows m[j][i]).
-            right = new Vector3(cp * cy, sr * sp * cy + cr * -sy, cr * sp * cy + -sr * -sy);
-            forward = new Vector3(cp * sy, sr * sp * sy + cr * cy, cr * sp * sy + -sr * cy);
-            up = new Vector3(-sp, sr * cp, cr * cp);
+            // Columns of the C++ matrix: VectorRotate computes out[i] = dot(in, m[i]),
+            // so a local axis maps to a column (yaw 90 sends local -Y to +X).
+            right = new Vector3(cp * cy, cp * sy, -sp);
+            forward = new Vector3(sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, sr * cp);
+            up = new Vector3(cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp);
+        }
+
+        /// <summary>CreateJoint epilogue: MaxTails / FPS_ANIMATION_FACTOR, capped at MAX_TAILS (200).</summary>
+        public static int ScaledMaxTails(int maxTails)
+        {
+            float factor = MathF.Max(FrameFactor, 0.001f);
+            return Math.Min(200, (int)(maxTails / factor));
+        }
+
+        /// <summary>Port of GetMagicScrew (ZzzEffect.cpp): unit vector wobbling with WorldTime.</summary>
+        public static Vector3 MagicScrew(int param, float speedRate = 1f)
+        {
+            param += (int)(FPSCounter.Instance.WorldTime / 40.0);
+
+            float rate = MathF.Pow(speedRate, FrameFactor);
+            float speed0 = 0.048f * rate;
+            float speed1 = 0.0613f * rate;
+            float speed2 = 0.1113f * rate;
+            float s0 = MathF.Sin((param + 55555) * speed0);
+            float dirX = s0 * MathF.Cos(param * speed1);
+            float dirY = s0 * MathF.Sin(param * speed1);
+            float dirZ = MathF.Cos((param + 55555) * speed0);
+            float sinAdd = MathF.Sin((param + 11111) * speed2);
+            float cosAdd = MathF.Cos((param + 11111) * speed2);
+            return new Vector3(cosAdd * dirY - sinAdd * dirZ, sinAdd * dirY + cosAdd * dirZ, dirX);
         }
 
         /// <summary>Rotates a local vector by the C++ AngleMatrix.</summary>

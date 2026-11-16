@@ -91,6 +91,68 @@ namespace Client.Main.Core.Client
             return (true, null);
         }
 
+        /// <summary>Stat demand a skill fails (DemendConditionCheckSkill); <see cref="SkillDemand.None"/> when usable.</summary>
+        public enum SkillDemand
+        {
+            None,
+            Level,
+            Strength,
+            Dexterity,
+            Energy,
+            Leadership
+        }
+
+        /// <summary>
+        /// Allocation-free stat demand check shared by the cast path and the skill icons
+        /// (SourceMain CSkillManager::DemendConditionCheckSkill; CNewUISkillList draws a failed skill with the
+        /// newui_non_skill atlas).
+        /// </summary>
+        public static SkillDemand GetUnmetDemand(CharacterState? state, ushort skillId, out int required)
+        {
+            required = 0;
+            if (state == null)
+                return SkillDemand.None;
+
+            var def = SkillDatabase.GetSkillDefinition(skillId);
+            if (def == null)
+                return SkillDemand.None;
+
+            if (def.RequiredLevel > 0 && state.Level < def.RequiredLevel)
+            {
+                required = def.RequiredLevel;
+                return SkillDemand.Level;
+            }
+            if (def.RequiredStrength > 0 && state.TotalStrength < def.RequiredStrength)
+            {
+                required = def.RequiredStrength;
+                return SkillDemand.Strength;
+            }
+            if (def.RequiredDexterity > 0 && state.TotalAgility < def.RequiredDexterity)
+            {
+                required = def.RequiredDexterity;
+                return SkillDemand.Dexterity;
+            }
+            // The server (OpenMU SkillsInitializer: energyRequirement -> TotalEnergy) checks the skill's energy
+            // value as is, e.g. Evil Spirit 220; the 5.2 client formula 20 + Energy * Level * 4 / 100 gives 20-28
+            // for level-0 skills and let such casts through only for the server to reject them.
+            if (def.RequiredEnergy > 0 && state.TotalEnergy < def.RequiredEnergy)
+            {
+                required = def.RequiredEnergy;
+                return SkillDemand.Energy;
+            }
+            if (def.RequiredLeadership > 0 && state.TotalLeadership < def.RequiredLeadership)
+            {
+                required = def.RequiredLeadership;
+                return SkillDemand.Leadership;
+            }
+
+            return SkillDemand.None;
+        }
+
+        /// <summary>True when the hero meets the skill's level and stat demands.</summary>
+        public static bool MeetsDemandConditions(ushort skillId) =>
+            GetUnmetDemand(MuGame.Network?.GetCharacterState(), skillId, out _) == SkillDemand.None;
+
         /// <summary>
         /// Consumes skill delay. Call right before executing the skill.
         /// Equivalent: the delay-setting part of SourceMain CSkillManager::CheckSkillDelay.
@@ -171,18 +233,11 @@ namespace Client.Main.Core.Client
             var def = SkillDatabase.GetSkillDefinition(skillId);
             if (def == null) return null;
 
-            // SourceMain energy formula
-            int calculatedEnergy = CalculateRequiredEnergy(def, characterClass);
-
-            // Knight class has lower energy requirements
-            // We don't know class here, but the State passes TotalEnergy so it's just the threshold.
-            // The caller can decide; we store the "base" value.
-
             return new SkillRequirements
             {
                 RequiredStrength = def.RequiredStrength,
                 RequiredDexterity = def.RequiredDexterity,
-                RequiredEnergy = calculatedEnergy,
+                RequiredEnergy = def.RequiredEnergy, // checked as is, see GetUnmetDemand
                 RequiredCharisma = def.RequiredLeadership,
                 RequiredLevel = def.RequiredLevel,
                 MasteryType = def.MasteryType,

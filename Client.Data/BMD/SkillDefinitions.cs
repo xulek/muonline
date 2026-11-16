@@ -44,7 +44,7 @@ namespace Client.Data.BMD
             { 21, SkillType.Target },  // Uppercut
             { 22, SkillType.Target },    // Cyclone
             { 23, SkillType.Target },  // Slash
-            { 24, SkillType.Target },  // Triple Shot
+            { 24, SkillType.Area },    // Triple Shot (SkillElf: SendRequestMagicContinue, ZzzInterface.cpp:3145)
             { 26, SkillType.Target },  // Heal
 
             // ID 27-52: Elf/Summoner Skills
@@ -70,12 +70,12 @@ namespace Client.Data.BMD
             { 48, SkillType.Self },    // Swell Life
             { 49, SkillType.Target },  // Fire Breath
             { 51, SkillType.Target },  // Ice Arrow
-            { 52, SkillType.Target },  // Penetration
+            { 52, SkillType.Area },    // Penetration (AttackElf: SendRequestMagicContinue, ZzzInterface.cpp:4831)
 
             // ID 55-79: Dark Lord/Mixed Skills
             { 55, SkillType.Area },    // Fire Slash
             { 56, SkillType.Target },  // Power Slash
-            { 57, SkillType.Area },    // Spiral Slash
+            { 57, SkillType.Target },  // Spiral Slash
             { 60, SkillType.Self },    // Force
             { 61, SkillType.Target },  // Fire Burst
             { 508, SkillType.Target }, // Fire Burst Strength
@@ -108,11 +108,13 @@ namespace Client.Data.BMD
             { 211, SkillType.Self },   // Spell of Restriction
             { 212, SkillType.Self },   // Spell of Pursuit
             { 213, SkillType.Target }, // Shield-Burn
-            { 214, SkillType.Target }, // Drain Life
+            { 214, SkillType.Area },   // Drain Life (area request with target key)
+            { 458, SkillType.Area },   // Drain Life Strengthener
             { 215, SkillType.Area },   // Chain Lightning
             { 217, SkillType.Self },   // Damage Reflection
             { 218, SkillType.Self },   // Berserker
             { 219, SkillType.Target }, // Sleep
+            { 220, SkillType.Target }, // Blind
             { 221, SkillType.Target }, // Weakness
             { 222, SkillType.Target }, // Innovation
             { 223, SkillType.Area },   // Explosion
@@ -121,11 +123,12 @@ namespace Client.Data.BMD
 
             // ID 230-270: Dark Lord/Rage Fighter Skills
             { 230, SkillType.Area },   // Lightning Shock
+            { 456, SkillType.Area },   // Lightning Shock Strength
             { 232, SkillType.Area },   // Strike of Destruction
             { 233, SkillType.Self },   // Expansion of Wizardry
             { 234, SkillType.Self },   // Recovery
             { 235, SkillType.Area },   // Multi-Shot
-            { 236, SkillType.Target }, // Flame Strike
+            { 236, SkillType.Area },   // Flame Strike
             { 237, SkillType.Area },   // Gigantic Storm
             { 238, SkillType.Area },   // Chaotic Diseier
             { 260, SkillType.Target }, // Killing Blow
@@ -218,38 +221,47 @@ namespace Client.Data.BMD
             }
 
             // WARRIOR/KNIGHT SKILLS
+            Add(18, 186);   // Defense → PlayerDefense1 (ReceiveAction AT_SKILL_BLOCKING; no effect)
+            // ReceiveMagic: PLAYER_ATTACK_SKILL_SWORD1 + (MagicNumber - AT_SKILL_SWORD1)
+            Add(19, 60);    // Falling Slash → PlayerAttackSkillSword1
+            Add(20, 61);    // Lunge → PlayerAttackSkillSword2
+            Add(21, 62);    // Uppercut → PlayerAttackSkillSword3
             Add(22, 63);    // Cyclone → PlayerAttackSkillSword4
-            Add(19, 62);    // Falling Slash → PlayerAttackSkillWheel
+            Add(23, 64);    // Slash → PlayerAttackSkillSword5 (every 2nd cast: PlayerObject.ApplySlashSwordCount)
             Add(43, 71);    // Death Stab → PlayerAttackDeathstab
+            Add(49, 68);    // Fire Breath → PlayerSkillRider (_FLY in Tarkan / Heaven / Maya, not mapped)
+            Add(47, 70);    // Impale → PlayerAttackSkillSpear (Fenrir: PlayerFenrirAttackSpear, not mapped)
             Add(41, 65);    // Twisting Slash → PlayerAttackSkillWheel
             Add(42, 66);    // Rageful Blow → PlayerAttackSkillFuryStrike
 
             // WIZARD/SUMMONER SKILLS
             Add(6, 151);    // Teleport → PlayerSkillTeleport
             Add(10, 154);   // HellFire → PlayerSkillHell
-            Add(13, 154);   // Cometfall → PlayerSkillHell
+            Add(12, 152);   // Aqua Beam → PlayerSkillFlash (Cometfall 13: SetPlayerMagic, generic)
             Add(14, 153);   // Inferno → PlayerSkillInferno
             Add(40, 73);    // Nova release → PlayerSkillHellStart
             Add(58, 72);    // Nova start/charge → PlayerSkillHellBegin
-            Add(63, 172);   // Summon → PlayerSkillSummon
             Add(214, 168);  // Drain Life → PlayerSkillDrainLife
+            Add(458, 168);  // Drain Life Strengthener → PlayerSkillDrainLife
             Add(215, 160);  // Chain Lightning → PlayerSkillChainLightning
+            Add(217, 156);  // Thorns → PlayerSkillSleep (WSclient.cpp:4598)
             Add(219, 156);  // Sleep → PlayerSkillSleep
+            Add(220, 156);  // Blind → PlayerSkillSleep (WSclient.cpp:4590)
             Add(230, 185);  // Lightning Shock → PlayerSkillLightningShock
+            Add(456, 185);  // Lightning Shock Strength → PlayerSkillLightningShock
             Add(221, 156);  // Weakness → PlayerSkillSleep
             Add(222, 156);  // Innovation → PlayerSkillSleep
-            Add(218, 166);  // Berserker → PlayerSkillSleep
+            Add(218, 156);  // Berserker → PlayerSkillSleep (WSclient.cpp:4608)
 
             // DARK LORD SKILLS
             // Fire Scream (78) does NOT use an animation from this table: the original
             // client casts it with the Dark Lord strike family (PLAYER_ATTACK_STRIKE and its
             // riding/Fenrir variants), which PlayerObject.GetSkillAction resolves.
             Add(236, 184);  // Flame Strike → PlayerSkillFlamestrike
+            Add(237, 183);  // Gigantic Storm → PlayerSkillGiganticstorm (WSclient.cpp:5222)
             Add(232, 176);  // Strike of Destruction → PlayerSkillBlowOfDestruction
-            Add(64, 71);    // Increase Critical Damage → PlayerSkillVitality
-            Add(65, 71);    // Electric Spike → PlayerSkillVitality
-            Add(56, 146);   // Power Slash → PlayerAttackTwoHandSwordTwo
-            Add(57, 65);    // Spiral Slash → PlayerAttackSkillWheel
+            Add(56, 145);   // Power Slash → PlayerAttackTwoHandSwordTwo
+            Add(57, 136);   // Spiral Slash → PlayerAttackOneFlash
             Add(62, 87);    // Earthquake → PlayerAttackDarkhorse
             Add(515, 87);   // Earth Shake I → PlayerAttackDarkhorse
             Add(516, 87);   // Earth Shake II → PlayerAttackDarkhorse
@@ -263,17 +275,18 @@ namespace Client.Data.BMD
             Add(235, 178);  // Multi-Shot → PlayerSkillMultishotBowStand
 
             // RAGE FIGHTER SKILLS
+            Add(73, 138);   // Mana Rays → PlayerAttackDeathCannon (ReceiveMagic: AT_SKILL_DEATH_CANNON)
             Add(260, 247);  // Killing Blow → PlayerSkillThrust
             Add(261, 248);  // Beast Uppercut → PlayerSkillStamp
             Add(262, 249);  // Chain Drive → PlayerSkillGiantswing
             Add(263, 250);  // Dark Side → PlayerSkillDarksideReady
-            Add(264, 252);  // Dragon Roar → PlayerSkillDragonkick
-            Add(265, 253);  // Dragon Slasher → PlayerSkillDragonlore
+            Add(264, 253);  // Dragon Roar → PlayerSkillDragonlore (MonkSystem: AT_SKILL_DRAGON_LOWER)
+            Add(265, 252);  // Dragon Slasher → PlayerSkillDragonkick (MonkSystem: AT_SKILL_DRAGON_KICK)
+            Add(269, 137);  // Charge → PlayerAttackRush (ReceiveMagic: AT_SKILL_OCCUPY)
             Add(270, 254);  // Phoenix Shot → PlayerSkillPhoenixShot
             Add(48, 255);   // Swell Life → PlayerSkillAttUpOurforces
 
             // SPECIAL SKILLS
-            Add(67, 140);   // Stun → PlayerAttackStun
             Add(76, 102);   // Plasma Storm → PlayerFenrirSkill
             Add(565, 257);  // Blood Howling → PlayerSkillBloodHowling
 
@@ -314,7 +327,9 @@ namespace Client.Data.BMD
             map[20] = "Sound/sKnightSkill2.wav";         // Lunge (ID 20)
             map[21] = "Sound/sKnightSkill3.wav";         // Uppercut (ID 21)
             map[22] = "Sound/sKnightSkill4.wav";         // Cyclone (ID 22)
-            map[41] = "Sound/sKnightSkill4.wav";         // Twisting Slash (ID 41)
+            map[23] = "Sound/sKnightSkill4.wav";         // Slash (ID 23) – ReceiveMagic AT_SKILL_SWORD5
+            map[57] = "Sound/sKnightSkill2.wav";         // Spiral Slash: ReceiveMagic
+            // Twisting Slash (ID 41): SOUND_SKILL_SWORD4 is played at release by TwistingSlashEffect
             map[59] = "Sound/eCombo.wav";                // Combo (ID 59)
 
             // ELF SKILLS
@@ -323,33 +338,35 @@ namespace Client.Data.BMD
             map[77] = "Sound/infinityArrow.wav";          // Infinity Arrow (ID 77)
 
             // WIZARD SKILLS
-            map[4] = "Sound/eMeteorite.wav";             // Fireball (ID 4)
-            map[11] = "Sound/sMagic.wav";                // Power Wave (ID 11)
+            // Fireball (ID 4): SOUND_METEORITE01 is played at release by FireBallEffect
+            // Power Wave (ID 11): SOUND_MAGIC is played at release by PowerWaveEffect
             map[3] = "Sound/eThunder.wav";               // Lightning (ID 3)
-            map[6] = "Sound/eTelekinesis.wav";           // Teleport (ID 6)
-            // Meteorite (ID 2) plays its sound when ScrollOfMeteoriteEffect is initialized.
-            map[7] = "Sound/sIce.wav";                   // Ice (ID 7)
-            map[1] = "Sound/pHeartBeat.wav";              // Poison (ID 1)
-            map[5] = "Sound/sFlame.wav";                 // Flame (ID 5)
+            map[6] = "Sound/sMagic.wav";                 // Teleport (ID 6) – CreateTeleportBegin SOUND_MAGIC
+            // Meteorite (ID 2): SOUND_METEORITE01 is played at release by FireBallEffect (meteor)
+            // Ice (ID 7): SOUND_ICE is played at release by IceEffect
+            // Poison (ID 1): SOUND_HEART is played at release by PoisonEffect
+            // Flame (ID 5): SOUND_FLAME is played at release by FlameEffect
             // Twister (ID 8) and Evil Spirit (ID 9) play sounds from their effects.
             // Hellfire (ID 10) plays its sound from ScrollOfHellFireEffect.
             // Aqua Beam (ID 12) plays its sound from ScrollOfAquaBeamEffect.
-            map[13] = "Sound/eExplosion.wav";            // Cometfall (ID 13)
+            // Cometfall (ID 13): no packet sound; BITMAP_EXPLOTION plays SOUND_EXPLOTION01 on impact (CometfallEffect)
             // Inferno (ID 14) plays its sound from ScrollOfInfernoEffect.
             map[15] = "Sound/eTelekinesis.wav";          // Teleport Ally (ID 15)
             map[16] = "Sound/eSoulBarrier.wav";          // Soul Barrier (ID 16)
-            map[17] = "Sound/sMagic.wav";                // Energy Ball (ID 17)
+            // Energy Ball (ID 17): SOUND_MAGIC is played at release by EnergyBallEffect
             map[58] = "Sound/eHellFire2_1.wav";          // Nova charge start (ID 58)
 
             // MIXED SKILLS
-            map[52] = "Sound/ePiercing.wav";             // Penetration (ID 52)
+            // Penetration (ID 52): SOUND_PIERCING is played at AttackTime 3 by PenetrationGatherEffect
             map[51] = "Sound/eIceArrow.wav";             // Ice Arrow (ID 51)
-            map[49] = "Sound/sKnightSkill1.wav";         // Fire Breath (ID 49)
-            map[47] = "Sound/eRidingSpear.wav";          // Impale (ID 47)
-            map[48] = "Sound/eSwellLife.wav";            // Greater Fortitude (ID 48)
-            map[56] = "Sound/eRaidShoot.wav";            // Raid (ID 56)
+            // Fire Breath (ID 49): SOUND_SKILL_SWORD3 is played at release by FireBreathEffect
+            // Impale (ID 47): SOUND_RIDINGSPEAR is played at AttackTime 10 by ImpaleEffect
+            // Swell Life (ID 48): SOUND_SWELLLIFE is played at release by SwellLifeCastEffect
+            map[56] = "Sound/sKnightSkill4.wav";         // Power Slash (ID 56) – ReceiveMagic AT_SKILL_ICE_BLADE
 
             // DARK LORD SKILLS
+            map[60] = "Sound/sKnightSkill1.wav";         // Force (ID 60) – ReceiveMagic SOUND_SKILL_SWORD1
+            map[66] = map[60];                             // Force Wave (ID 66)
             map[62] = "Sound/sDarkEarthQuake.wav";       // Earthshake (ID 62)
             map[515] = map[62];                            // Earth Shake I
             map[516] = map[62];                            // Earth Shake II
@@ -362,18 +379,17 @@ namespace Client.Data.BMD
             map[78] = "Sound/Darklord_firescream.wav";   // Fire Scream (ID 78)
 
             // SUMMONER SKILLS
-            map[214] = "Sound/SE_Ch_summoner_skill07_lifedrain.wav";      // Drain Life (ID 214)
             map[219] = "Sound/SE_Ch_summoner_skill03_sleep.wav";          // Sleep (ID 219)
-            map[215] = "Sound/SE_Ch_summoner_skill08_chainlightning.wav"; // Chain Lightning (ID 215)
-            map[65] = "Sound/sDarkElecSpike.wav";        // Electric Surge (ID 65)
-            map[221] = "Sound/SE_Ch_summoner_weakness.wav";               // Weakness (ID 221)
-            map[222] = "Sound/SE_Ch_summoner_innovation.wav";             // Innovation (ID 222)
+            // Chain Lightning (ID 215): SOUND_SKILL_CHAIN_LIGHTNING is played at release by ChainLightningCastEffect
+            // Electric Spike (ID 65): SOUND_ELEC_STRIKE is played at release by ElectricSpikeEffect
+            map[220] = "Sound/SE_Ch_summoner_skill04_blind.wav";          // Blind (ID 220)
+            map[217] = "Sound/SE_Ch_summoner_skill02_ssonze.wav";         // Thorns (ID 217)
+            // Weakness (221) / Innovation (222): SOUND_SKILL_WEAKNESS / _ENERVATION are played at release by SummonerCurseEffect
 
             // MASTER SKILLS
             map[218] = "Sound/Berserker.wav";            // Berserker (ID 218)
-            map[230] = "Sound/lightning_shock.wav";      // Lightning Shock (ID 230)
-            map[237] = "Sound/gigantic_storm.wav";       // Gigantic Storm (ID 237)
-            map[236] = "Sound/flame_strike.wav";         // Flame Strike (ID 236)
+            // Gigantic Storm (ID 237): SOUND_SKILL_GIGANTIC_STORM is played at release by GiganticStormEffect
+            // Flame Strike (236): SOUND_SKILL_FLAME_STRIKE plays at release.
             map[238] = "Sound/caotic.wav";               // Chaotic Diseier (ID 238)
             map[233] = "Sound/SwellofMagicPower.wav";    // Swell of Magicpower (ID 233)
             map[232] = "Sound/BLOW_OF_DESTRUCTION.wav";  // Destruction (ID 232)
@@ -382,12 +398,13 @@ namespace Client.Data.BMD
 
             // RAGE FIGHTER SKILLS
             map[260] = "Sound/Ragefighter/Rage_Thrust.wav";
-            map[261] = "Sound/Ragefighter/Rage_Stamp.wav";
+            // 261 Beast Uppercut: SOUND_RAGESKILL_STAMP is played by the effect (hero: at AnimationFrame 2).
             map[262] = "Sound/Ragefighter/Rage_Giantswing.wav";
             map[263] = "Sound/Ragefighter/Rage_Darkside.wav";
             map[264] = "Sound/Ragefighter/Rage_Dragonlower.wav";
             map[265] = "Sound/Ragefighter/Rage_Dragonkick.wav";
             map[269] = "Sound/sKnightSkill2.wav"; // Occupy
+            map[44] = "Sound/sKnightSkill2.wav";  // Crescent Moon Slash (AT_SKILL_RUSH): ReceiveMagic SOUND_SKILL_SWORD2
 
             return map;
         }

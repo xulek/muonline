@@ -1116,6 +1116,7 @@ namespace Client.Main.Networking.Services
             _logger.LogInformation(
                 "Sending skill request: SkillID={SkillId}, TargetID={TargetId}...",
                 skillId, targetId);
+            MuGame.Network?.GetCharacterState()?.NoteLocalSkillCast(skillId);
 
             try
             {

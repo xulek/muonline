@@ -57,10 +57,36 @@ namespace Client.Main.Controls.UI.Game.Skills
         /// <summary>
         /// Mapeia o atlas colorido pro atlas "apagado" (skills não aprendidas):
         /// newui_skill*.OZJ -> newui_non_skill*.OZJ (par dessaturado, mesmo layout 1K).
-        /// O atlas de pet-commands não tem par "non" — mantém o colorido.
+        /// newui_command.OZJ -> newui_non_command.OZJ (IMAGE_NON_COMMAND).
         /// </summary>
         public static string DisabledVariant(string path) =>
-            path.Replace("newui_skill", "newui_non_skill");
+            path.Replace("newui_skill", "newui_non_skill").Replace("newui_command", "newui_non_command");
+
+        /// <summary>
+        /// Atlas texture and tint for a skill icon: an unusable skill (demands not met) uses the non-skill atlas
+        /// tinted red; while that atlas is not loaded the normal one is tinted instead.
+        /// </summary>
+        public static Texture2D GetIconTexture(string texturePath, bool unusable, out Color tint)
+        {
+            tint = Color.White;
+            if (unusable)
+            {
+                tint = SkillIconAtlas.UnusableTint;
+                if (!_disabledKeys.TryGetValue(texturePath, out var disabledKey))
+                {
+                    string disabledPath = DisabledVariant(texturePath);
+                    disabledKey = Content.TextureLoader.NormalizeTextureKey(disabledPath);
+                    _disabledKeys[texturePath] = disabledKey;
+                    _ = Content.TextureLoader.Instance.Prepare(disabledPath); // first use: load the non-skill atlas
+                }
+                var disabled = Content.TextureLoader.Instance.GetTexture2DByKey(disabledKey);
+                if (disabled != null)
+                    return disabled;
+            }
+            return Content.TextureLoader.Instance.GetTexture2D(texturePath);
+        }
+
+        private static readonly Dictionary<string, string> _disabledKeys = new();
 
         /// <summary>
         /// Ícone circular pré-cortado como textura própria (uma vez por skill): recorta o

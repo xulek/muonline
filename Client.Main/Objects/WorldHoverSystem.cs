@@ -203,7 +203,7 @@ namespace Client.Main.Objects
             for (int i = 0; i < objects.Count; i++)
             {
                 if (objects[i] is not MonsterObject monster ||
-                    monster.IsDead ||
+                    monster.IsDead || monster.IsSummoned ||
                     !monster.Visible ||
                     !ReferenceEquals(monster.World, world) ||
                     !TryGetIntersectionDistance(monster, mouseRay, out float distance))

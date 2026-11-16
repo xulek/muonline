@@ -1,12 +1,9 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-using Client.Main.Objects.Player;
-using Microsoft.Xna.Framework;
-
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Energy Ball skill visual effect (Skill ID 17).
+    /// Factory for Energy Ball (AT_SKILL_ENERGYBALL = 17): BITMAP_ENERGY from the caster toward the target.
     /// </summary>
     [SkillVisualEffect(17)] // Energy Ball
     public sealed class EnergyBallSkillEffect : ISkillVisualEffect
@@ -16,31 +13,11 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            var caster = context.Caster;
-            var world = context.World;
-            ushort targetId = context.TargetId;
+            WalkerObject? target = null;
+            if (context.TargetId != 0)
+                context.World.TryGetWalkerById(context.TargetId, out target);
 
-            Vector3 startPosition;
-            if (caster is PlayerObject player && player.TryGetHandWorldMatrix(isLeftHand: false, out var handMatrix))
-            {
-                startPosition = handMatrix.Translation + new Vector3(0f, 0f, 20f);
-            }
-            else
-            {
-                startPosition = caster.WorldPosition.Translation + Vector3.UnitZ * 80f;
-            }
-
-            Vector3 targetPosition;
-            if (targetId != 0 && world.TryGetWalkerById(targetId, out var target))
-            {
-                targetPosition = target.WorldPosition.Translation + Vector3.UnitZ * 80f;
-            }
-            else
-            {
-                targetPosition = caster.WorldPosition.Translation + Vector3.UnitZ * 80f;
-            }
-
-            return new ScrollOfEnergyBallEffect(startPosition, targetPosition);
+            return new EnergyBallEffect(context.Caster, target);
         }
     }
 }

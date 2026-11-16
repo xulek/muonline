@@ -4,6 +4,8 @@ using Client.Main.Controllers;
 using Client.Main.Core.Utilities;
 using Client.Main.Models;
 using Client.Main.Objects.Player;
+using Client.Main.Controls;
+using Client.Main.Objects.Effects;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -62,10 +64,45 @@ namespace Client.Main.Objects.Monsters
             await base.Load();
         }
 
+        // c->Weapon[0 / 1].LinkBone: staff in the right hand, shield in the left (AttackEffect MONSTER_CURSED_WIZARD).
+        private static readonly int[] HandBones = { 33, 42 };
+
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            SpawnMagicAttackEffect(new[] { 33, 42, 33, 42 }, attackType);
+
+            // AttackEffect (ZzzCharacter.cpp:2154): BITMAP_JOINT_THUNDER from both weapon bones to the target, the
+            // same lightning the Devil uses.
+            if (World is not WalkableWorldControl world)
+                return;
+
+            ushort targetId = LastAttackTargetId;
+            if (targetId == 0 || !world.TryGetWalkerById(targetId, out _))
+                return;
+
+            for (int i = 0; i < HandBones.Length; i++)
+            {
+                int boneIndex = HandBones[i];
+
+                Vector3 SourceProvider()
+                {
+                    var bones = GetBoneTransforms();
+                    if (bones != null && boneIndex < bones.Length)
+                        return (bones[boneIndex] * WorldPosition).Translation;
+                    return WorldPosition.Translation + Vector3.UnitZ * 100f;
+                }
+
+                Vector3 TargetProvider()
+                {
+                    if (world.TryGetWalkerById(targetId, out var target))
+                        return target.WorldPosition.Translation + Vector3.UnitZ * 80f;
+                    return WorldPosition.Translation + Vector3.UnitZ * 80f;
+                }
+
+                var effect = new ScrollOfLightningEffect(SourceProvider, TargetProvider);
+                world.Objects.Add(effect);
+                _ = effect.Load();
+            }
         }
 
         private static async Task<BMD> LoadModelAsync()
@@ -87,12 +124,10 @@ namespace Client.Main.Objects.Monsters
             PlayerAction runAction = isTwoHanded
                 ? PlayerAction.PlayerRunSpear
                 : PlayerAction.PlayerRunSword;
-            PlayerAction attack1Action = isTwoHanded
-                ? PlayerAction.PlayerSkillWeapon1
-                : PlayerAction.PlayerAttackSwordRight1;
-            PlayerAction attack2Action = isTwoHanded
-                ? PlayerAction.PlayerSkillWeapon2
-                : PlayerAction.PlayerAttackSwordRight2;
+            // The server follows each attack animation with the Meteorite skill packet, and ReceiveMagic casts it
+            // with SetPlayerMagic: PLAYER_SKILL_HAND1 + rand() % 2 replaces the staff swing in the same frame.
+            PlayerAction attack1Action = PlayerAction.PlayerSkillHand1;
+            PlayerAction attack2Action = PlayerAction.PlayerSkillHand2;
 
             int count = Enum.GetValues(typeof(MonsterActionType)).Length;
             var map = new Dictionary<int, int>

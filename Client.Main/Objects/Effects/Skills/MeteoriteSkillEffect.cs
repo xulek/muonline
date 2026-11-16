@@ -1,13 +1,12 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Meteorite skill visual effect (Skill ID 2 - Scroll of Meteorite).
+    /// Factory for Meteorite (AT_SKILL_METEO = 2): MODEL_FIRE sub 0 falling onto the target.
     /// </summary>
-    [SkillVisualEffect(2)] // Meteorite / Scroll of Meteorite
+    [SkillVisualEffect(2)] // Meteorite
     public sealed class MeteoriteSkillEffect : ISkillVisualEffect
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
@@ -15,16 +14,11 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            var world = context.World;
-            ushort targetId = context.TargetId;
+            WalkerObject? target = null;
+            if (context.TargetId != 0)
+                context.World.TryGetWalkerById(context.TargetId, out target);
 
-            Vector3 targetPosition;
-            if (targetId != 0 && world.TryGetWalkerById(targetId, out var target))
-                targetPosition = target.WorldPosition.Translation;
-            else
-                targetPosition = context.Caster.WorldPosition.Translation;
-
-            return new ScrollOfMeteoriteEffect(targetPosition);
+            return new FireBallEffect(context.Caster, target, meteor: true);
         }
     }
 }

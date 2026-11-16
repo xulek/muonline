@@ -264,6 +264,57 @@ public class VehicleObject : ModelObject
         await base.Load();
     }
 
+    private const int DarkHorseIndex = 0;
+
+    /// <summary>
+    /// The 1.20.61 data DarkHorse.bmd has 11 actions with extra ones inserted: the 5.2 actions 0 stand, 1 run,
+    /// 2 ride attack, 3 Earthshake, 4, 5 / 6 idle variants are 0, 2, 5, 6, 10, 8 / 9 there (matched by key counts
+    /// 7, 7, 6 locked, 10, 41, 51, 31).
+    /// </summary>
+    private static bool IsNewDarkHorseLayout(Client.Data.BMD.BMD model) => model?.Actions != null && model.Actions.Length >= 11;
+
+    /// <summary>The horse action of Earthshake (5.2 action 3) in the loaded model.</summary>
+    public int DarkHorseSkillAction => IsNewDarkHorseLayout(Model) ? 6 : 3;
+
+    /// <summary>
+    /// GOBoid.cpp:339 (MODEL_DARK_HORSE): every frame the horse takes its action from the rider's action:
+    /// PLAYER_ATTACK_DARKHORSE (Earthshake) -> 3, PLAYER_RUN_RIDE_HORSE -> 1, PLAYER_ATTACK_RIDE_STRIKE..
+    /// PLAYER_ATTACK_RIDE_ATTACK_MAGIC -> 2, PLAYER_IDLE1/2_DARKHORSE -> 5 / 6, anything else -> 0.
+    /// Earthshake's ground stones (RenderDarkHorseSkill) are gated on the horse playing action 3.
+    /// </summary>
+    private void UpdateDarkHorseAction()
+    {
+        if (ItemIndex != DarkHorseIndex || Hidden || Model?.Actions == null || Parent is not Player.PlayerObject rider)
+            return;
+
+        bool newLayout = IsNewDarkHorseLayout(Model);
+        int riderAction = (int)rider.CurrentAction;
+        int target;
+        if (riderAction == (int)PlayerAction.PlayerAttackDarkhorse)
+            target = newLayout ? 6 : 3;
+        else if (riderAction == (int)PlayerAction.PlayerRunRideHorse)
+            target = newLayout ? 2 : 1;
+        else if (riderAction >= (int)PlayerAction.PlayerAttackRideStrike && riderAction <= (int)PlayerAction.PlayerAttackRideAttackMagic)
+            target = newLayout ? 5 : 2;
+        else if (riderAction == (int)PlayerAction.PlayerIdle1Darkhorse)
+            target = newLayout ? 8 : 5;
+        else if (riderAction == (int)PlayerAction.PlayerIdle2Darkhorse)
+            target = newLayout ? 9 : 6;
+        else
+            target = 0;
+
+        if (target >= Model.Actions.Length)
+            target = 0;
+
+        // SetAction loops the action while the rider keeps it.
+        HoldOnLastFrame = false;
+        if (CurrentAction != target)
+        {
+            CurrentAction = target;
+            _animTime = 0.0;
+        }
+    }
+
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
@@ -273,6 +324,8 @@ public class VehicleObject : ModelObject
         // (GOBoid.cpp MODEL_DARK_HORSE / PLAYER_RUN_RIDE_HORSE). Toggled every frame so it
         // also stops when the mount is hidden/dismounted even if SetRiderAnimation is
         // no longer invoked.
+        UpdateDarkHorseAction();
+
         bool isVehicleRunning = !Hidden && Model != null && _isMoving;
         bool isDarkHorseRunning = isVehicleRunning && ItemIndex == 0;
         bool onIcarus = World?.WorldIndex == IcarusWorldIndex;
@@ -291,6 +344,10 @@ public class VehicleObject : ModelObject
         _isMoving = isMoving;
 
         if (Model == null || Hidden)
+            return;
+
+        // The Dark Horse follows its rider's action every frame (UpdateDarkHorseAction).
+        if (ItemIndex == DarkHorseIndex && Parent is Player.PlayerObject)
             return;
 
         int targetAnim;

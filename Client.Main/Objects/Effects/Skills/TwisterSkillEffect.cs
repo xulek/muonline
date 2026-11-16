@@ -1,13 +1,12 @@
 #nullable enable
 using Client.Main.Core.Utilities;
-using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Effects.Skills
 {
     /// <summary>
-    /// Factory for Twister skill visual effect (Skill ID 8).
+    /// Factory for Twister (AT_SKILL_STORM = 8): MODEL_STORM moving forward from the caster.
     /// </summary>
-    [SkillVisualEffect(8)]
+    [SkillVisualEffect(8)] // Twister
     public sealed class TwisterSkillEffect : ISkillVisualEffect
     {
         public WorldObject? CreateEffect(SkillEffectContext context)
@@ -15,14 +14,7 @@ namespace Client.Main.Objects.Effects.Skills
             if (context.Caster == null || context.World == null)
                 return null;
 
-            Vector3 center = context.Caster.WorldPosition.Translation;
-            Vector3? targetPosition = context.TargetPosition;
-            if (targetPosition == null && context.TargetId != 0 && context.World.TryGetWalkerById(context.TargetId, out var target))
-            {
-                targetPosition = target.WorldPosition.Translation;
-            }
-
-            return new ScrollOfTwisterEffect(context.Caster, center, targetPosition);
+            return new TwisterEffect(context.Caster);
         }
     }
 }

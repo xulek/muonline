@@ -250,11 +250,10 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             byte p1 = span[5], p2 = span[6];
             switch (type)
             {
-                case 0:  // fireworks at (x, y)
-                case 59: // christmas fireworks
+                case 0:  // fireworks at (x, y): BITMAP_FIRECRACKER0001 sub 0
+                case 59: // christmas fireworks: sub 1
                     _logger.LogInformation("Fireworks ({Type}) at ({X}, {Y}).", type, p1, p2);
-                    SoundController.Instance.PlayBuffer("Sound/eFirecracker1.wav");
-                    SpawnCelebrationAt(p1, p2);
+                    SpawnFireworksAt(p1, p2, type == 59 ? 1 : 0);
                     break;
                 case 2: // fanfare (SOUND_MEDAL)
                     SoundController.Instance.PlayBuffer("Sound/eMedal.wav");
@@ -280,16 +279,12 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             return Task.CompletedTask;
         }
 
-        private static void SpawnCelebrationAt(byte x, byte y)
+        private static void SpawnFireworksAt(byte x, byte y, int subType)
         {
-            MuGame.ScheduleOnMainThread(async () =>
+            MuGame.ScheduleOnMainThread(() =>
             {
-                if (MuGame.Instance?.ActiveScene is not GameScene scene || scene.World is not WorldControl world || world.Terrain == null) return;
-                float wx = (x + 0.5f) * Constants.TERRAIN_SCALE, wy = (y + 0.5f) * Constants.TERRAIN_SCALE;
-                var position = new Vector3(wx, wy, world.Terrain.RequestTerrainHeight(wx, wy));
-                var effect = new LevelUpEffect(position, masterLevel: false, angle: Vector3.Zero);
-                world.Objects.Add(effect);
-                await effect.Load();
+                if (MuGame.Instance?.ActiveScene is GameScene { World: WalkableWorldControl world })
+                    FireworksEffect.Spawn(world, x, y, subType);
             });
         }
 

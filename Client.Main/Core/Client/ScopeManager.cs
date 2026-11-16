@@ -258,7 +258,7 @@ namespace Client.Main.Core.Client
         /// <param name="y">The Y-coordinate of the NPC's position.</param>
         /// <param name="typeNumber">The type number of the NPC.</param>
         /// <param name="name">The optional name of the NPC.</param>
-        public void AddOrUpdateNpcInScope(ushort maskedId, ushort rawId, byte x, byte y, ushort typeNumber, string name = null)
+        public void AddOrUpdateNpcInScope(ushort maskedId, ushort rawId, byte x, byte y, ushort typeNumber, string name = null, bool isSummoned = false)
         {
             if (ShouldIgnoreRemoteUpdateDuringTransition())
                 return;
@@ -269,6 +269,7 @@ namespace Client.Main.Core.Client
                 existingNpc.PositionY = y;
                 existingNpc.TypeNumber = typeNumber;
                 existingNpc.Name = name;
+                existingNpc.IsSummoned = isSummoned;
                 StampCurrentWorld(existingNpc);
             }
             else
@@ -278,6 +279,7 @@ namespace Client.Main.Core.Client
                     ReturnScopeObject(existing);
                 }
                 var npc = RentNpc(maskedId, rawId, x, y, typeNumber, name);
+                npc.IsSummoned = isSummoned;
                 StampCurrentWorld(npc);
                 _objectsInScope[maskedId] = npc;
             }
