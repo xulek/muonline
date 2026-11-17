@@ -35,6 +35,13 @@ namespace Client.Main.Objects.Player
         public string TexturePath { get; set; }
         public byte ItemGroup { get; set; }
 
+        /// <summary>BlendMeshTexCoordU/V of the blend mesh, set every frame (ZzzObject.cpp:5333-5337, legendary shield).</summary>
+        internal void SetBlendMeshTexCoordOffset(int mesh, Vector2 offset)
+        {
+            TextureCoordinateOffset = offset;
+            TextureCoordinateOffsetMeshIndex = mesh;
+        }
+
         /// <param name="monsterBlur">Run the non-player CreateWeaponBlur branch (<see cref="Monsters.MonsterWeaponBlur"/>)
         /// when the owner is a monster. Players pass false: they use <see cref="PlayerWeaponBlur"/>.</param>
         public WeaponObject(bool monsterBlur = true)

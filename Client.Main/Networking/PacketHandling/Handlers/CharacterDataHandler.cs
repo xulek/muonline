@@ -1474,6 +1474,16 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                         if (activeScene.World is WalkableWorldControl remoteWorld)
                         {
+                            // ReceiveMagic AT_SKILL_ENERGYBALL with a monster caster (WSclient.cpp:3926): attack state + AttackEffect flares.
+                            // SpawnRemoteSkillVisual only accepts player casters.
+                            if (skillId == 17 &&
+                                remoteWorld.TryGetWalkerById((ushort)(playerId & 0x7FFF), out var monsterCaster) &&
+                                monsterCaster is MonsterObject energyCaster &&
+                                remoteWorld.TryGetWalkerById((ushort)(targetId & 0x7FFF), out var energyTarget))
+                            {
+                                energyCaster.OnEnergyBallCast(energyTarget, (ushort)(targetId & 0x7FFF));
+                            }
+
                             SpawnRemoteSkillVisual(remoteWorld, playerId, targetId, skillId, targetPosition: null);
                         }
 

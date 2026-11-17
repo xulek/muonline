@@ -254,6 +254,26 @@ namespace Client.Main.Objects
             // Override to play attack sound.
         }
 
+        private int _energyBallSwing;
+
+        /// <summary>
+        /// ReceiveMagic with AT_SKILL_ENERGYBALL from a monster caster (WSclient.cpp:3926-3943): a visible target is
+        /// faced (WSclient.cpp:3797), SetPlayerAttack picks MONSTER01_ATTACK1 when SwordCount % 3 == 0, else ATTACK2
+        /// (ZzzCharacter.cpp:1181-1188), AnimationFrame = 0 and AttackTime = 1.
+        /// </summary>
+        public virtual void OnEnergyBallCast(WalkerObject target, ushort targetId)
+        {
+            if (IsDead)
+                return;
+
+            if (target.Visible)
+                FaceTowardsObject(target, immediate: true);
+            LastAttackTargetId = targetId;
+            var action = _energyBallSwing % 3 == 0 ? MonsterActionType.Attack1 : MonsterActionType.Attack2;
+            _energyBallSwing++;
+            PlayAction((ushort)action, fromServer: true);
+        }
+
         /// <summary>
         /// Resolves the world position of the last attack target received from
         /// server animation packets; falls back to this monster's position.

@@ -75,8 +75,8 @@ namespace Client.Main.Objects.Effects
         private static readonly Vector3 EmberLightColor = new(1f, 0.35f, 0.1f);
         private float _lightAge;
 
-        public InfernoEffect(WalkerObject caster)
-            : base(caster, 5f, ReleaseDelaySeconds, 512)
+        public InfernoEffect(WalkerObject caster, float releaseDelaySeconds = ReleaseDelaySeconds)
+            : base(caster, 5f, releaseDelaySeconds, 512)
         {
         }
 

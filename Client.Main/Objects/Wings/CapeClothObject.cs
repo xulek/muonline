@@ -11,7 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Client.Main.Graphics;
+using Client.Main.Objects.Effects.Cloth;
 
 namespace Client.Main.Objects.Wings
 {
@@ -93,12 +93,12 @@ namespace Client.Main.Objects.Wings
             {
                 CapeClothKind.CapeOfLord => new CapeClothProfile(
                     kind, 180f, 180f, new Vector3(0f, 8f, 10f), false, 25f, 27f,
-                    Array.Empty<string>(),
+                    new[] { "Player/DarklordRobe.tga" },
                     new CapeRigidAttachment(false, Vector3.Zero, Vector3.Zero)),
 
                 CapeClothKind.SmallCapeOfLord => new CapeClothProfile(
                     kind, 100f, 100f, new Vector3(0f, 8f, 10f), false, 25f, 27f,
-                    Array.Empty<string>(),
+                    new[] { "Player/DarklordRobe.tga" },
                     new CapeRigidAttachment(false, Vector3.Zero, Vector3.Zero)),
 
                 CapeClothKind.CapeOfEmperor => new CapeClothProfile(
@@ -153,43 +153,62 @@ namespace Client.Main.Objects.Wings
     }
 
     /// <summary>
-    /// CPU mass-spring cloth used by the classic MU capes. The visible sheet is a separate
-    /// 10x10 grid; only its top row is pinned to the animated player skeleton. The remaining
-    /// vertices retain velocity, react to wind and gravity, and are pushed out of torso spheres.
+    /// Physics capes of Dark Lord / Rage Fighter wings, the original CPhysicsCloth set of RenderCharacter
+    /// (ZzzCharacter.cpp:9505-9633), simulated by <see cref="SourceClothSet"/>:
+    ///   Cape of Lord     Create(o, 19, 0, 8, 10, 10, 10, 180, 180, BITMAP_ROBE+7, PCT_CURVED | PCT_SHORT_SHOULDER | PCT_MASK_ALPHA)   9548
+    ///   small (WING+130) same, 100 x 100                                                                                        9539
+    ///   Cape of Emperor  same + PCT_HEAVY, BITMAP_ROBE+9; ribbons Create(o, 19, +-30, 15|20, 10, 2, 5, 12, 200, BITMAP_ROBE+10,
+    ///                    PCT_FLAT | PCT_COTTON | PCT_MASK_ALPHA)                                                                9531, 9577-9583
+    ///   DL spheres (+-10, -10, -10, 25, 17), (+-10, -10, 20, 27, 17); ribbon spheres (0, -15, -20, 30, 2), (0, 0, 0, 35, 17)
+    ///   Cape of Fighter  Create(o, 19, 0, 15, 5, 10, 10, 180, 170, BITMAP_NCCAPE, PCT_CURVED | PCT_SHORT_SHOULDER | PCT_HEAVY | PCT_MASK_ALPHA) 9613
+    ///   small (WING+135) same, 150 x 130                                                                                        9605
+    ///   Cape of Overrule same, BITMAP_MANTOE; ribbons Create(o, 19, +-25, 15, 2, 2, 5, 12, 180, BITMAP_MANTO01,
+    ///                    PCT_FLAT | PCT_COTTON | PCT_ELASTIC_RAGE_L / _R | PCT_MASK_ALPHA)                                      9597, 9622-9628
+    ///   RF spheres (+-10, -10, -10, 35, 17), (+-10, -10, 20, 37, 17); ribbon spheres (0, -15, -20, 35, 2), (0, 0, 0, 45 | 50, 17)
+    /// Moved with Move2(0.005, 5) once per frame after the owner's skeleton update, rendered with CloakLight = white.
+    /// Not ported: Dark Lord hair cloths [0] [1] and armour skirt [3], stun / sleep freeze (Flag = 0).
     /// </summary>
     internal sealed class CapeClothObject : EffectObject
     {
-        private const int AnchorBone = 19;
-        private const int TorsoBone = 17;
-        private const int LowerTorsoBone = 2;
-        private const int MainColumns = 10;
-        private const int MainRows = 10;
-        private const float LegacyTickSeconds = 1f / 25f;
-        private const float SolverSubstepSeconds = 0.005f;
-        private const int SolverSubsteps = 5;
-        private const int MaxCatchUpSteps = 5;
-        private const float Gravity = 9.8f;
-        private const float ParticleMass = 0.0025f;
-        private const float InverseParticleMass = 1f / ParticleMass;
-        private const float TeleportResetDistanceSquared = 450f * 450f;
-        private const float ConstraintFailureMultiplier = 20f;
-        private const float MaximumParticleSpeed = 2400f;
-        private const float SpringStiffness = 7.5f;
-        private const float RibbonSpringStiffness = 9.5f;
-        private const int ConstraintIterations = 2;
+        private const int CapeBone = 19;
 
-        private readonly List<ClothPiece> _pieces = new(3);
-        private CapeClothProfile _profile;
-        private float _accumulator;
-        private float _interpolation;
-        private float _simulationTime;
-        private float _wind;
-        private uint _randomState = 0xA341316Cu;
+        private static readonly ClothCollisionSphere[] LordSpheres =
+        {
+            new(new Vector3(-10f, -10f, -10f), 25f, 17),
+            new(new Vector3(10f, -10f, -10f), 25f, 17),
+            new(new Vector3(-10f, -10f, 20f), 27f, 17),
+            new(new Vector3(10f, -10f, 20f), 27f, 17),
+        };
+
+        private static readonly ClothCollisionSphere[] LordRibbonSpheres =
+        {
+            new(new Vector3(0f, -15f, -20f), 30f, 2),
+            new(new Vector3(0f, 0f, 0f), 35f, 17),
+        };
+
+        private static readonly ClothCollisionSphere[] FighterSpheres =
+        {
+            new(new Vector3(-10f, -10f, -10f), 35f, 17),
+            new(new Vector3(10f, -10f, -10f), 35f, 17),
+            new(new Vector3(-10f, -10f, 20f), 37f, 17),
+            new(new Vector3(10f, -10f, 20f), 37f, 17),
+        };
+
+        private static readonly ClothCollisionSphere[] OverruleRibbonLeftSpheres =
+        {
+            new(new Vector3(0f, -15f, -20f), 35f, 2),
+            new(new Vector3(0f, 0f, 0f), 45f, 17),
+        };
+
+        private static readonly ClothCollisionSphere[] OverruleRibbonRightSpheres =
+        {
+            new(new Vector3(0f, -15f, -20f), 35f, 2),
+            new(new Vector3(0f, 0f, 0f), 50f, 17),
+        };
+
+        private SourceClothSet _set;
         private int _configurationVersion;
-        private bool _needsReset = true;
         private bool _configured;
-        private Vector3 _lastAnchor;
-        private float _lastOwnerScale;
 
         public CapeClothObject()
         {
@@ -206,86 +225,114 @@ namespace Client.Main.Objects.Wings
         public async Task<bool> ConfigureAsync(CapeClothProfile profile, BMD model)
         {
             int version = Interlocked.Increment(ref _configurationVersion);
+            ClothDefinition[] definitions = BuildDefinitions(profile);
+            var textures = new Texture2D[definitions.Length];
             Texture2D mainTexture = await ResolveTextureAsync(profile.TextureCandidates, model, 0).ConfigureAwait(false);
-            Texture2D ribbonTexture = mainTexture;
-
-            if (profile.HasSideRibbons)
+            textures[0] = mainTexture;
+            for (int i = 1; i < definitions.Length; i++)
             {
-                string[] ribbonCandidates = profile.Kind == CapeClothKind.CapeOfOverrule
-                    ? new[] { "Item/monk_manto01.TGA", "Item/monk_manto01.tga", "Item/monk_manto01.jpg" }
-                    : Array.Empty<string>();
-                ribbonTexture = await ResolveTextureAsync(ribbonCandidates, model, 1).ConfigureAwait(false) ?? mainTexture;
+                textures[i] = await ResolveTextureAsync(new[] { definitions[i].FrontTexture }, model, 1).ConfigureAwait(false)
+                    ?? mainTexture;
             }
 
             if (version != Volatile.Read(ref _configurationVersion))
                 return false;
 
             if (MuGame.IsMainThread)
-                return ApplyConfiguration(version, profile, mainTexture, ribbonTexture);
+                return ApplyConfiguration(version, definitions, textures);
 
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             MuGame.ScheduleOnMainThread(static state =>
             {
-                var (cloth, requestedVersion, requestedProfile, main, ribbon, source) = state;
+                var (cloth, requestedVersion, requestedDefinitions, requestedTextures, source) = state;
                 try
                 {
-                    source.TrySetResult(cloth.ApplyConfiguration(
-                        requestedVersion,
-                        requestedProfile,
-                        main,
-                        ribbon));
+                    source.TrySetResult(cloth.ApplyConfiguration(requestedVersion, requestedDefinitions, requestedTextures));
                 }
                 catch (Exception ex)
                 {
                     source.TrySetException(ex);
                 }
             },
-            (this, version, profile, mainTexture, ribbonTexture, completion),
+            (this, version, definitions, textures, completion),
             name: "CapeCloth.Configure");
 
             return await completion.Task.ConfigureAwait(false);
         }
 
-        private bool ApplyConfiguration(
-            int version,
-            CapeClothProfile profile,
-            Texture2D mainTexture,
-            Texture2D ribbonTexture)
+        private static ClothDefinition[] BuildDefinitions(CapeClothProfile profile)
+        {
+            const PhysicsClothType capeShape = PhysicsClothType.Curved | PhysicsClothType.ShortShoulder | PhysicsClothType.DrawAlpha;
+            const PhysicsClothType ribbonShape = PhysicsClothType.Flat | PhysicsClothType.ShapeNormal | PhysicsClothType.Cotton | PhysicsClothType.DrawAlpha;
+
+            switch (profile.Kind)
+            {
+                case CapeClothKind.CapeOfLord:
+                case CapeClothKind.SmallCapeOfLord:
+                    return new[] { Cape(new Vector3(0f, 8f, 10f), profile.Width, profile.Height, capeShape, LordSpheres) };
+
+                case CapeClothKind.CapeOfEmperor:
+                    return new[]
+                    {
+                        Cape(new Vector3(0f, 8f, 10f), 180f, 180f, capeShape | PhysicsClothType.Heavy, LordSpheres),
+                        Ribbon(new Vector3(30f, 15f, 10f), 200f, ribbonShape, "Item/dl_redwings03.tga", LordRibbonSpheres),
+                        Ribbon(new Vector3(-30f, 20f, 10f), 200f, ribbonShape, "Item/dl_redwings03.tga", LordRibbonSpheres),
+                    };
+
+                case CapeClothKind.CapeOfFighter:
+                case CapeClothKind.SmallCapeOfFighter:
+                    return new[] { Cape(new Vector3(0f, 15f, 5f), profile.Width, profile.Height, capeShape | PhysicsClothType.Heavy, FighterSpheres) };
+
+                case CapeClothKind.CapeOfOverrule:
+                    return new[]
+                    {
+                        Cape(new Vector3(0f, 15f, 5f), 180f, 170f, capeShape | PhysicsClothType.Heavy, FighterSpheres),
+                        Ribbon(new Vector3(25f, 15f, 2f), 180f, ribbonShape | PhysicsClothType.ElasticRageL, "Item/monk_manto01.TGA", OverruleRibbonLeftSpheres),
+                        Ribbon(new Vector3(-25f, 15f, 2f), 180f, ribbonShape | PhysicsClothType.ElasticRageR, "Item/monk_manto01.TGA", OverruleRibbonRightSpheres),
+                    };
+
+                default:
+                    return Array.Empty<ClothDefinition>();
+            }
+
+            static ClothDefinition Cape(Vector3 offset, float width, float height, PhysicsClothType type, ClothCollisionSphere[] spheres) => new()
+            {
+                Bone = CapeBone,
+                Offset = offset,
+                NumHor = 10,
+                NumVer = 10,
+                Width = width,
+                Height = height,
+                Type = type,
+                Spheres = spheres,
+            };
+
+            static ClothDefinition Ribbon(Vector3 offset, float height, PhysicsClothType type, string texture, ClothCollisionSphere[] spheres) => new()
+            {
+                Bone = CapeBone,
+                Offset = offset,
+                NumHor = 2,
+                NumVer = 5,
+                Width = 12f,
+                Height = height,
+                Type = type,
+                FrontTexture = texture,
+                Spheres = spheres,
+            };
+        }
+
+        private bool ApplyConfiguration(int version, ClothDefinition[] definitions, Texture2D[] textures)
         {
             if (version != Volatile.Read(ref _configurationVersion))
                 return false;
 
-            _profile = profile;
-            _pieces.Clear();
+            var set = new SourceClothSet(definitions);
+            for (int i = 0; i < textures.Length; i++)
+                set.SetTextures(i, textures[i], textures[i]);
 
-            if (mainTexture != null)
-            {
-                _pieces.Add(ClothPiece.CreateMain(profile, mainTexture));
-
-                if (profile.HasSideRibbons && ribbonTexture != null)
-                {
-                    if (profile.Kind == CapeClothKind.CapeOfEmperor)
-                    {
-                        _pieces.Add(ClothPiece.CreateRibbon(
-                            new Vector3(30f, 15f, 10f), 12f, 200f, ribbonTexture, 0f, 30f, 35f));
-                        _pieces.Add(ClothPiece.CreateRibbon(
-                            new Vector3(-30f, 20f, 10f), 12f, 200f, ribbonTexture, 0f, 30f, 35f));
-                    }
-                    else
-                    {
-                        _pieces.Add(ClothPiece.CreateRibbon(
-                            new Vector3(25f, 15f, 2f), 12f, 180f, ribbonTexture, 18f, 35f, 45f));
-                        _pieces.Add(ClothPiece.CreateRibbon(
-                            new Vector3(-25f, 15f, 2f), 12f, 180f, ribbonTexture, -18f, 35f, 50f));
-                    }
-                }
-            }
-
-            _configured = _pieces.Count > 0;
+            _set = set;
+            _configured = definitions.Length > 0 && textures[0] != null;
             Hidden = !_configured;
-            _needsReset = true;
-            _accumulator = 0f;
-            _interpolation = 0f;
             return _configured;
         }
 
@@ -293,186 +340,48 @@ namespace Client.Main.Objects.Wings
         {
             Interlocked.Increment(ref _configurationVersion);
             _configured = false;
-            _pieces.Clear();
+            _set = null;
             Hidden = true;
-            _needsReset = true;
-            _accumulator = 0f;
-            _interpolation = 0f;
         }
 
         protected override void OnWorldChanged(WorldControl newWorld, WorldControl prevWorld)
         {
             base.OnWorldChanged(newWorld, prevWorld);
-            _needsReset = true;
-            _accumulator = 0f;
+            _set?.Reset();
         }
 
         public override void Update(GameTime gameTime)
         {
             // The owning PlayerObject invokes UpdateAfterOwner after movement and skeleton updates.
-            // Updating here would pin the cloth to the previous frame's back-bone transform.
         }
 
         internal void UpdateAfterOwner(GameTime gameTime)
         {
-            if (Status != GameControlStatus.Ready || !_configured || Hidden)
+            if (Status != GameControlStatus.Ready || !_configured || Hidden || _set == null)
                 return;
 
             PlayerObject player = GetOwner();
-            if (player == null || TotalAlpha <= 0.001f)
+            if (player == null || TotalAlpha <= 0.001f || player.GetBoneTransforms() is not { Length: > 0 })
                 return;
 
-            if (!TryGetAnchor(player, AnchorBone, out _, out Vector3 anchorPosition, out float ownerScale))
-            {
-                _needsReset = true;
-                return;
-            }
-
-            if (_needsReset ||
-                Vector3.DistanceSquared(anchorPosition, _lastAnchor) > TeleportResetDistanceSquared ||
-                MathF.Abs(ownerScale - _lastOwnerScale) > 0.08f)
-            {
-                ResetAll(player);
-                anchorPosition = _lastAnchor;
-            }
-
-            float elapsed = MathHelper.Clamp(
-                (float)gameTime.ElapsedGameTime.TotalSeconds,
-                0f,
-                LegacyTickSeconds * MaxCatchUpSteps);
-            _simulationTime += elapsed;
-            _accumulator += elapsed;
-
-            int ticks = 0;
-            while (_accumulator >= LegacyTickSeconds && ticks < MaxCatchUpSteps)
-            {
-                Tick(player);
-                _accumulator -= LegacyTickSeconds;
-                ticks++;
-            }
-
-            if (ticks == MaxCatchUpSteps)
-                _accumulator = MathF.Min(_accumulator, LegacyTickSeconds);
-
-            _interpolation = MathHelper.Clamp(_accumulator / LegacyTickSeconds, 0f, 1f);
-            _lastAnchor = anchorPosition;
-            _lastOwnerScale = ownerScale;
-        }
-
-        private void Tick(PlayerObject player)
-        {
-            _wind = MathHelper.Clamp(_wind + NextRandom(-0.1f, 0.099f), -0.2f, 1f);
-
-            for (int i = 0; i < _pieces.Count; i++)
-                _pieces[i].BeginTick();
-
-            for (int substep = 0; substep < SolverSubsteps; substep++)
-            {
-                for (int pieceIndex = 0; pieceIndex < _pieces.Count; pieceIndex++)
-                {
-                    ClothPiece piece = _pieces[pieceIndex];
-                    if (!piece.Step(
-                        player,
-                        _wind,
-                        _simulationTime,
-                        SolverSubstepSeconds))
-                    {
-                        _needsReset = true;
-                        ResetAll(player);
-                        return;
-                    }
-                }
-            }
-        }
-
-        private void ResetAll(PlayerObject player)
-        {
-            for (int i = 0; i < _pieces.Count; i++)
-                _pieces[i].Reset(player);
-
-            if (TryGetAnchor(player, AnchorBone, out _, out Vector3 anchor, out float ownerScale))
-            {
-                _lastAnchor = anchor;
-                _lastOwnerScale = ownerScale;
-            }
-
-            _needsReset = false;
-            _accumulator = 0f;
-            _interpolation = 0f;
-            _wind = 0f;
+            _set.Move(player, 0.005f);
         }
 
         public override void Draw(GameTime gameTime)
         {
-            // Cloth uses alpha-tested textures and is intentionally rendered in the after pass.
+            // Cloth uses alpha-tested textures and is rendered in the after pass.
         }
 
         public override void DrawAfter(GameTime gameTime)
         {
-            if (!Visible || !_configured || _pieces.Count == 0)
+            if (!Visible || !_configured || _set == null)
                 return;
 
             PlayerObject player = GetOwner();
             if (player == null || player.Hidden || player.World == null)
                 return;
 
-            float alpha = TotalAlpha;
-            if (alpha <= 0.001f)
-                return;
-
-            GraphicsDevice gd = GraphicsDevice;
-            BlendState previousBlend = gd.BlendState;
-            DepthStencilState previousDepth = gd.DepthStencilState;
-            RasterizerState previousRasterizer = gd.RasterizerState;
-            SamplerState previousSampler = gd.SamplerStates[0];
-
-            AlphaTestEffect effect = GraphicsManager.Instance.AlphaTestEffect3D;
-            Matrix previousWorld = effect.World;
-            Matrix previousView = effect.View;
-            Matrix previousProjection = effect.Projection;
-            Texture2D previousTexture = effect.Texture;
-            Vector3 previousDiffuse = effect.DiffuseColor;
-            float previousAlpha = effect.Alpha;
-            bool previousVertexColor = effect.VertexColorEnabled;
-            int previousReferenceAlpha = effect.ReferenceAlpha;
-
-            try
-            {
-                gd.BlendState = alpha < 0.999f
-                    ? BlendState.NonPremultiplied
-                    : BlendState.Opaque;
-                gd.DepthStencilState = DepthStencilState.Default;
-                gd.RasterizerState = RasterizerState.CullNone;
-                gd.SamplerStates[0] = SamplerState.LinearWrap;
-
-                effect.World = Matrix.Identity;
-                effect.View = Camera.Instance.View;
-                effect.Projection = Camera.Instance.Projection;
-                effect.DiffuseColor = Vector3.One;
-                effect.Alpha = alpha;
-                effect.VertexColorEnabled = true;
-                effect.ReferenceAlpha = 8;
-
-                for (int i = 0; i < _pieces.Count; i++)
-                    _pieces[i].Draw(gd, effect, _interpolation);
-            }
-            finally
-            {
-                effect.World = previousWorld;
-                effect.View = previousView;
-                effect.Projection = previousProjection;
-                effect.Texture = previousTexture;
-                effect.DiffuseColor = previousDiffuse;
-                effect.Alpha = previousAlpha;
-                effect.VertexColorEnabled = previousVertexColor;
-                effect.ReferenceAlpha = previousReferenceAlpha;
-
-                gd.BlendState = previousBlend;
-                gd.DepthStencilState = previousDepth;
-                gd.RasterizerState = previousRasterizer;
-                gd.SamplerStates[0] = previousSampler;
-            }
-
+            _set.Draw(GraphicsDevice, Vector3.One, TotalAlpha);
             DrawChildrenAfterOnly(gameTime);
         }
 
@@ -481,15 +390,6 @@ namespace Client.Main.Objects.Wings
             if (Parent is WingObject wing && wing.Parent is PlayerObject player)
                 return player;
             return null;
-        }
-
-        private float NextRandom(float minimum, float maximum)
-        {
-            _randomState ^= _randomState << 13;
-            _randomState ^= _randomState >> 17;
-            _randomState ^= _randomState << 5;
-            float normalized = (_randomState & 0x00FFFFFFu) / 16777215f;
-            return MathHelper.Lerp(minimum, maximum, normalized);
         }
 
         private static async Task<Texture2D> ResolveTextureAsync(
@@ -562,596 +462,6 @@ namespace Client.Main.Objects.Wings
             {
                 return null;
             }
-        }
-
-        private static bool TryGetAnchor(
-            PlayerObject player,
-            int boneIndex,
-            out Matrix worldMatrix,
-            out Vector3 position,
-            out float ownerScale)
-        {
-            worldMatrix = Matrix.Identity;
-            position = Vector3.Zero;
-            ownerScale = 1f;
-
-            Matrix[] bones = player?.GetBoneTransforms();
-            if (player == null || bones == null || bones.Length == 0)
-                return false;
-
-            int safeBone = Math.Clamp(boneIndex, 0, bones.Length - 1);
-            worldMatrix = bones[safeBone] * player.WorldPosition;
-            position = worldMatrix.Translation;
-            ownerScale = (worldMatrix.Right.Length() + worldMatrix.Up.Length() + worldMatrix.Backward.Length()) / 3f;
-            if (!float.IsFinite(ownerScale) || ownerScale <= 0.0001f)
-                ownerScale = MathF.Max(0.01f, player.TotalScale);
-            return true;
-        }
-
-        private sealed class ClothPiece
-        {
-            private readonly int _columns;
-            private readonly int _rows;
-            private readonly int _anchorBone;
-            private readonly Vector3 _offset;
-            private readonly float _width;
-            private readonly float _height;
-            private readonly bool _shortShoulders;
-            private readonly bool _heavy;
-            private readonly float _lateralForce;
-            private readonly ClothParticle[] _particles;
-            private readonly Vector3[] _previousTickPositions;
-            private readonly Vector3[] _substepStartPositions;
-            private readonly Vector3[] _forces;
-            private readonly ClothConstraint[] _constraints;
-            private readonly SphereDefinition[] _sphereDefinitions;
-            private readonly VertexPositionColorTexture[] _renderVertices;
-            private readonly short[] _indices;
-            private readonly Texture2D _texture;
-            private readonly float _maximumRestLength;
-
-            private ClothPiece(
-                int columns,
-                int rows,
-                int anchorBone,
-                Vector3 offset,
-                float width,
-                float height,
-                bool shortShoulders,
-                bool heavy,
-                float lateralForce,
-                Texture2D texture,
-                SphereDefinition[] sphereDefinitions)
-            {
-                _columns = columns;
-                _rows = rows;
-                _anchorBone = anchorBone;
-                _offset = offset;
-                _width = width;
-                _height = height;
-                _shortShoulders = shortShoulders;
-                _heavy = heavy;
-                _lateralForce = lateralForce;
-                _texture = texture;
-                _sphereDefinitions = sphereDefinitions;
-
-                _particles = new ClothParticle[columns * rows];
-                _previousTickPositions = new Vector3[_particles.Length];
-                _substepStartPositions = new Vector3[_particles.Length];
-                _forces = new Vector3[_particles.Length];
-                _renderVertices = new VertexPositionColorTexture[_particles.Length];
-                _indices = BuildIndices(columns, rows);
-                _constraints = BuildConstraints(columns, rows, width, height, shortShoulders, out _maximumRestLength);
-            }
-
-            public static ClothPiece CreateMain(CapeClothProfile profile, Texture2D texture)
-            {
-                SphereDefinition[] spheres =
-                {
-                    new(TorsoBone, new Vector3(-10f, -10f, -10f), profile.UpperSphereRadius),
-                    new(TorsoBone, new Vector3( 10f, -10f, -10f), profile.UpperSphereRadius),
-                    new(TorsoBone, new Vector3(-10f, -10f,  20f), profile.LowerSphereRadius),
-                    new(TorsoBone, new Vector3( 10f, -10f,  20f), profile.LowerSphereRadius)
-                };
-
-                return new ClothPiece(
-                    MainColumns,
-                    MainRows,
-                    AnchorBone,
-                    profile.Offset,
-                    profile.Width,
-                    profile.Height,
-                    true,
-                    profile.Heavy,
-                    0f,
-                    texture,
-                    spheres);
-            }
-
-            public static ClothPiece CreateRibbon(
-                Vector3 offset,
-                float width,
-                float height,
-                Texture2D texture,
-                float lateralForce,
-                float lowerSphereRadius,
-                float torsoSphereRadius)
-            {
-                SphereDefinition[] spheres =
-                {
-                    new(LowerTorsoBone, new Vector3(0f, -15f, -20f), lowerSphereRadius),
-                    new(TorsoBone, Vector3.Zero, torsoSphereRadius)
-                };
-
-                return new ClothPiece(
-                    2,
-                    5,
-                    AnchorBone,
-                    offset,
-                    width,
-                    height,
-                    false,
-                    false,
-                    lateralForce,
-                    texture,
-                    spheres);
-            }
-
-            public void Reset(PlayerObject player)
-            {
-                if (!TryGetAnchor(player, _anchorBone, out Matrix anchor, out _, out _))
-                    return;
-
-                for (int row = 0; row < _rows; row++)
-                {
-                    float rowT = row / (float)(_rows - 1);
-                    float rowWidth = _shortShoulders
-                        ? _width * MathHelper.Lerp(0.60f, 1f, rowT)
-                        : _width;
-
-                    for (int column = 0; column < _columns; column++)
-                    {
-                        float columnT = _columns == 1 ? 0.5f : column / (float)(_columns - 1);
-                        float x = MathHelper.Lerp(-rowWidth * 0.5f, rowWidth * 0.5f, columnT);
-                        float edge = 2f * MathF.Abs(columnT - 0.5f);
-                        float curve = _shortShoulders ? 10f * edge * edge : 0f;
-                        // SourceMain CPhysicsCloth::Create applies the fxPos/fyPos/fzPos
-                        // offsets only to the pinned top row; the sheet body hangs from
-                        // y=20 with z=-height*row. Adding the offsets here pushed the cape
-                        // too far off the back.
-                        float y = 20f - curve;
-                        float z = -_height * rowT;
-                        Vector3 world = Vector3.Transform(ToBoneLocal(new Vector3(x, y, z)), anchor);
-                        int index = row * _columns + column;
-                        _particles[index] = new ClothParticle
-                        {
-                            Position = world,
-                            Velocity = Vector3.Zero,
-                            Fixed = row == 0
-                        };
-                        _previousTickPositions[index] = world;
-                    }
-                }
-            }
-
-            public void BeginTick()
-            {
-                for (int i = 0; i < _particles.Length; i++)
-                    _previousTickPositions[i] = _particles[i].Position;
-            }
-
-            public bool Step(
-                PlayerObject player,
-                float wind,
-                float simulationTime,
-                float deltaTime)
-            {
-                if (!TryGetAnchor(player, _anchorBone, out Matrix anchor, out Vector3 anchorPosition, out float ownerScale))
-                    return false;
-
-                UpdateFixedVertices(anchor);
-
-                Matrix ownerRotation = Matrix.CreateFromQuaternion(MathUtils.AngleQuaternion(player.Angle));
-                Vector3 backward = Vector3.TransformNormal(Vector3.UnitY, ownerRotation);
-                backward.Z = 0f;
-                if (backward.LengthSquared() < 0.0001f)
-                    backward = Vector3.UnitY;
-                else
-                    backward.Normalize();
-
-                Vector3 side = Vector3.Cross(Vector3.UnitZ, backward);
-                if (side.LengthSquared() < 0.0001f)
-                    side = Vector3.UnitX;
-                else
-                    side.Normalize();
-
-                float gravityMultiplier = _heavy ? 180f : 100f;
-                float windMultiplier = _heavy ? 0.62f : 1f;
-                float movingGust = simulationTime / 0.4f;
-
-                for (int i = 0; i < _particles.Length; i++)
-                {
-                    ref ClothParticle particle = ref _particles[i];
-                    _substepStartPositions[i] = particle.Position;
-                    _forces[i] = Vector3.Zero;
-                    if (particle.Fixed)
-                        continue;
-
-                    float normalizedIndex = i / (float)Math.Max(1, _particles.Length - 1);
-                    float gustDistance = MathF.Abs(normalizedIndex - (movingGust - MathF.Floor(movingGust)));
-                    gustDistance = MathF.Min(gustDistance, 1f - gustDistance);
-                    float localGust = 0.62f + MathF.Exp(-gustDistance * gustDistance * 36f) * 0.78f;
-                    float irregularity = MathF.Sin(
-                        i * 12.9898f +
-                        simulationTime * 7.13f +
-                        _lateralForce * 0.031f);
-                    localGust *= 0.92f + irregularity * 0.08f;
-
-                    Vector3 force = new(0f, 0f, -Gravity * ParticleMass * gravityMultiplier);
-                    force += backward * (wind * windMultiplier * localGust * ParticleMass * 420f);
-                    force += side * (_lateralForce * ParticleMass);
-                    force -= particle.Velocity * 0.01f;
-                    _forces[i] = force;
-                }
-
-                ApplySpringForces(ownerScale);
-
-                for (int i = 0; i < _particles.Length; i++)
-                {
-                    ref ClothParticle particle = ref _particles[i];
-                    if (particle.Fixed)
-                        continue;
-
-                    particle.Velocity += _forces[i] * (InverseParticleMass * deltaTime);
-                    float speedSquared = particle.Velocity.LengthSquared();
-                    if (speedSquared > MaximumParticleSpeed * MaximumParticleSpeed)
-                        particle.Velocity *= MaximumParticleSpeed / MathF.Sqrt(speedSquared);
-                    particle.Position += particle.Velocity * deltaTime;
-                }
-
-                SolveSphereCollisions(player, ownerScale, backward);
-                for (int iteration = 0; iteration < ConstraintIterations; iteration++)
-                {
-                    SolveConstraints(ownerScale);
-                    SolveSphereCollisions(player, ownerScale, backward);
-                    UpdateFixedVertices(anchor);
-                }
-                ReconcileVelocities(deltaTime);
-
-                float maximumDistance = MathF.Max(_maximumRestLength, MathF.Max(_width, _height)) * ConstraintFailureMultiplier * ownerScale;
-                float maximumDistanceSquared = maximumDistance * maximumDistance;
-                for (int i = 0; i < _particles.Length; i++)
-                {
-                    ref ClothParticle particle = ref _particles[i];
-                    if (!IsFinite(particle.Position) || !IsFinite(particle.Velocity))
-                        return false;
-                    if (Vector3.DistanceSquared(particle.Position, anchorPosition) > maximumDistanceSquared)
-                        return false;
-                }
-
-                return true;
-            }
-
-            private void UpdateFixedVertices(Matrix anchor)
-            {
-                for (int column = 0; column < _columns; column++)
-                {
-                    float columnT = _columns == 1 ? 0.5f : column / (float)(_columns - 1);
-                    float topWidth = _shortShoulders ? _width * 0.60f : _width;
-                    float x = _offset.X + MathHelper.Lerp(-topWidth * 0.5f, topWidth * 0.5f, columnT);
-                    float edge = 2f * MathF.Abs(columnT - 0.5f);
-                    float curve = _shortShoulders ? 10f * edge * edge : 0f;
-                    // SourceMain SetFixedVertices pins the top row at y=fyPos (not 20f).
-                    Vector3 local = new(x, _offset.Y - curve, _offset.Z);
-                    int index = column;
-                    Vector3 target = Vector3.Transform(ToBoneLocal(local), anchor);
-                    ref ClothParticle particle = ref _particles[index];
-                    particle.Position = target;
-                    particle.Velocity = Vector3.Zero;
-                }
-            }
-
-            private void ApplySpringForces(float ownerScale)
-            {
-                float stiffness = _columns <= 2 ? RibbonSpringStiffness : SpringStiffness;
-                for (int i = 0; i < _constraints.Length; i++)
-                {
-                    ref readonly ClothConstraint constraint = ref _constraints[i];
-                    ref ClothParticle a = ref _particles[constraint.A];
-                    ref ClothParticle b = ref _particles[constraint.B];
-                    Vector3 delta = b.Position - a.Position;
-                    float distanceSquared = delta.LengthSquared();
-                    if (distanceSquared <= 0.0000001f)
-                        continue;
-
-                    float distance = MathF.Sqrt(distanceSquared);
-                    float restLength = constraint.RestLength * ownerScale;
-                    if (distance <= restLength)
-                        continue;
-
-                    Vector3 direction = delta / distance;
-                    Vector3 springForce = direction * ((distance - restLength) * stiffness * ParticleMass);
-                    if (!a.Fixed)
-                        _forces[constraint.A] += springForce;
-                    if (!b.Fixed)
-                        _forces[constraint.B] -= springForce;
-                }
-            }
-
-            private void ReconcileVelocities(float deltaTime)
-            {
-                if (deltaTime <= 0f)
-                    return;
-
-                float inverseDelta = 1f / deltaTime;
-                for (int i = 0; i < _particles.Length; i++)
-                {
-                    ref ClothParticle particle = ref _particles[i];
-                    if (particle.Fixed)
-                    {
-                        particle.Velocity = Vector3.Zero;
-                        continue;
-                    }
-
-                    Vector3 correctedVelocity = (particle.Position - _substepStartPositions[i]) * inverseDelta;
-                    particle.Velocity = Vector3.Lerp(particle.Velocity, correctedVelocity, 0.72f);
-                    float speedSquared = particle.Velocity.LengthSquared();
-                    if (speedSquared > MaximumParticleSpeed * MaximumParticleSpeed)
-                        particle.Velocity *= MaximumParticleSpeed / MathF.Sqrt(speedSquared);
-                }
-            }
-
-            private static Vector3 ToBoneLocal(Vector3 clothLocal) =>
-                new(clothLocal.Z, -clothLocal.Y, clothLocal.X);
-
-            private void SolveConstraints(float ownerScale)
-            {
-                for (int i = 0; i < _constraints.Length; i++)
-                {
-                    ref ClothConstraint constraint = ref _constraints[i];
-                    ref ClothParticle a = ref _particles[constraint.A];
-                    ref ClothParticle b = ref _particles[constraint.B];
-                    Vector3 delta = b.Position - a.Position;
-                    float distanceSquared = delta.LengthSquared();
-                    if (distanceSquared <= 0.0000001f)
-                        continue;
-
-                    float distance = MathF.Sqrt(distanceSquared);
-                    float minimumLength = constraint.MinLength * ownerScale;
-                    float maximumLength = constraint.MaxLength * ownerScale;
-                    float targetLength;
-                    if (distance > maximumLength)
-                        targetLength = maximumLength;
-                    else if (distance < minimumLength)
-                        targetLength = minimumLength;
-                    else
-                        continue;
-
-                    float correctionScale = (distance - targetLength) / distance;
-                    Vector3 correction = delta * correctionScale;
-
-                    if (a.Fixed && b.Fixed)
-                        continue;
-                    if (a.Fixed)
-                    {
-                        b.Position -= correction;
-                    }
-                    else if (b.Fixed)
-                    {
-                        a.Position += correction;
-                    }
-                    else
-                    {
-                        Vector3 half = correction * 0.5f;
-                        a.Position += half;
-                        b.Position -= half;
-                    }
-                }
-            }
-
-            private void SolveSphereCollisions(PlayerObject player, float ownerScale, Vector3 fallbackDirection)
-            {
-                Matrix[] bones = player.GetBoneTransforms();
-                if (bones == null || bones.Length == 0)
-                    return;
-
-                for (int sphereIndex = 0; sphereIndex < _sphereDefinitions.Length; sphereIndex++)
-                {
-                    SphereDefinition definition = _sphereDefinitions[sphereIndex];
-                    int boneIndex = Math.Clamp(definition.BoneIndex, 0, bones.Length - 1);
-                    Matrix sphereMatrix = bones[boneIndex] * player.WorldPosition;
-                    Vector3 center = Vector3.Transform(definition.LocalCenter, sphereMatrix);
-                    float radius = definition.Radius * ownerScale;
-                    float radiusSquared = radius * radius;
-
-                    for (int particleIndex = _columns; particleIndex < _particles.Length; particleIndex++)
-                    {
-                        ref ClothParticle particle = ref _particles[particleIndex];
-                        Vector3 offset = particle.Position - center;
-                        float distanceSquared = offset.LengthSquared();
-                        if (distanceSquared >= radiusSquared)
-                            continue;
-
-                        Vector3 direction;
-                        if (distanceSquared <= 0.000001f)
-                        {
-                            direction = fallbackDirection;
-                        }
-                        else
-                        {
-                            direction = offset / MathF.Sqrt(distanceSquared);
-                        }
-
-                        particle.Position = center + direction * radius;
-                        float inwardVelocity = Vector3.Dot(particle.Velocity, direction);
-                        if (inwardVelocity < 0f)
-                            particle.Velocity -= direction * inwardVelocity;
-                    }
-                }
-            }
-
-            public void Draw(GraphicsDevice graphicsDevice, AlphaTestEffect effect, float interpolation)
-            {
-                if (_texture == null || _texture.IsDisposed)
-                    return;
-
-                Color color = Color.White;
-                for (int row = 0; row < _rows; row++)
-                {
-                    float v = MathF.Min(0.99f, row / (float)(_rows - 1));
-                    for (int column = 0; column < _columns; column++)
-                    {
-                        float u = column / (float)(_columns - 1);
-                        int index = row * _columns + column;
-                        Vector3 position = Vector3.Lerp(
-                            _previousTickPositions[index],
-                            _particles[index].Position,
-                            interpolation);
-                        _renderVertices[index] = new VertexPositionColorTexture(position, color, new Vector2(u, v));
-                    }
-                }
-
-                effect.Texture = _texture;
-                foreach (EffectPass pass in effect.CurrentTechnique.Passes)
-                {
-                    pass.Apply();
-                    graphicsDevice.DrawUserIndexedPrimitives(
-                        PrimitiveType.TriangleList,
-                        _renderVertices,
-                        0,
-                        _renderVertices.Length,
-                        _indices,
-                        0,
-                        _indices.Length / 3);
-                }
-            }
-
-            private static ClothConstraint[] BuildConstraints(
-                int columns,
-                int rows,
-                float width,
-                float height,
-                bool shortShoulders,
-                out float maximumRestLength)
-            {
-                List<ClothConstraint> constraints = new(
-                    (columns - 1) * rows +
-                    columns * (rows - 1) +
-                    2 * (columns - 1) * (rows - 1));
-                float maxRestLength = 0f;
-
-                Vector3[] localPositions = new Vector3[columns * rows];
-                for (int row = 0; row < rows; row++)
-                {
-                    float rowT = row / (float)(rows - 1);
-                    float rowWidth = shortShoulders ? width * MathHelper.Lerp(0.60f, 1f, rowT) : width;
-                    for (int column = 0; column < columns; column++)
-                    {
-                        float columnT = columns == 1 ? 0.5f : column / (float)(columns - 1);
-                        float edge = 2f * MathF.Abs(columnT - 0.5f);
-                        float curve = shortShoulders ? 10f * edge * edge : 0f;
-                        localPositions[row * columns + column] = new Vector3(
-                            MathHelper.Lerp(-rowWidth * 0.5f, rowWidth * 0.5f, columnT),
-                            -curve,
-                            -height * rowT);
-                    }
-                }
-
-                void Add(int a, int b)
-                {
-                    float length = Vector3.Distance(localPositions[a], localPositions[b]);
-                    constraints.Add(new ClothConstraint(a, b, length * 0.8f, length));
-                    maxRestLength = MathF.Max(maxRestLength, length);
-                }
-
-                for (int row = 0; row < rows; row++)
-                {
-                    for (int column = 0; column < columns; column++)
-                    {
-                        int index = row * columns + column;
-                        if (column + 1 < columns)
-                            Add(index, index + 1);
-                        if (row + 1 < rows)
-                            Add(index, index + columns);
-                        if (row + 1 < rows && column + 1 < columns)
-                            Add(index, index + columns + 1);
-                        // SourceMain creates 72 reverse diagonals for a 10x10 cloth;
-                        // the top strip intentionally omits this second shear link.
-                        if (row > 0 && row + 1 < rows && column > 0)
-                            Add(index, index + columns - 1);
-                    }
-                }
-
-                maximumRestLength = maxRestLength;
-                return constraints.ToArray();
-            }
-
-            private static short[] BuildIndices(int columns, int rows)
-            {
-                short[] indices = new short[(columns - 1) * (rows - 1) * 6];
-                int destination = 0;
-                for (int row = 0; row < rows - 1; row++)
-                {
-                    for (int column = 0; column < columns - 1; column++)
-                    {
-                        short topLeft = checked((short)(row * columns + column));
-                        short topRight = checked((short)(topLeft + 1));
-                        short bottomLeft = checked((short)(topLeft + columns));
-                        short bottomRight = checked((short)(bottomLeft + 1));
-
-                        indices[destination++] = topLeft;
-                        indices[destination++] = topRight;
-                        indices[destination++] = bottomRight;
-                        indices[destination++] = topLeft;
-                        indices[destination++] = bottomRight;
-                        indices[destination++] = bottomLeft;
-                    }
-                }
-
-                return indices;
-            }
-
-            private static bool IsFinite(Vector3 value) =>
-                float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
-        }
-
-        private struct ClothParticle
-        {
-            public Vector3 Position;
-            public Vector3 Velocity;
-            public bool Fixed;
-        }
-
-        private struct ClothConstraint
-        {
-            public ClothConstraint(int a, int b, float minLength, float maxLength)
-            {
-                A = a;
-                B = b;
-                RestLength = maxLength;
-                MinLength = minLength;
-                MaxLength = maxLength;
-            }
-
-            public int A;
-            public int B;
-            public float RestLength;
-            public float MinLength;
-            public float MaxLength;
-        }
-
-        private readonly struct SphereDefinition
-        {
-            public SphereDefinition(int boneIndex, Vector3 localCenter, float radius)
-            {
-                BoneIndex = boneIndex;
-                LocalCenter = localCenter;
-                Radius = radius;
-            }
-
-            public int BoneIndex { get; }
-            public Vector3 LocalCenter { get; }
-            public float Radius { get; }
         }
     }
 }
