@@ -130,6 +130,7 @@ namespace Client.Main.Graphics
                     Constants.ENABLE_MONSTER_MATERIAL_SHADER = false;
                     Constants.ENABLE_WEAPON_TRAIL = false;
                     Constants.ENABLE_WORLD_BLOOM = false;
+                    Constants.ENABLE_SSAO = false;
                     break;
 
                 case GraphicsQualityPreset.Medium:
@@ -145,6 +146,7 @@ namespace Client.Main.Graphics
                     Constants.ENABLE_MONSTER_MATERIAL_SHADER = true;
                     Constants.ENABLE_WEAPON_TRAIL = true;
                     Constants.ENABLE_WORLD_BLOOM = true;
+                    Constants.ENABLE_SSAO = false;
                     break;
 
                 case GraphicsQualityPreset.High:
@@ -161,6 +163,7 @@ namespace Client.Main.Graphics
                     Constants.ENABLE_MONSTER_MATERIAL_SHADER = true;
                     Constants.ENABLE_WEAPON_TRAIL = true;
                     Constants.ENABLE_WORLD_BLOOM = true;
+                    Constants.ENABLE_SSAO = true;
                     break;
             }
 

@@ -264,6 +264,45 @@ namespace Client.Main.Controls
                 ConfigureWorldGlow(glow);
         }
 
+        private Graphics.ScreenSpaceAO _ssao;
+
+        /// <summary>Depth pre-pass + occlusion before the glow target is bound (applied in the glow's combine pass).</summary>
+        private void PrepareAmbientOcclusion()
+        {
+            Graphics.SceneBloom glow = WorldGlow;
+            glow.AmbientOcclusion = null;
+            if (!Constants.ENABLE_SSAO || Constants.SSAO_STRENGTH <= 0f || !Constants.ENABLE_WORLD_BLOOM || !UsesWorldGlow)
+                return;
+
+            int width, height;
+            var targets = GraphicsDevice.GetRenderTargets();
+            if (targets.Length > 0 && targets[0].RenderTarget is RenderTarget2D target)
+            {
+                width = target.Width;
+                height = target.Height;
+            }
+            else
+            {
+                width = GraphicsDevice.PresentationParameters.BackBufferWidth;
+                height = GraphicsDevice.PresentationParameters.BackBufferHeight;
+            }
+
+            _ssao ??= new Graphics.ScreenSpaceAO();
+            try
+            {
+                if (_ssao.Render(this, width, height))
+                {
+                    glow.AmbientOcclusion = _ssao.Texture;
+                    glow.AmbientOcclusionStrength = _ssao.EffectiveStrength;
+                }
+            }
+            catch (Exception ex)
+            {
+                RecordRenderFailure(null, "Draw.Ssao", ex);
+                RestoreSafeWorldRenderState();
+            }
+        }
+
         private void BeginWorldGlow()
         {
             if (_worldGlowActive)
@@ -271,6 +310,8 @@ namespace Client.Main.Controls
 
             if (_worldGlow != null)
                 ApplyWorldGrade(_worldGlow);
+
+            PrepareAmbientOcclusion();
 
             _worldGlowActive = Constants.ENABLE_WORLD_BLOOM && UsesWorldGlow &&
                                WorldGlow.Begin(GraphicsDevice, SceneClearColor);
@@ -3175,6 +3216,8 @@ namespace Client.Main.Controls
             _cutoutMapBatch.Dispose();
             _worldGlow?.Dispose();
             _worldGlow = null;
+            _ssao?.Dispose();
+            _ssao = null;
             var sw = Stopwatch.StartNew();
 
             // Dispose can occur after objects were queued for a later instanced flush. Clear

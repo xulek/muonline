@@ -195,6 +195,23 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                 },
                 new SettingToggle
                 {
+                    Label = "Ambient Occlusion (SSAO)",
+                    Description = "Darkens creases and where models meet the ground. Extra depth pass, about 1-2 ms. Needs World Glow.",
+                    Get = () => Constants.ENABLE_SSAO,
+                    Set = v => Constants.ENABLE_SSAO = v
+                },
+                new SettingSlider
+                {
+                    Label = "SSAO Strength",
+                    Description = "How dark the ambient occlusion gets. 100% is the default; 0% skips the SSAO passes.",
+                    Min = 0f,
+                    Max = 200f,
+                    Step = 10f,
+                    Get = () => Constants.SSAO_STRENGTH * 100f,
+                    Set = v => Constants.SSAO_STRENGTH = v / 100f
+                },
+                new SettingToggle
+                {
                     Label = "Height Fog",
                     Description = "Low-lying mist in valleys and dungeons on maps that define it.",
                     Get = () => Constants.ENABLE_HEIGHT_FOG,

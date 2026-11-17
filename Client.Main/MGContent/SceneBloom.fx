@@ -16,6 +16,20 @@ float Contrast;       // 1 = unchanged
 float3 Lift;          // added to the shadows (colour of the darkest parts)
 float Vignette;       // 0 = off, 1 = strong darkening of the corners
 float Sharpen;        // 0 = off; unsharp mask against the 4 direct neighbours (TexelStep = 1 / scene size)
+float AoStrength;     // 0 = no ambient occlusion in the combine pass
+
+// Ssao (Graphics/ScreenSpaceAO): source = camera depth written by the ShadowCaster techniques.
+float2 ProjScale;     // 1 / Projection.M11, 1 / Projection.M22
+float2 ProjDepth;     // Projection.M33, Projection.M43 (view distance = M43 / (depth + M33))
+float AoRadius;       // world units
+float AoProjRadius;   // AoRadius * M11 * 0.5 (uv radius = AoProjRadius / distance)
+float AoIntensity;
+
+// AoTemporal: s0 = this frame's blurred AO, s1 (Bloom slot) = AO history, s2 (Ao slot) = this frame's depth,
+// s3 = last frame's depth.
+float4x4 CameraInvView;
+float4x4 PrevViewProjection;
+float HistoryWeight;  // 0 = no usable history (first frame, resize)
 
 #if SM4 || SM6
 Texture2D SceneTexture : register(t0);
@@ -24,10 +38,20 @@ Texture2D BloomTexture : register(t1);
 SamplerState BloomSampler : register(s1);
 #define SAMPLE_SCENE(uv) SceneTexture.Sample(SceneSampler, uv)
 #define SAMPLE_BLOOM(uv) BloomTexture.Sample(BloomSampler, uv)
+Texture2D AoTexture : register(t2);
+SamplerState AoSampler : register(s2);
+#define SAMPLE_AO(uv) AoTexture.Sample(AoSampler, uv)
+Texture2D HistoryDepthTexture : register(t3);
+SamplerState HistoryDepthSampler : register(s3);
+#define SAMPLE_HISTORY_DEPTH(uv) HistoryDepthTexture.Sample(HistoryDepthSampler, uv)
 #define PS_SIG(name) float4 name(float4 pos : SV_POSITION, float4 color : COLOR0, float2 uv : TEXCOORD0) : SV_Target
 #else
 sampler SceneSampler : register(s0);
 sampler BloomSampler : register(s1);
+sampler AoSampler : register(s2);
+#define SAMPLE_AO(uv) tex2D(AoSampler, uv)
+sampler HistoryDepthSampler : register(s3);
+#define SAMPLE_HISTORY_DEPTH(uv) tex2D(HistoryDepthSampler, uv)
 #define SAMPLE_SCENE(uv) tex2D(SceneSampler, uv)
 #define SAMPLE_BLOOM(uv) tex2D(BloomSampler, uv)
 #define PS_SIG(name) float4 name(float4 color : COLOR0, float2 uv : TEXCOORD0) : COLOR0
@@ -68,6 +92,7 @@ PS_SIG(CombinePS)
         float3 hi = max(scene, n);
         scene = clamp(scene + (scene - n) * Sharpen, lo * 0.85, hi * 1.15);
     }
+    scene *= lerp(1.0, SAMPLE_AO(uv).r, AoStrength);
     float3 bloom = SAMPLE_BLOOM(uv).rgb * BloomTint * BloomIntensity;
     // Screen-like add: strong glow does not burn to flat white.
     float3 c = scene + bloom * (1.0 - saturate(scene) * 0.45);
@@ -82,6 +107,118 @@ PS_SIG(CombinePS)
     return float4(saturate(c * vig), 1.0);
 }
 
+float DepthToNdc(float d)
+{
+#if !(SM4 || SM6)
+    d = d * 2.0 - 1.0; // ShadowPS remaps OpenGL depth into 0..1
+#endif
+    return d;
+}
+
+float ViewDistance(float d)
+{
+#if !(SM4 || SM6)
+    d = d * 2.0 - 1.0; // ShadowPS remaps OpenGL depth into 0..1
+#endif
+    return ProjDepth.y / (d + ProjDepth.x);
+}
+
+float3 ViewPosition(float2 uv)
+{
+    float z = ViewDistance(SAMPLE_SCENE(uv).r);
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    return float3(ndc * ProjScale * z, -z);
+}
+
+static const float2 AoKernel[8] =
+{
+    float2( 0.35,  0.00), float2(-0.25,  0.55), float2(-0.60, -0.30), float2( 0.55, -0.60),
+    float2( 0.90,  0.25), float2(-0.10, -0.95), float2(-0.85,  0.50), float2( 0.30,  0.85)
+};
+
+// 4-texel box along TexelStep (one axis per pass) from two bilinear taps: covers offsets -2..+1.
+PS_SIG(AoBlurPS)
+{
+    float ao = (SAMPLE_SCENE(uv - TexelStep * 1.5).r + SAMPLE_SCENE(uv + TexelStep * 0.5).r) * 0.5;
+    return float4(ao, ao, ao, 1.0);
+}
+
+// Temporal accumulation with reprojection: this frame's occlusion is blended with last frame's at the same
+// world point, so half-resolution depth sampling no longer shimmers while the camera moves. History is
+// rejected where the reprojected depth disagrees (disocclusion) or falls off screen.
+PS_SIG(AoTemporalPS)
+{
+    float current = SAMPLE_SCENE(uv).r;
+    float d = SAMPLE_AO(uv).r;
+    [branch] if (HistoryWeight <= 0.0 || d >= 0.99999)
+        return float4(current, current, current, 1.0);
+
+    float z = ViewDistance(d);
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float3 viewPos = float3(ndc * ProjScale * z, -z);
+    float4 world = mul(float4(viewPos, 1.0), CameraInvView);
+    float4 prevClip = mul(world, PrevViewProjection);
+    if (prevClip.w <= 0.001)
+        return float4(current, current, current, 1.0);
+
+    float2 prevUv = prevClip.xy / prevClip.w * float2(0.5, -0.5) + 0.5;
+    if (any(prevUv < 0.0) || any(prevUv > 1.0))
+        return float4(current, current, current, 1.0);
+
+    float prevDist = ViewDistance(SAMPLE_HISTORY_DEPTH(prevUv).r);
+    float expected = prevClip.w;
+    float agree = saturate(1.0 - abs(prevDist - expected) / (expected * 0.03 + 4.0));
+
+    float history = SAMPLE_BLOOM(prevUv).r;
+    float ao = lerp(current, history, HistoryWeight * agree);
+    return float4(ao, ao, ao, 1.0);
+}
+
+PS_SIG(SsaoPS)
+{
+    float d = SAMPLE_SCENE(uv).r;
+    if (d >= 0.99999)
+        return float4(1.0, 1.0, 1.0, 1.0); // sky / nothing drawn
+
+    float3 p = ViewPosition(uv);
+    // Normal from the neighbour on the same surface (smaller depth step) on each axis, so silhouettes do not
+    // produce a different normal every time they move by a pixel.
+    float3 pr = ViewPosition(uv + float2(TexelStep.x, 0.0));
+    float3 pl = ViewPosition(uv - float2(TexelStep.x, 0.0));
+    float3 pd = ViewPosition(uv + float2(0.0, TexelStep.y));
+    float3 pu = ViewPosition(uv - float2(0.0, TexelStep.y));
+    float3 dx = abs(pr.z - p.z) < abs(p.z - pl.z) ? pr - p : p - pl;
+    float3 dy = abs(pd.z - p.z) < abs(p.z - pu.z) ? pd - p : p - pu;
+    float3 n = normalize(cross(dx, dy));
+    if (dot(n, -p) < 0.0)
+        n = -n;
+
+    float dist = -p.z;
+    float2 radiusUv = AoProjRadius / dist * float2(1.0, ProjScale.x / ProjScale.y);
+    // Interleaved 4x4 rotation pattern (16 angles over one kernel step); AoBlur averages exactly one 4x4 block,
+    // so the pattern cancels out instead of shimmering like per-pixel random noise when the camera moves.
+    float2 pix = floor(uv / TexelStep);
+    float cell = fmod(pix.x, 4.0) * 4.0 + fmod(pix.y, 4.0);
+    float a = cell * (6.2831853 / 128.0) + fmod(pix.x + pix.y * 2.0, 4.0) * (6.2831853 / 32.0);
+    float s = sin(a);
+    float c = cos(a);
+    float r2 = AoRadius * AoRadius * 4.0;
+
+    float occlusion = 0.0;
+    [unroll] for (int i = 0; i < 8; i++)
+    {
+        float2 k = AoKernel[i];
+        k = float2(k.x * c - k.y * s, k.x * s + k.y * c);
+        float3 v = ViewPosition(uv + k * radiusUv) - p;
+        float len2 = dot(v, v);
+        float cosine = dot(v, n) * rsqrt(len2 + 1.0);
+        occlusion += saturate(cosine - 0.1) * saturate(1.0 - len2 / r2);
+    }
+
+    float ao = saturate(1.0 - AoIntensity * occlusion * 0.125);
+    return float4(ao, ao, ao, 1.0);
+}
+
 #if SM6
     #define BLOOM_PS ps_6_0
 #elif SM4
@@ -93,3 +230,6 @@ PS_SIG(CombinePS)
 technique Extract { pass P0 { PixelShader = compile BLOOM_PS ExtractPS(); } }
 technique Blur { pass P0 { PixelShader = compile BLOOM_PS BlurPS(); } }
 technique Combine { pass P0 { PixelShader = compile BLOOM_PS CombinePS(); } }
+technique Ssao { pass P0 { PixelShader = compile BLOOM_PS SsaoPS(); } }
+technique AoBlur { pass P0 { PixelShader = compile BLOOM_PS AoBlurPS(); } }
+technique AoTemporal { pass P0 { PixelShader = compile BLOOM_PS AoTemporalPS(); } }

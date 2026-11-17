@@ -32,6 +32,10 @@ namespace Client.Main.Graphics
         /// <summary>Unsharp-mask strength applied to the scene in the combine pass (0 = off).</summary>
         public float Sharpen { get; set; }
 
+        /// <summary>Occlusion multiplied into the scene this frame (white = none); null disables it.</summary>
+        public Texture2D AmbientOcclusion { get; set; }
+        public float AmbientOcclusionStrength { get; set; }
+
         /// <summary>Redirects drawing into the private target (cleared to <paramref name="clearColor"/>).</summary>
         public bool Begin(GraphicsDevice device, Color clearColor)
         {
@@ -98,13 +102,31 @@ namespace Client.Main.Graphics
             effect.Parameters["Lift"]?.SetValue(Lift);
             effect.Parameters["Vignette"]?.SetValue(Vignette);
             effect.Parameters["Sharpen"]?.SetValue(Sharpen);
+            bool ao = AmbientOcclusion != null && !AmbientOcclusion.IsDisposed && AmbientOcclusionStrength > 0f;
+            effect.Parameters["AoStrength"]?.SetValue(ao ? AmbientOcclusionStrength : 0f);
+            Texture2D aoTexture = ao ? AmbientOcclusion : GraphicsManager.Instance.Pixel;
+            device.SamplerStates[2] = SamplerState.LinearClamp;
             effect.Parameters["TexelStep"]?.SetValue(new Vector2(1f / _scene.Width, 1f / _scene.Height));
-            device.Textures[1] = _quarterA;
             device.SamplerStates[1] = SamplerState.LinearClamp;
+            // EffectPass.Apply rebinds every sampler slot from its effect parameter (null when unset), so the extra
+            // inputs must go through the parameters; DX names the textures, OpenGL the samplers.
+            SetTexture(effect, "BloomTexture", "BloomSampler", _quarterA);
+            SetTexture(effect, "AoTexture", "AoSampler", aoTexture);
+            device.Textures[1] = _quarterA;
+            device.Textures[2] = aoTexture;
             sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, effect);
             sprite.Draw(_scene, new Rectangle(0, 0, _previousViewport.Width, _previousViewport.Height), Color.White);
             sprite.End();
             device.Textures[1] = null;
+            device.Textures[2] = null;
+            SetTexture(effect, "BloomTexture", "BloomSampler", null);
+            SetTexture(effect, "AoTexture", "AoSampler", null);
+        }
+
+        private static void SetTexture(Effect effect, string textureName, string samplerName, Texture2D texture)
+        {
+            EffectParameter parameter = effect.Parameters[textureName] ?? effect.Parameters[samplerName];
+            parameter?.SetValue(texture);
         }
 
         private void Pass(GraphicsDevice device, SpriteBatch sprite, Effect effect, string technique, RenderTarget2D source, RenderTarget2D destination, Vector2 texelStep)

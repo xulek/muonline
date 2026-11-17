@@ -631,6 +631,24 @@ namespace Client.Main.Objects
             }
         }
 
+        /// <summary>
+        /// Set while <see cref="Graphics.ScreenSpaceAO"/> renders its camera depth with the caster path: only what
+        /// the main pass shows as solid may occlude (no additive meshes, faded or hidden objects).
+        /// </summary>
+        internal static bool AmbientOcclusionDepthPass;
+
+        /// <summary>Whether this object's own meshes belong in the SSAO depth (see <see cref="AmbientOcclusionDepthPass"/>).</summary>
+        internal bool OccludesForAmbientOcclusion()
+        {
+            // RenderShadow is not a solidity flag (map objects and monsters default to false), so it is not checked.
+            if (Hidden || !Visible || TotalAlpha < 0.99f)
+                return false;
+
+            BlendState blend = BlendState;
+            // Whole-model additive / brightening blends (glows, light beams, water) are see-through.
+            return blend == null || blend.ColorDestinationBlend != Blend.One;
+        }
+
         public virtual int DrawShadowCaster(Effect shadowEffect, Matrix lightViewProjection)
         {
             if (shadowEffect == null)
@@ -642,7 +660,8 @@ namespace Client.Main.Objects
 
             // Draw own meshes if available. A missing technique or one invalid body part
             // must not suppress valid child casters.
-            if (Model?.Meshes != null && _meshes != null)
+            bool drawOwnMeshes = !AmbientOcclusionDepthPass || OccludesForAmbientOcclusion();
+            if (Model?.Meshes != null && _meshes != null && drawOwnMeshes)
             {
                 try
                 {
@@ -679,6 +698,10 @@ namespace Client.Main.Objects
                             for (int i = 0; i < meshCount; i++)
                             {
                                 if (IsHiddenMesh(i))
+                                    continue;
+
+                                // Additive blend meshes are see-through in the main pass.
+                                if (AmbientOcclusionDepthPass && IsBlendMesh(i))
                                     continue;
 
                                 bool useGpuSkinning = shadowCasterSkinnedTechnique != null &&

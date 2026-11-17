@@ -131,6 +131,10 @@ namespace Client.Main
         public static bool ENABLE_MAP_COLOR_GRADE = true;
         /// <summary>Ground-hugging height fog on worlds that define one.</summary>
         public static bool ENABLE_HEIGHT_FOG = true;
+        /// <summary>Screen-space ambient occlusion (half resolution, needs the world glow pass).</summary>
+        public static bool ENABLE_SSAO;
+        /// <summary>SSAO amount, 1 = default (0..2).</summary>
+        public static float SSAO_STRENGTH = 1f;
         /// <summary>Rim light on characters and monsters (0 = off).</summary>
         public static float RIM_LIGHT_STRENGTH = 0.35f;
         /// <summary>Use remastered world textures bundled with the client (Assets/Remaster) instead of the Data files.</summary>
