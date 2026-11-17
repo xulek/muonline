@@ -25,10 +25,11 @@ float AoRadius;       // world units
 float AoProjRadius;   // AoRadius * M11 * 0.5 (uv radius = AoProjRadius / distance)
 float AoIntensity;
 
-// AoTemporal: s0 = this frame's blurred AO, s1 (Bloom slot) = AO history, s2 (Ao slot) = this frame's depth,
+// AoFilteredTemporal: s0 = raw AO, s1 (Bloom slot) = AO history, s2 (Ao slot) = this frame's depth,
 // s3 = last frame's depth.
-float4x4 CameraInvView;
-float4x4 PrevViewProjection;
+float4 ViewToPreviousClipX;
+float4 ViewToPreviousClipY;
+float4 ViewToPreviousClipW;
 float HistoryWeight;  // 0 = no usable history (first frame, resize)
 
 #if SM4 || SM6
@@ -117,17 +118,19 @@ float DepthToNdc(float d)
 
 float ViewDistance(float d)
 {
-#if !(SM4 || SM6)
-    d = d * 2.0 - 1.0; // ShadowPS remaps OpenGL depth into 0..1
-#endif
-    return ProjDepth.y / (d + ProjDepth.x);
+    return ProjDepth.y / (DepthToNdc(d) + ProjDepth.x);
+}
+
+float3 ViewPosition(float2 uv, float depth)
+{
+    float z = ViewDistance(depth);
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    return float3(ndc * ProjScale * z, -z);
 }
 
 float3 ViewPosition(float2 uv)
 {
-    float z = ViewDistance(SAMPLE_SCENE(uv).r);
-    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    return float3(ndc * ProjScale * z, -z);
+    return ViewPosition(uv, SAMPLE_SCENE(uv).r);
 }
 
 static const float2 AoKernel[8] =
@@ -136,37 +139,34 @@ static const float2 AoKernel[8] =
     float2( 0.90,  0.25), float2(-0.10, -0.95), float2(-0.85,  0.50), float2( 0.30,  0.85)
 };
 
-// 4-texel box along TexelStep (one axis per pass) from two bilinear taps: covers offsets -2..+1.
-PS_SIG(AoBlurPS)
+// Filter the current occlusion before blending at the reprojected position. Reject history
+// when its depth disagrees or the reprojected position falls off screen.
+PS_SIG(AoFilteredTemporalPS)
 {
-    float ao = (SAMPLE_SCENE(uv - TexelStep * 1.5).r + SAMPLE_SCENE(uv + TexelStep * 0.5).r) * 0.5;
-    return float4(ao, ao, ao, 1.0);
-}
+    // Four bilinear taps cover the same 4x4 box as the separable blur (offsets -2..+1 on each axis).
+    float2 low = uv - TexelStep * 1.5;
+    float2 high = uv + TexelStep * 0.5;
+    float current = (SAMPLE_SCENE(low).r + SAMPLE_SCENE(float2(high.x, low.y)).r +
+                     SAMPLE_SCENE(float2(low.x, high.y)).r + SAMPLE_SCENE(high).r) * 0.25;
+    [branch] if (HistoryWeight <= 0.0)
+        return float4(current, current, current, 1.0);
 
-// Temporal accumulation with reprojection: this frame's occlusion is blended with last frame's at the same
-// world point, so half-resolution depth sampling no longer shimmers while the camera moves. History is
-// rejected where the reprojected depth disagrees (disocclusion) or falls off screen.
-PS_SIG(AoTemporalPS)
-{
-    float current = SAMPLE_SCENE(uv).r;
     float d = SAMPLE_AO(uv).r;
-    [branch] if (HistoryWeight <= 0.0 || d >= 0.99999)
+    [branch] if (d >= 0.99999)
         return float4(current, current, current, 1.0);
 
-    float z = ViewDistance(d);
-    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    float3 viewPos = float3(ndc * ProjScale * z, -z);
-    float4 world = mul(float4(viewPos, 1.0), CameraInvView);
-    float4 prevClip = mul(world, PrevViewProjection);
-    if (prevClip.w <= 0.001)
+    float4 viewPos = float4(ViewPosition(uv, d), 1.0);
+    float prevW = dot(viewPos, ViewToPreviousClipW);
+    if (prevW <= 0.001)
         return float4(current, current, current, 1.0);
 
-    float2 prevUv = prevClip.xy / prevClip.w * float2(0.5, -0.5) + 0.5;
+    float2 prevClipXY = float2(dot(viewPos, ViewToPreviousClipX), dot(viewPos, ViewToPreviousClipY));
+    float2 prevUv = prevClipXY / prevW * float2(0.5, -0.5) + 0.5;
     if (any(prevUv < 0.0) || any(prevUv > 1.0))
         return float4(current, current, current, 1.0);
 
     float prevDist = ViewDistance(SAMPLE_HISTORY_DEPTH(prevUv).r);
-    float expected = prevClip.w;
+    float expected = prevW;
     float agree = saturate(1.0 - abs(prevDist - expected) / (expected * 0.03 + 4.0));
 
     float history = SAMPLE_BLOOM(prevUv).r;
@@ -180,7 +180,7 @@ PS_SIG(SsaoPS)
     if (d >= 0.99999)
         return float4(1.0, 1.0, 1.0, 1.0); // sky / nothing drawn
 
-    float3 p = ViewPosition(uv);
+    float3 p = ViewPosition(uv, d);
     // Normal from the neighbour on the same surface (smaller depth step) on each axis, so silhouettes do not
     // produce a different normal every time they move by a pixel.
     float3 pr = ViewPosition(uv + float2(TexelStep.x, 0.0));
@@ -195,7 +195,7 @@ PS_SIG(SsaoPS)
 
     float dist = -p.z;
     float2 radiusUv = AoProjRadius / dist * float2(1.0, ProjScale.x / ProjScale.y);
-    // Interleaved 4x4 rotation pattern (16 angles over one kernel step); AoBlur averages exactly one 4x4 block,
+    // Interleaved 4x4 rotation pattern (16 angles over one kernel step); the filter averages one 4x4 block,
     // so the pattern cancels out instead of shimmering like per-pixel random noise when the camera moves.
     float2 pix = floor(uv / TexelStep);
     float cell = fmod(pix.x, 4.0) * 4.0 + fmod(pix.y, 4.0);
@@ -231,5 +231,4 @@ technique Extract { pass P0 { PixelShader = compile BLOOM_PS ExtractPS(); } }
 technique Blur { pass P0 { PixelShader = compile BLOOM_PS BlurPS(); } }
 technique Combine { pass P0 { PixelShader = compile BLOOM_PS CombinePS(); } }
 technique Ssao { pass P0 { PixelShader = compile BLOOM_PS SsaoPS(); } }
-technique AoBlur { pass P0 { PixelShader = compile BLOOM_PS AoBlurPS(); } }
-technique AoTemporal { pass P0 { PixelShader = compile BLOOM_PS AoTemporalPS(); } }
+technique AoFilteredTemporal { pass P0 { PixelShader = compile BLOOM_PS AoFilteredTemporalPS(); } }

@@ -387,16 +387,38 @@ namespace Client.Main.Controls.Terrain
             }
         }
 
-        public void Draw()
+        private bool PrepareDraw()
         {
             if (_rebuildPending && _contentReady)
                 BuildAllGrass();
 
-            if (!Constants.DRAW_GRASS || IsGrassDisabledWorld(_worldIndex) ||
-                _graphicsDevice == null || _batches.Count == 0 || Camera.Instance == null)
+            return Constants.DRAW_GRASS && !IsGrassDisabledWorld(_worldIndex) &&
+                   _graphicsDevice != null && _batches.Count > 0 && Camera.Instance != null;
+        }
+
+        internal bool HasVisibleShadowReceivers()
+        {
+            if (IsSpecialBlendMap(_worldIndex) ||
+                GraphicsManager.Instance?.GrassShadowEffect is not { IsDisposed: false } ||
+                GraphicsManager.Instance.AlphaTestEffect3D == null || !PrepareDraw())
             {
-                return;
+                return false;
             }
+
+            BoundingFrustum frustum = Camera.Instance.Frustum;
+            for (int i = 0; i < _batches.Count; i++)
+            {
+                if (frustum.Contains(_batches[i].Bounds) != ContainmentType.Disjoint)
+                    return true;
+            }
+
+            return false;
+        }
+
+        public void Draw()
+        {
+            if (!PrepareDraw())
+                return;
 
             AlphaTestEffect alphaEffect = GraphicsManager.Instance?.AlphaTestEffect3D;
             if (alphaEffect == null)

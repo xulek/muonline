@@ -212,6 +212,7 @@ namespace Client.Main.Controls
 
         /// <summary>False for worlds that apply their own scene grade (menu scenes).</summary>
         protected virtual bool UsesWorldGlow => true;
+        internal bool WorldGlowEnabled => UsesWorldGlow && Constants.ENABLE_WORLD_BLOOM && Graphics.SceneBloom.IsAvailable;
 
         /// <summary>Glow and grade used for this world (gameplay preset; worlds may tune it in <see cref="ConfigureWorldGlow"/>).</summary>
         internal Graphics.SceneBloom WorldGlow
@@ -267,11 +268,10 @@ namespace Client.Main.Controls
         private Graphics.ScreenSpaceAO _ssao;
 
         /// <summary>Depth pre-pass + occlusion before the glow target is bound (applied in the glow's combine pass).</summary>
-        private void PrepareAmbientOcclusion()
+        private void PrepareAmbientOcclusion(Graphics.SceneBloom glow)
         {
-            Graphics.SceneBloom glow = WorldGlow;
             glow.AmbientOcclusion = null;
-            if (!Constants.ENABLE_SSAO || Constants.SSAO_STRENGTH <= 0f || !Constants.ENABLE_WORLD_BLOOM || !UsesWorldGlow)
+            if (!Constants.ENABLE_SSAO || Constants.SSAO_STRENGTH <= 0f)
                 return;
 
             int width, height;
@@ -308,13 +308,13 @@ namespace Client.Main.Controls
             if (_worldGlowActive)
                 EndWorldGlow(); // previous frame never reached the end (render failure)
 
-            if (_worldGlow != null)
-                ApplyWorldGrade(_worldGlow);
+            if (!WorldGlowEnabled)
+                return;
 
-            PrepareAmbientOcclusion();
-
-            _worldGlowActive = Constants.ENABLE_WORLD_BLOOM && UsesWorldGlow &&
-                               WorldGlow.Begin(GraphicsDevice, SceneClearColor);
+            var glow = WorldGlow;
+            ApplyWorldGrade(glow);
+            PrepareAmbientOcclusion(glow);
+            _worldGlowActive = glow.Begin(GraphicsDevice, SceneClearColor, Constants.MSAA_SAMPLES);
         }
 
         /// <summary>Writes the glowing, graded world back to the scene target. Overlays (damage numbers, names) follow.</summary>
@@ -1538,7 +1538,7 @@ namespace Client.Main.Controls
 
                     try
                     {
-                        ModelObject.EndGroundShadowBatch(GraphicsDevice);
+                        ModelObject.EndGroundShadowBatch(GraphicsDevice, Terrain);
                     }
                     catch (Exception ex)
                     {

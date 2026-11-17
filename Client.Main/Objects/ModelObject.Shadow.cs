@@ -5,6 +5,7 @@ using Client.Main.Core.Utilities;
 using Client.Main.Graphics;
 using Client.Main.Models;
 using Client.Main.Objects.Player;
+using Client.Main.Objects.Wings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -226,13 +227,13 @@ namespace Client.Main.Objects
             s_blobShadowBatchIndexCount = 0;
         }
 
-        internal static void EndGroundShadowBatch(GraphicsDevice graphicsDevice)
+        internal static void EndGroundShadowBatch(GraphicsDevice graphicsDevice, TerrainControl terrain)
         {
             s_blobShadowBatchActive = false;
             var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
-            DrawGroundShadowMask(graphicsDevice);
             try
             {
+                DrawGroundShadowMask(graphicsDevice, terrain);
                 FlushBlobShadowBatch(graphicsDevice);
             }
             finally
@@ -246,10 +247,11 @@ namespace Client.Main.Objects
         /// The queued ground shadows once more, seen from above into <see cref="GroundShadowMask"/>, for the grass
         /// drawn after this pass. Skipped when there is no grass or no shadow.
         /// </summary>
-        private static void DrawGroundShadowMask(GraphicsDevice graphicsDevice)
+        private static void DrawGroundShadowMask(GraphicsDevice graphicsDevice, TerrainControl terrain)
         {
             if (!Constants.DRAW_GRASS || !GroundShadowMask.Enabled || graphicsDevice == null || Camera.Instance == null ||
-                (s_blobShadowBatchIndexCount == 0 && s_projectedShadowDraws.Count == 0))
+                (s_blobShadowBatchIndexCount == 0 && s_projectedShadowDraws.Count == 0) ||
+                terrain?.HasVisibleGrassShadowReceivers() != true)
                 return;
 
             if (!GroundShadowMask.Begin(graphicsDevice, Camera.Instance.Target, out Matrix maskViewProjection))
@@ -636,6 +638,7 @@ namespace Client.Main.Objects
         /// the main pass shows as solid may occlude (no additive meshes, faded or hidden objects).
         /// </summary>
         internal static bool AmbientOcclusionDepthPass;
+        private const float FullAmbientOcclusionActorDistance = 16f * Constants.TERRAIN_SCALE;
 
         /// <summary>Whether this object's own meshes belong in the SSAO depth (see <see cref="AmbientOcclusionDepthPass"/>).</summary>
         internal bool OccludesForAmbientOcclusion()
@@ -776,6 +779,14 @@ namespace Client.Main.Objects
             // Recursively draw shadow casters for all children (armor, weapons, helm, etc.).
             var children = Children.GetSnapshotArray();
             bool skipSmallParts = Constants.SHADOW_SKIP_SMALL_PARTS;
+            bool skipAmbientOcclusionAccessories = false;
+            if (children.Length > 0 && AmbientOcclusionDepthPass && this is WalkerObject { IsMainWalker: false })
+            {
+                Vector3 offset = WorldPosition.Translation - Camera.Instance.Target;
+                skipAmbientOcclusionAccessories = offset.X * offset.X + offset.Y * offset.Y >
+                    FullAmbientOcclusionActorDistance * FullAmbientOcclusionActorDistance;
+            }
+
             for (int i = 0; i < children.Length; i++)
             {
                 var child = children[i];
@@ -785,6 +796,9 @@ namespace Client.Main.Objects
                     modelChild.RenderShadow)
                 {
                     if (skipSmallParts && IsSmallShadowPart(modelChild))
+                        continue;
+                    // Keep contact depth from the body and boots. Only accessories lose detail at a distance.
+                    if (skipAmbientOcclusionAccessories && modelChild is WeaponObject or WingObject)
                         continue;
 
                     drawnMeshCount += modelChild.DrawShadowCaster(shadowEffect, lightViewProjection);

@@ -14,17 +14,17 @@ namespace Client.Main.Graphics
     /// Half-resolution screen-space ambient occlusion for gameplay worlds.
     /// The scene has no readable depth buffer, so a depth pre-pass draws terrain and the nearby visible objects
     /// from the camera with the shadow-caster techniques (DynamicLighting.fx ShadowCaster*, static map objects
-    /// through the shadow instancing batches). SceneBloom.fx "Ssao" turns that depth into occlusion, "Blur"
-    /// softens it, and the SceneBloom combine pass multiplies the scene by it.
+    /// through the shadow instancing batches). SceneBloom.fx "Ssao" turns that depth into occlusion,
+    /// "AoFilteredTemporal" filters it, and the SceneBloom combine pass multiplies the scene by it.
     /// </summary>
     internal sealed class ScreenSpaceAO : IDisposable
     {
         private const float CasterDistance = 3200f;
 
+        private readonly List<ModelObject> _instancedCasters = new();
         private RenderTarget2D? _depth;
         private RenderTarget2D? _prevDepth;
         private RenderTarget2D? _ao;
-        private RenderTarget2D? _aoBlur;
         private RenderTarget2D? _history;
         private RenderTarget2D? _historyNext;
         private Matrix _prevViewProjection;
@@ -58,7 +58,9 @@ namespace Client.Main.Graphics
                 return false;
 
             EffectTechnique? casterTechnique = lighting.Techniques["ShadowCaster"];
-            if (casterTechnique == null || post.Techniques["Ssao"] == null)
+            EffectTechnique? aoTechnique = post.Techniques["Ssao"];
+            EffectTechnique? temporalTechnique = post.Techniques["AoFilteredTemporal"];
+            if (casterTechnique == null || aoTechnique == null || temporalTechnique == null)
                 return false;
 
             int width = Math.Max(16, sceneWidth / 2);
@@ -102,13 +104,13 @@ namespace Client.Main.Graphics
                     ModelObject.AmbientOcclusionDepthPass = false;
                 }
 
-                // --- occlusion + blur at half size ---
+                // --- occlusion at half size ---
                 SpriteBatchScope.ForceReset();
                 SpriteBatch sprite = GraphicsManager.Instance!.Sprite;
                 Matrix projection = camera.Projection;
 
                 device.SetRenderTarget(_ao);
-                post.CurrentTechnique = post.Techniques["Ssao"];
+                post.CurrentTechnique = aoTechnique;
                 post.Parameters["TexelStep"]?.SetValue(new Vector2(1f / width, 1f / height));
                 post.Parameters["ProjScale"]?.SetValue(new Vector2(1f / projection.M11, 1f / projection.M22));
                 post.Parameters["ProjDepth"]?.SetValue(new Vector2(projection.M33, projection.M43));
@@ -119,22 +121,29 @@ namespace Client.Main.Graphics
                 sprite.Draw(_depth, new Rectangle(0, 0, width, height), Color.White);
                 sprite.End();
 
-                Blur(device, sprite, post, _ao!, _aoBlur!, new Vector2(1f / width, 0f));
-                Blur(device, sprite, post, _aoBlur!, _ao!, new Vector2(0f, 1f / height));
-
-                // Temporal accumulation (blurred AO in _ao) into the next history target.
+                // Filter raw AO and reproject the history in one pass.
                 device.SetRenderTarget(_historyNext);
-                post.CurrentTechnique = post.Techniques["AoTemporal"];
+                post.CurrentTechnique = temporalTechnique;
                 post.Parameters["HistoryWeight"]?.SetValue(historyUsable ? HistoryWeight : 0f);
-                post.Parameters["CameraInvView"]?.SetValue(Matrix.Invert(camera.View));
-                post.Parameters["PrevViewProjection"]?.SetValue(_prevViewProjection);
+                if (historyUsable)
+                {
+                    Matrix viewToPreviousClip = Matrix.Invert(camera.View) * _prevViewProjection;
+                    // Only the columns read by the shader are uploaded. This also keeps the
+                    // ps_3_0 uniform registers consecutive when the OpenGL shader is translated.
+                    post.Parameters["ViewToPreviousClipX"]?.SetValue(new Vector4(
+                        viewToPreviousClip.M11, viewToPreviousClip.M21, viewToPreviousClip.M31, viewToPreviousClip.M41));
+                    post.Parameters["ViewToPreviousClipY"]?.SetValue(new Vector4(
+                        viewToPreviousClip.M12, viewToPreviousClip.M22, viewToPreviousClip.M32, viewToPreviousClip.M42));
+                    post.Parameters["ViewToPreviousClipW"]?.SetValue(new Vector4(
+                        viewToPreviousClip.M14, viewToPreviousClip.M24, viewToPreviousClip.M34, viewToPreviousClip.M44));
+                }
                 SetTexture(post, "BloomTexture", "BloomSampler", _history);
                 SetTexture(post, "AoTexture", "AoSampler", _depth);
                 SetTexture(post, "HistoryDepthTexture", "HistoryDepthSampler", _prevDepth);
                 device.SamplerStates[1] = SamplerState.LinearClamp;
                 device.SamplerStates[2] = SamplerState.PointClamp;
                 device.SamplerStates[3] = SamplerState.PointClamp;
-                sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, post);
+                sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, post);
                 sprite.Draw(_ao, new Rectangle(0, 0, width, height), Color.White);
                 sprite.End();
                 SetTexture(post, "BloomTexture", "BloomSampler", null);
@@ -170,63 +179,52 @@ namespace Client.Main.Graphics
             parameter?.SetValue(texture);
         }
 
-        private static void Blur(GraphicsDevice device, SpriteBatch sprite, Effect post, RenderTarget2D source, RenderTarget2D destination, Vector2 step)
+        private void DrawCasters(WorldControl world, Effect lighting, Matrix viewProjection, Vector3 focus)
         {
-            device.SetRenderTarget(destination);
-            post.CurrentTechnique = post.Techniques["AoBlur"] ?? post.Techniques["Blur"];
-            post.Parameters["TexelStep"]?.SetValue(step);
-            sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, post);
-            sprite.Draw(source, new Rectangle(0, 0, destination.Width, destination.Height), Color.White);
-            sprite.End();
-        }
-
-        private static void DrawCasters(WorldControl world, Effect lighting, Matrix viewProjection, Vector3 focus)
-        {
-            if (world.Terrain == null)
+            var terrain = world.Terrain;
+            if (terrain == null)
                 return;
 
             var objects = world.VisibleObjects;
             float maxDistSq = CasterDistance * CasterDistance;
-            bool queuedInstances = false;
 
-            for (int i = 0; i < objects.Count; i++)
+            try
             {
-                if (objects[i] is not ModelObject model || model.Status != GameControlStatus.Ready || !model.Visible || model.Hidden)
-                    continue;
-
-                Vector3 p = model.WorldPosition.Translation;
-                float dx = p.X - focus.X;
-                float dy = p.Y - focus.Y;
-                if (dx * dx + dy * dy > maxDistSq)
-                    continue;
-
-                // Leftover map placements buried under the ground must not darken the terrain above them.
-                BoundingBox bounds = model.BoundingBoxWorld;
-                Vector3 center = (bounds.Min + bounds.Max) * 0.5f;
-                if (bounds.Max.Z < world.Terrain.RequestTerrainHeight(center.X, center.Y) - 5f)
-                    continue;
-
-                bool queued = false;
-                try
+                for (int i = 0; i < objects.Count; i++)
                 {
-                    queued = ModelObject.TryQueueStaticMapShadowCaster(model);
-                }
-                catch
-                {
-                    // Fall back to the per-object caster path.
+                    if (objects[i] is not ModelObject model || model.Status != GameControlStatus.Ready || !model.Visible || model.Hidden)
+                        continue;
+
+                    Vector3 p = model.WorldPosition.Translation;
+                    float dx = p.X - focus.X;
+                    float dy = p.Y - focus.Y;
+                    if (dx * dx + dy * dy > maxDistSq)
+                        continue;
+
+                    // Leftover map placements buried under the ground must not darken the terrain above them.
+                    BoundingBox bounds = model.BoundingBoxWorld;
+                    Vector3 center = (bounds.Min + bounds.Max) * 0.5f;
+                    if (bounds.Max.Z < terrain.RequestTerrainHeight(center.X, center.Y) - 5f)
+                        continue;
+
+                    if (ModelObject.TryQueueStaticMapShadowCaster(model))
+                        _instancedCasters.Add(model);
+                    else
+                        model.DrawShadowCaster(lighting, viewProjection);
                 }
 
-                if (queued)
+                if (_instancedCasters.Count > 0 &&
+                    !ModelObject.FlushStaticMapShadowInstancingBatches(lighting, viewProjection, world))
                 {
-                    queuedInstances = true;
-                    continue;
+                    foreach (var model in _instancedCasters)
+                        model.DrawShadowCaster(lighting, viewProjection);
                 }
-
-                model.DrawShadowCaster(lighting, viewProjection);
             }
-
-            if (queuedInstances)
-                ModelObject.FlushStaticMapShadowInstancingBatches(lighting, viewProjection, world);
+            finally
+            {
+                ModelObject.ClearStaticMapShadowInstancingQueues();
+                _instancedCasters.Clear();
+            }
         }
 
         private void EnsureTargets(GraphicsDevice device, int width, int height)
@@ -238,7 +236,6 @@ namespace Client.Main.Graphics
             _depth = new RenderTarget2D(device, width, height, false, SurfaceFormat.Single, DepthFormat.Depth24, 0, RenderTargetUsage.DiscardContents);
             _prevDepth = new RenderTarget2D(device, width, height, false, SurfaceFormat.Single, DepthFormat.Depth24, 0, RenderTargetUsage.DiscardContents);
             _ao = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.None);
-            _aoBlur = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.None);
             _history = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.None);
             _historyNext = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.None);
             _historyValid = false;
@@ -249,10 +246,9 @@ namespace Client.Main.Graphics
             _depth?.Dispose();
             _prevDepth?.Dispose();
             _ao?.Dispose();
-            _aoBlur?.Dispose();
             _history?.Dispose();
             _historyNext?.Dispose();
-            _depth = _prevDepth = _ao = _aoBlur = _history = _historyNext = null;
+            _depth = _prevDepth = _ao = _history = _historyNext = null;
             _historyValid = false;
         }
 

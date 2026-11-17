@@ -426,9 +426,13 @@ namespace Client.Main.Objects
             {
                 return modelObject.TryQueueStaticMapShadowCaster();
             }
-            catch
+            catch (Exception ex)
             {
                 ClearStaticMapShadowInstancingQueues();
+                _staticMapShadowInstancingFailed = true;
+                MuGame.AppLoggerFactory?.CreateLogger<ModelObject>()?.LogWarning(
+                    ex,
+                    "Static map shadow instancing disabled after a queue failure.");
                 return false;
             }
         }
@@ -813,7 +817,7 @@ namespace Client.Main.Objects
             WorldControl world)
         {
             if (_staticMapShadowInstancingActiveBatches.Count == 0)
-                return true;
+                return !_staticMapShadowInstancingFailed;
 
             bool success = true;
             if (shadowEffect == null || !IsStaticMapShadowInstancingSupported())
@@ -1145,7 +1149,7 @@ namespace Client.Main.Objects
             _staticMapInstancingActiveBatches.Clear();
         }
 
-        private static void ClearStaticMapShadowInstancingQueues()
+        internal static void ClearStaticMapShadowInstancingQueues()
         {
             for (int i = 0; i < _staticMapShadowInstancingActiveBatches.Count; i++)
                 _staticMapShadowInstancingActiveBatches[i].ResetQueue();
@@ -1497,8 +1501,9 @@ namespace Client.Main.Objects
 
         private bool CanUseFullStaticMapShadowInstancing()
         {
+            // SSAO needs solid visible geometry even when it does not cast sunlight shadows.
             if (!IsStaticMapShadowInstancingSupported() ||
-                !RenderShadow ||
+                (AmbientOcclusionDepthPass ? !OccludesForAmbientOcclusion() : !RenderShadow) ||
                 Children.Count != 0 ||
                 !GetStaticMapTypeCompatibility().DefaultShadowCaster)
             {
@@ -1511,6 +1516,16 @@ namespace Client.Main.Objects
                 !EnsureStaticMapInstancingPlan())
             {
                 return false;
+            }
+
+            if (AmbientOcclusionDepthPass)
+            {
+                int opaqueMeshCount = 0;
+                foreach (var meshes in _opaqueMeshPlan.Values)
+                    opaqueMeshCount += meshes.Count;
+
+                if (_staticMapInstancingMeshPlanCount != opaqueMeshCount)
+                    return false;
             }
 
             return _staticMapInstancingOpaqueMeshCount > 0 &&

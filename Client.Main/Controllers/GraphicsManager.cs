@@ -306,7 +306,8 @@ namespace Client.Main.Controllers
             return SamplerState.LinearWrap;
         }
 
-        public void EnsureRenderTargets(bool requireTempTarget1, bool requireTempTarget2, bool requireRecoveryTarget = false)
+        public void EnsureRenderTargets(bool requireTempTarget1, bool requireTempTarget2, bool requireRecoveryTarget = false,
+            bool worldGlowHandlesMsaa = false)
         {
             PresentationParameters pp = _graphicsDevice.PresentationParameters;
             int backBufferWidth = Math.Max(1, pp.BackBufferWidth);
@@ -314,7 +315,10 @@ namespace Client.Main.Controllers
             int targetWidth = Math.Max(1, (int)MathF.Round(backBufferWidth * Constants.RENDER_SCALE));
             int targetHeight = Math.Max(1, (int)MathF.Round(backBufferHeight * Constants.RENDER_SCALE));
             SurfaceFormat renderTargetFormat = Constants.MSAA_ENABLED ? SurfaceFormat.Color : pp.BackBufferFormat;
-            int sampleCount = Constants.MSAA_ENABLED ? Constants.MSAA_SAMPLES : 0;
+            // World glow resolves its own geometry target before writing the colour image here.
+            bool glowCanRender = worldGlowHandlesMsaa && targetWidth >= SceneBloom.MinimumSceneDimension &&
+                                 targetHeight >= SceneBloom.MinimumSceneDimension;
+            int sampleCount = Constants.MSAA_ENABLED && !glowCanRender ? Constants.MSAA_SAMPLES : 0;
 
             bool recreateMain = !IsTargetValid(MainRenderTarget, targetWidth, targetHeight) ||
                                 (requireRecoveryTarget && !IsTargetValid(RecoveryRenderTarget, targetWidth, targetHeight)) ||

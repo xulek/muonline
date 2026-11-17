@@ -512,6 +512,9 @@ namespace Client.Main.Controls.Terrain
             return SupportsProceduralTerrainUv(GraphicsManager.Instance.DynamicLightingEffect);
         }
 
+        internal bool HasVisibleGrassShadowReceivers() =>
+            !IsAnimatedWaterWorld && _grassRenderer.HasVisibleShadowReceivers();
+
         /// <summary>
         /// Grass pass, drawn after the opaque objects and their ground shadows (WorldControl) so that shadows lie
         /// on the grass. The original Atlans terrain pass does not render standard grass.

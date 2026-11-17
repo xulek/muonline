@@ -871,7 +871,8 @@ namespace Client.Main
                     GraphicsManager.Instance.EnsureRenderTargets(
                         requireTempTarget1: postProcessPasses >= 1,
                         requireTempTarget2: postProcessPasses >= 2,
-                        requireRecoveryTarget: gameSceneRecovery);
+                        requireRecoveryTarget: gameSceneRecovery,
+                        worldGlowHandlesMsaa: ActiveScene?.World?.WorldGlowEnabled == true);
                     EnsureInterfaceTarget();
 
                     // The interface is held back and drawn after post-processing at the window's resolution.

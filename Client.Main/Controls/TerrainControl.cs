@@ -310,6 +310,9 @@ namespace Client.Main.Controls
             base.Draw(time);
         }
 
+        internal bool HasVisibleGrassShadowReceivers() =>
+            Visible && Status == Models.GameControlStatus.Ready && _renderer?.HasVisibleGrassShadowReceivers() == true;
+
         /// <summary>Grass on top of the ground shadows; see <see cref="TerrainRenderer.DrawGrassAfterShadows"/>.</summary>
         internal void DrawGrassAfterShadows()
         {

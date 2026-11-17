@@ -13,10 +13,14 @@ namespace Client.Main.Graphics
     /// </summary>
     internal sealed class SceneBloom : IDisposable
     {
+        internal const int MinimumSceneDimension = 16;
+        internal static bool IsAvailable => GraphicsManager.Instance?.SceneBloomEffect is { IsDisposed: false };
+
         private RenderTarget2D _scene;
         private RenderTarget2D _half;
         private RenderTarget2D _quarterA;
         private RenderTarget2D _quarterB;
+        private int _requestedSampleCount;
         private RenderTargetBinding[] _previousTargets;
         private Viewport _previousViewport;
         private bool _active;
@@ -37,10 +41,10 @@ namespace Client.Main.Graphics
         public float AmbientOcclusionStrength { get; set; }
 
         /// <summary>Redirects drawing into the private target (cleared to <paramref name="clearColor"/>).</summary>
-        public bool Begin(GraphicsDevice device, Color clearColor)
+        public bool Begin(GraphicsDevice device, Color clearColor, int? geometrySamples = null)
         {
             _active = false;
-            if (device == null || GraphicsManager.Instance?.SceneBloomEffect == null)
+            if (device == null || !IsAvailable)
                 return false;
 
             _previousTargets = device.GetRenderTargets();
@@ -60,10 +64,10 @@ namespace Client.Main.Graphics
                 samples = device.PresentationParameters.MultiSampleCount;
             }
 
-            if (width < 16 || height < 16)
+            if (width < MinimumSceneDimension || height < MinimumSceneDimension)
                 return false;
 
-            EnsureTargets(device, width, height, samples);
+            EnsureTargets(device, width, height, geometrySamples ?? samples);
             device.SetRenderTarget(_scene);
             device.Clear(clearColor);
             _active = true;
@@ -143,7 +147,8 @@ namespace Client.Main.Graphics
 
         private void EnsureTargets(GraphicsDevice device, int width, int height, int samples)
         {
-            if (_scene != null && !_scene.IsDisposed && _scene.Width == width && _scene.Height == height && _scene.MultiSampleCount == samples)
+            if (_scene != null && !_scene.IsDisposed && _scene.Width == width && _scene.Height == height &&
+                _requestedSampleCount == samples)
                 return;
 
             DisposeTargets();
@@ -153,6 +158,7 @@ namespace Client.Main.Graphics
             _half = new RenderTarget2D(device, Math.Max(1, width / 2), Math.Max(1, height / 2), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterA = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterB = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);
+            _requestedSampleCount = samples;
         }
 
         private void DisposeTargets()
