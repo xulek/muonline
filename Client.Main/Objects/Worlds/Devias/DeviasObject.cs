@@ -62,6 +62,7 @@ namespace Client.Main.Objects.Worlds.Devias
         private Texture2D? _lightningTexture;
         private SpriteBatch? _spriteBatch;
         private int _particleCount;
+        private MapObjectGlowLight? _fireLight;
 
         private enum ParticleKind
         {
@@ -105,6 +106,14 @@ namespace Client.Main.Objects.Worlds.Devias
             _smokeTexture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/smoke01.jpg");
             _lightningTexture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/lightning2.jpg");
             _spriteBatch = GraphicsManager.Instance.Sprite;
+
+            // Type 66 is CreateFire(0) (AddTerrainLight range 4); type 30 is a BITMAP_TRUE_FIRE
+            // brazier which the source leaves unlit - it gets a slightly redder fire light here.
+            if (_owner.Type == 30 || _owner.Type == 66)
+            {
+                _fireLight = new MapObjectGlowLight(this, Constants.TERRAIN_SCALE * 4f);
+                _fireLight.Register();
+            }
         }
 
         public override void Update(GameTime gameTime)
@@ -120,6 +129,31 @@ namespace Client.Main.Objects.Worlds.Devias
             float frameFactor = FPSCounter.Instance.FPS_ANIMATION_FACTOR;
             UpdateParticles(frameFactor);
             EmitSourceParticles();
+            UpdateFireLight(gameTime);
+        }
+
+        private void UpdateFireLight(GameTime gameTime)
+        {
+            if (_fireLight == null)
+                return;
+
+            if (!_fireLight.IsPositioned)
+            {
+                Vector3 offset = _owner.Type == 30
+                    ? new Vector3(0f, 0f, 160f)
+                    : Vector3.TransformNormal(
+                        new Vector3(0f, 0f, 50f),
+                        Matrix.CreateFromQuaternion(MathUtils.AngleQuaternion(_owner.Angle)));
+                _fireLight.SetPosition(_owner.Position + offset);
+            }
+
+            if (!_fireLight.Step(gameTime))
+                return;
+
+            float luminosity = MuGame.Random.Next(6, 12) * 0.1f;
+            _fireLight.SetColor(_owner.Type == 30
+                ? new Vector3(luminosity, luminosity * 0.5f, luminosity * 0.25f)
+                : new Vector3(luminosity, luminosity * 0.6f, luminosity * 0.4f));
         }
 
         public override void Draw(GameTime gameTime)

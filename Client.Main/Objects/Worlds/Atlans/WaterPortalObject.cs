@@ -26,6 +26,18 @@ namespace Client.Main.Objects.Worlds.Atlans
         private int[] _waterMeshIndices = Array.Empty<int>();
         private int _currentWaterFrame = -1;
 
+        // Unlit in the source; a cyan light follows the vortex pulse (placed at the portal centre).
+        private readonly MapObjectGlowLight _glowLight;
+        private readonly AtlansWaterPortalFx _fx;
+        private bool _lightPlaced;
+
+        public WaterPortalObject()
+        {
+            _glowLight = new MapObjectGlowLight(this, Constants.TERRAIN_SCALE * 4f, 0.85f);
+            _fx = new AtlansWaterPortalFx(this);
+            Children.Add(_fx);
+        }
+
         protected override bool AllowDynamicLightingShader => false;
         protected override bool AllowMapObjectInstancing => false;
         protected override bool RequiresPerFrameAnimation => true;
@@ -37,14 +49,14 @@ namespace Client.Main.Objects.Worlds.Atlans
             Model = await BMDLoader.Instance.Prepare("Object8/Object24.bmd");
             ResolveWaterMeshes();
 
-            // Keep possible structural meshes in the opaque pass. The water material is
-            // routed independently to DrawAfter with exact MU-style One + One blending.
+            // Object24 is a single additive water mesh. Draw it (and the vortex layers) in the depth-sorted
+            // transparent pass, so alpha-blended objects behind the portal no longer paint over it.
             BlendState = BlendState.Opaque;
             BlendMesh = -1;
             BlendMeshState = Blendings.OneOneAdditive;
             BlendMeshLight = 0.5f;
             LightEnabled = true;
-            IsTransparent = false;
+            IsTransparent = true;
             RenderShadow = false;
             Color = Color.White;
 
@@ -56,6 +68,9 @@ namespace Client.Main.Objects.Worlds.Atlans
 
             CacheWaterFramesFromTerrain();
             ApplyWaterFrame(0);
+
+            _glowLight.SetPosition(WorldPosition.Translation + new Vector3(0f, 0f, 100f));
+            _glowLight.Register();
         }
 
         protected override bool IsBlendMesh(int mesh)
@@ -74,7 +89,20 @@ namespace Client.Main.Objects.Worlds.Atlans
             if (Status == GameControlStatus.Ready)
             {
                 float worldTimeMilliseconds = (float)gameTime.TotalGameTime.TotalMilliseconds;
-                BlendMeshLight = MathF.Sin(worldTimeMilliseconds * 0.004f) * 0.3f + 0.5f;
+                // Slow, shallow breathing (~5 s period, 0.3..0.6) instead of the fast 0.2..0.8 pulse.
+                BlendMeshLight = MathF.Sin(worldTimeMilliseconds * 0.0012f) * 0.15f + 0.45f;
+                if (!_lightPlaced && _fx.TryGetCenter(out Vector3 center))
+                {
+                    _glowLight.SetPosition(center + new Vector3(0f, 0f, 60f));
+                    _lightPlaced = true;
+                }
+
+                if (_glowLight.Step(gameTime))
+                {
+                    float t = (float)gameTime.TotalGameTime.TotalSeconds;
+                    float glow = 0.8f + 0.12f * MathF.Sin(t * 1.2f);
+                    _glowLight.SetColor(new Vector3(0.25f * glow, 0.75f * glow, glow));
+                }
 
                 int frame = (int)(gameTime.TotalGameTime.TotalSeconds * WaterFramesPerSecond)
                     % WaterFrameCount;

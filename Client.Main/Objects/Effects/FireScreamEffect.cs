@@ -86,6 +86,10 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _blurTexture;
         private Texture2D? _jointTexture;
 
+        // Dynamic light (slot 0: travelling fire wave, centre pair).
+        private static readonly Vector3 FireLightColor = new(1f, 0.45f, 0.18f);
+        private float _lightAge;
+
         public FireScreamEffect(WalkerObject caster)
             : base(caster, triggerFrame: 5f, triggerTimeoutSeconds: 14f * 0.04f, maxQuads: 192 + PairCount * 200 * 2 + 8)
         {
@@ -229,6 +233,24 @@ namespace Client.Main.Objects.Effects
                 if (p.Scale <= 0f) { p.Live = false; continue; }
                 p.Light *= MathF.Pow(1f / 1.007f, factor);
             }
+
+            UpdateLight(factor);
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightAge += factor;
+            // Follows the centre MODEL_DARK_SCREAM_FIRE (19 ticks), then lingers over the flame trail.
+            ref ScreamModel m = ref _models[1];
+            float k = EffectLights.Envelope(_lightAge, 28f, 2f, 12f);
+            if (k <= 0f)
+            {
+                Lights.Hide(0);
+                return;
+            }
+
+            Vector3 position = m.Position + new Vector3(0f, 0f, 60f);
+            Lights.Set(0, position, FireLightColor, 300f, 1.3f * k * EffectLights.Flicker(_lightAge * 0.04f, 1.1f, 0.2f));
         }
 
         private void SpawnFlame(Vector3 position, Vector3 angle, float scale)

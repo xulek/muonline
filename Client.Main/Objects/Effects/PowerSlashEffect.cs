@@ -26,6 +26,7 @@ namespace Client.Main.Objects.Effects
         private const int SkillId = 56;
         private const int WaveCount = 5;
         private const float StageTimeoutSeconds = 14f * 0.04f;
+        private static readonly Vector3 SlashGlow = new(0.3f, 0.6f, 1f);
 
         private struct Smoke
         {
@@ -104,6 +105,11 @@ namespace Client.Main.Objects.Effects
             }
 
             MoveSmokes(factor);
+
+            // Dynamic lights riding two of the five fanned waves.
+            float slashGlow = 1.1f * EffectLights.Envelope(20f - _lifeTime, 20f, 2f, 6f);
+            Lights.Set(0, _positions[1] + new Vector3(0f, 0f, 60f), SlashGlow, 280f, slashGlow);
+            Lights.Set(1, _positions[3] + new Vector3(0f, 0f, 60f), SlashGlow, 280f, slashGlow);
         }
 
         private void Release()

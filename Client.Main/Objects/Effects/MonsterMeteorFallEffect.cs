@@ -19,11 +19,19 @@ namespace Client.Main.Objects.Effects
         private readonly MeteorPiece[] _meteors;
         private float _life = LifetimeSeconds;
 
+        private const float ImpactFlashSeconds = 0.35f;
+        private static readonly Vector3 MeteorLightColor = new(1f, 0.5f, 0.2f);
+        private readonly EffectLights _lights;
+        private float _impactAge = ImpactFlashSeconds;
+        private Vector3 _impactPosition;
+        private bool _finished;
+
         public MonsterMeteorFallEffect(ModelObject owner, int meteorCount)
         {
             _owner = owner;
             Position = owner.Position;
             _meteors = new MeteorPiece[meteorCount];
+            _lights = new EffectLights(this, 2);
             IsTransparent = true;
             AffectedByTransparency = true;
 
@@ -66,8 +74,22 @@ namespace Client.Main.Objects.Effects
 
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
             _life -= dt;
+            _impactAge += dt;
+
+            if (_finished)
+            {
+                // Meteors are gone; only let the last impact flash die out.
+                if (!UpdateImpactLight())
+                {
+                    World?.RemoveObject(this);
+                    Dispose();
+                }
+                return;
+            }
 
             bool anyAlive = false;
+            Vector3 centroid = Vector3.Zero;
+            int aliveCount = 0;
             foreach (var meteor in _meteors)
             {
                 if (meteor == null || meteor.Dead)
@@ -89,17 +111,61 @@ namespace Client.Main.Objects.Effects
                 {
                     meteor.Dead = true;
                     meteor.Hidden = true;
+                    _impactAge = 0f;
+                    _impactPosition = meteor.Position + Vector3.UnitZ * 50f;
                     continue;
                 }
 
                 anyAlive = true;
+                centroid += meteor.Position;
+                aliveCount++;
             }
 
             if (_life <= 0f || !anyAlive)
             {
+                _lights.Hide(0);
+                for (int i = 0; i < _meteors.Length; i++)
+                    if (_meteors[i] != null)
+                        _meteors[i].Hidden = true;
+
+                if (UpdateImpactLight())
+                {
+                    _finished = true;
+                    return;
+                }
+
                 World?.RemoveObject(this);
                 Dispose();
+                return;
             }
+
+            // Slot 0: fiery glow under the falling meteors (Z clamped so it reaches the ground).
+            centroid /= aliveCount;
+            centroid.Z = MathF.Min(centroid.Z, _owner.Position.Z + 250f);
+            float glow = 1.0f * EffectLights.Envelope(LifetimeSeconds - _life, LifetimeSeconds, 0.15f, 0.35f);
+            _lights.Set(0, centroid, MeteorLightColor, 320f, glow);
+            UpdateImpactLight();
+        }
+
+        /// <summary>Slot 1: short flash on the latest ground impact; false once dark.</summary>
+        private bool UpdateImpactLight()
+        {
+            if (_impactAge >= ImpactFlashSeconds)
+            {
+                _lights.Hide(1);
+                return false;
+            }
+
+            float k = _impactAge / ImpactFlashSeconds;
+            _lights.Set(1, _impactPosition, MeteorLightColor, MathHelper.Lerp(300f, 200f, k),
+                1.2f * EffectLights.Flash(_impactAge, ImpactFlashSeconds));
+            return true;
+        }
+
+        public override void Dispose()
+        {
+            _lights.Dispose();
+            base.Dispose();
         }
 
         private sealed class MeteorPiece : ModelObject

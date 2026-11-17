@@ -38,6 +38,8 @@ namespace Client.Main.Objects.Effects
         private readonly Particle[] _particles = new Particle[96];
         private Texture2D? _sparkTexture;
         private float _lifeTime = 10f;
+        private static readonly Vector3 SparkColor = new(0.8f, 0.85f, 1f);
+        private float _age;
 
         public TeleportSparkEffect(WalkerObject owner, Vector3 position, bool playSound)
             : base(owner, 0f, 0f, 128)
@@ -71,6 +73,11 @@ namespace Client.Main.Objects.Effects
 
         protected override void OnTick(float factor)
         {
+            // Short flickering flash on the spark column (10 frames).
+            _age += factor;
+            Lights.Set(0, _position + Vector3.UnitZ * 100f, SparkColor, 220f,
+                1.2f * EffectLights.Envelope(_age, 12f, 1f, 7f) * EffectLights.Flicker(_age * 0.04f, 7.7f, 0.3f));
+
             if (_lifeTime > 0f)
             {
                 float light = _lifeTime * 0.1f;

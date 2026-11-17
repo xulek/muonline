@@ -13,6 +13,14 @@ namespace Client.Main.Objects.Worlds.Atlans
         // SourceMain sets Velocity to 0.05 on a 25 Hz update loop.
         private const float PortalAnimationFramesPerSecond = 0.05f * 25f;
 
+        // Sprite/blend-mesh glow only in the source; a soft cyan light follows the blend pulse.
+        private readonly MapObjectGlowLight _glowLight;
+
+        public PortalObject()
+        {
+            _glowLight = new MapObjectGlowLight(this, Constants.TERRAIN_SCALE * 3f, 0.8f);
+        }
+
         protected override bool AllowMapObjectInstancing => false;
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool PreserveBlendMeshesInLowQuality => true;
@@ -35,6 +43,9 @@ namespace Client.Main.Objects.Worlds.Atlans
             ContinuousAnimation = true;
 
             await base.Load();
+
+            _glowLight.SetPosition(WorldPosition.Translation + new Vector3(0f, 0f, 100f));
+            _glowLight.Register();
         }
 
         public override void Update(GameTime gameTime)
@@ -43,6 +54,11 @@ namespace Client.Main.Objects.Worlds.Atlans
             {
                 float worldTimeMilliseconds = (float)gameTime.TotalGameTime.TotalMilliseconds;
                 BlendMeshLight = MathF.Sin(worldTimeMilliseconds * 0.004f) * 0.3f + 0.5f;
+                if (_glowLight.Step(gameTime))
+                {
+                    float glow = 0.4f + BlendMeshLight * 0.6f;
+                    _glowLight.SetColor(new Vector3(glow * 0.3f, glow * 0.65f, glow));
+                }
             }
 
             base.Update(gameTime);

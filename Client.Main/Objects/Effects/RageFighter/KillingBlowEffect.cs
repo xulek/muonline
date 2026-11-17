@@ -81,6 +81,11 @@ namespace Client.Main.Objects.Effects.RageFighter
         private float _sbumbLife = 20f;
         private int _lastSoundMark = -1;
         private int _liveCount;
+        private static readonly Vector3 FistGlow = new(1f, 0.9f, 0.75f);
+        private static readonly Vector3 HitGlow = new(1f, 0.85f, 0.6f);
+        private float _fistGlow;
+        private float _hitGlow;
+        private Vector3 _hitPosition;
 
         public KillingBlowEffect(WalkerObject caster, ushort targetId)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
@@ -132,6 +137,24 @@ namespace Client.Main.Objects.Effects.RageFighter
             TickPins(factor);
             TickSbumb(factor);
             TickBursts(factor);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // Slot 0: wolf head glow on the fist.
+            _fistGlow = _headLife > 0f ? System.MathF.Min(1f, _fistGlow + 0.35f * factor) : System.MathF.Max(0f, _fistGlow - 0.25f * factor);
+            if (_fistGlow > 0f)
+                Lights.Set(0, _headPosition, FistGlow, 190f, 0.9f * _fistGlow);
+            else
+                Lights.Hide(0);
+
+            // Slot 1: pulses at the target on each sbumb burst.
+            _hitGlow = System.MathF.Max(0f, _hitGlow - 0.2f * factor);
+            if (_hitGlow > 0f)
+                Lights.Set(1, _hitPosition, HitGlow, 280f, 1.6f * _hitGlow * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 1.9f, 0.2f));
+            else
+                Lights.Hide(1);
         }
 
         private void TickHead(float factor)
@@ -309,6 +332,8 @@ namespace Client.Main.Objects.Effects.RageFighter
                 burst.Scale = scale;
                 burst.LifeTime = 4f;
                 _liveCount++;
+                _hitGlow = 1f;
+                _hitPosition = position;
                 return;
             }
         }
@@ -330,7 +355,7 @@ namespace Client.Main.Objects.Effects.RageFighter
             }
         }
 
-        protected override bool HasActiveContent() => _headLife > 0f || _sbumbLife > 0f || _liveCount > 0;
+        protected override bool HasActiveContent() => _headLife > 0f || _sbumbLife > 0f || _liveCount > 0 || _fistGlow > 0f || _hitGlow > 0f;
 
         protected override void OnDraw()
         {

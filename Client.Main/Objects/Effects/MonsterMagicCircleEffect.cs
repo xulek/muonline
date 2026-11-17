@@ -19,10 +19,14 @@ namespace Client.Main.Objects.Effects
         private CirclePiece? _circle;
         private CirclePiece? _circleLight;
         private float _life = CircleLifetimeSeconds;
+        private float _groundZ;
+        private readonly EffectLights _lights;
 
         public MonsterMagicCircleEffect(Vector3 center)
         {
             Position = center;
+            _groundZ = center.Z;
+            _lights = new EffectLights(this, 1);
             IsTransparent = true;
             AffectedByTransparency = true;
 
@@ -44,6 +48,7 @@ namespace Client.Main.Objects.Effects
             float groundZ = World?.Terrain != null
                 ? World.Terrain.RequestTerrainHeight(Position.X, Position.Y)
                 : Position.Z;
+            _groundZ = groundZ;
 
             _circle = new CirclePiece(circleModel, CircleLifetimeSeconds)
             {
@@ -70,7 +75,18 @@ namespace Client.Main.Objects.Effects
             {
                 World?.RemoveObject(this);
                 Dispose();
+                return;
             }
+
+            // Warm glow under the circle, faded with the circle's own alpha curve.
+            float glow = 0.7f * EffectLights.Envelope(CircleLifetimeSeconds - _life, CircleLifetimeSeconds, 0.2f, CircleLifetimeSeconds - 0.2f);
+            _lights.Set(0, new Vector3(Position.X, Position.Y, _groundZ + 40f), new Vector3(1f, 0.55f, 0.3f), 300f, glow);
+        }
+
+        public override void Dispose()
+        {
+            _lights.Dispose();
+            base.Dispose();
         }
 
         private sealed class CirclePiece : ModelObject

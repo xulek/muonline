@@ -74,6 +74,9 @@ namespace Client.Main.Objects.Effects
         private float _forceLife;
         private int _fireCount;
         private int _afterimageCount;
+        private float _chargeGlow;
+        private static readonly Vector3 FireGlow = new(1f, 0.55f, 0.25f);
+        private static readonly Vector3 OccupyGlow = new(0.4f, 0.6f, 1f);
 
         public SwordForceRushEffect(WalkerObject caster, bool occupy)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
@@ -140,6 +143,18 @@ namespace Client.Main.Objects.Effects
             TickFires(factor);
             _sparks.Move(factor, World?.Terrain);
             _rings?.Move(factor);
+
+            // Dynamic lights: charge glow at the caster's feet, then a light riding the sword force.
+            if (!_released)
+                _chargeGlow = MathF.Min(1f, (_attackTime - 1f) / 3f);
+            else
+                _chargeGlow = MathF.Max(0f, _chargeGlow - factor / 4f);
+            Vector3 glow = _occupy ? OccupyGlow : FireGlow;
+            Lights.Set(0, CasterPosition + new Vector3(0f, 0f, 50f), glow, 170f, 0.8f * _chargeGlow);
+            float force = _forceLive
+                ? MathF.Min(1f, (15f - _forceLife) / 2f) * MathHelper.Clamp(_forceLife / 6f, 0f, 1f)
+                : 0f;
+            Lights.Set(1, _forcePosition, glow, 260f, 1.3f * force);
         }
 
         private void Release(float factor)

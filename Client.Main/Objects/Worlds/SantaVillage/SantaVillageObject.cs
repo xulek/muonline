@@ -6,6 +6,7 @@ using Client.Main.Controllers;
 using Client.Main.Graphics;
 using Client.Main.Helpers;
 using Client.Main.Models;
+using Client.Main.Objects.Worlds.Common;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -21,12 +22,21 @@ namespace Client.Main.Objects.Worlds.SantaVillage
         private const string ChromeTexturePath = "Effect/Chrome01.jpg";
 
         private Texture2D? _chromeTexture;
+        private MapObjectLight? _mapLight;
 
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool AllowMapObjectInstancing => false;
         public override bool IsStaticForCaching => false;
 
         protected override bool ForceTwoSidedMeshes => Type == 16;
+
+        public override async Task Load()
+        {
+            // Types 26/27/28 lamp glows also light the snow around them.
+            _mapLight ??= MapObjectLight.TryAttach(this);
+            await base.Load();
+            _mapLight?.Register();
+        }
 
         public override async Task LoadContent()
         {
@@ -46,6 +56,13 @@ namespace Client.Main.Objects.Worlds.SantaVillage
             }
 
             base.Update(gameTime);
+            _mapLight?.Update(gameTime);
+        }
+
+        public override void Dispose()
+        {
+            _mapLight?.Unregister();
+            base.Dispose();
         }
 
         public override void Draw(GameTime gameTime)

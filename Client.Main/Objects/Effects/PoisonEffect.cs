@@ -26,6 +26,7 @@ namespace Client.Main.Objects.Effects
         private const int SkillId = 1;
         private const float ReleaseDelaySeconds = 14f * 0.04f;
         private const float ModelVelocity = 0.3f;
+        private static readonly Vector3 PoisonGlowColor = new(0.4f, 0.95f, 0.5f);
 
         private struct Smoke
         {
@@ -48,6 +49,9 @@ namespace Client.Main.Objects.Effects
         private Vector3 _poisonAngle;
         private float _poisonLifeTime;
         private float _poisonFrame;
+        private Vector3 _glowPosition;
+        private bool _glowActive;
+        private float _glowFrames;
 
         public PoisonEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 5f, ReleaseDelaySeconds, 64)
@@ -74,6 +78,8 @@ namespace Client.Main.Objects.Effects
             Vector3 position = _target.WorldPosition.Translation;
             const float factor = 1f; // CreateEffect / CreateParticle init offsets: the 5.2 port scales them by FPS_ANIMATION_FACTOR, which shrinks them at high FPS; 25 Hz values
             _poisonAngle = new Vector3(0f, 0f, CasterYawDegrees);
+            _glowPosition = position + new Vector3(0f, 0f, 60f);
+            _glowActive = true;
 
             if (Caster is PlayerObject)
             {
@@ -128,6 +134,15 @@ namespace Client.Main.Objects.Effects
                 s.Light = new Vector3(luminosity * 0.5f, luminosity, luminosity * 0.8f);
                 s.Velocity *= 0.4f; // per frame
                 s.Scale += factor * 0.05f;
+            }
+
+            // Toxic glow at the target over the 50-frame smoke life (subtler for monster casts).
+            if (_glowActive)
+            {
+                _glowFrames += factor;
+                bool player = Caster is PlayerObject;
+                float glow = EffectLights.Envelope(_glowFrames, 50f, 3f, 25f);
+                Lights.Set(0, _glowPosition, PoisonGlowColor, player ? 260f : 200f, (player ? 1.1f : 0.7f) * glow);
             }
         }
 

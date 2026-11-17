@@ -41,6 +41,10 @@ namespace Client.Main.Objects.Effects.Summoner
         private float _flashLife, _flashScale = .1f, _flashLight = 1f;
         private float _rotation, _pinRotation1, _pinRotation2;
         private bool _orbAlive = true, _spritesVisible;
+        private static readonly Vector3 OrbGlow = new(1f, 0.4f, 0.35f);
+        private static readonly Vector3 ImpactGlow = new(1f, 0.6f, 0.3f);
+        private Vector3 _orbLightPosition;
+        private float _orbGlow, _impactAge = -1f;
 
         public LightningShockEffect(WalkerObject caster) : base(caster, 0f, 0f, 4096)
         {
@@ -92,6 +96,38 @@ namespace Client.Main.Objects.Effects.Summoner
                 _markLife -= factor;
             }
             MoveParticles(factor);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
+            // Slot 0: falling orb.
+            if (_orbAlive)
+            {
+                _orbLightPosition = _orb;
+                _orbGlow = MathF.Min(1f, _orbGlow + 0.34f * factor);
+            }
+            else
+            {
+                _orbGlow = MathF.Max(0f, _orbGlow - 0.34f * factor);
+            }
+            if (_orbGlow > 0f)
+                Lights.Set(0, _orbLightPosition, OrbGlow, 230f, 1.2f * _orbGlow * EffectLights.Flicker(time, 0.3f, 0.3f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: ground impact flash.
+            if (_impactAge >= 0f)
+            {
+                _impactAge += factor;
+                float flash = EffectLights.Flash(_impactAge, 16f, 1.4f);
+                if (flash > 0f)
+                    Lights.Set(1, _impact + new Vector3(0f, 0f, 60f), ImpactGlow, 260f + 180f * flash,
+                        2.2f * flash * EffectLights.Flicker(time, 5.1f, 0.35f));
+                else
+                    Lights.Hide(1);
+            }
         }
 
         private void TickOrb(float factor)
@@ -146,6 +182,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private void StartImpact(float factor)
         {
             _impact = _orb;
+            _impactAge = 0f;
             _impactLife = 12f;
             _flashLife = 10f;
             _markLife = _crackLife = 20f;
@@ -237,7 +274,7 @@ namespace Client.Main.Objects.Effects.Summoner
             }
         }
 
-        protected override bool HasActiveContent() => _orbAlive || _spritesVisible || _impactLife > 0f || _crackLife > 0f || _flashLife > 0f || _markLife > 0f || _count > 0;
+        protected override bool HasActiveContent() => _orbAlive || _spritesVisible || _orbGlow > 0f || _impactLife > 0f || _crackLife > 0f || _flashLife > 0f || _markLife > 0f || _count > 0;
 
         protected override void OnDraw()
         {

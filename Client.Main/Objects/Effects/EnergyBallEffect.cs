@@ -25,6 +25,8 @@ namespace Client.Main.Objects.Effects
 
         private const int SkillId = 17;
         private const float ReleaseDelaySeconds = 14f * 0.04f;
+        private const float ImpactLightSeconds = 0.4f;
+        private static readonly Vector3 EnergyGlowColor = new(0.55f, 0.65f, 1f);
 
         private struct Particle
         {
@@ -51,6 +53,9 @@ namespace Client.Main.Objects.Effects
         private Vector3 _ballAngle;
         private Vector3 _ballStep;
         private float _ballLifeTime;
+        private float _lightTime;
+        private float _impactAge = -1f;
+        private Vector3 _impactPosition;
 
         public EnergyBallEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 5f, ReleaseDelaySeconds, 128)
@@ -99,6 +104,11 @@ namespace Client.Main.Objects.Effects
                     if (MathF.Sqrt(dx * dx + dy * dy) <= 100f)
                     {
                         _ballLifeTime = 1f;
+                        if (_impactAge < 0f)
+                        {
+                            _impactAge = 0f;
+                            _impactPosition = _ballPosition;
+                        }
                         if (FpsCheck(1, factor))
                             SpawnSpark(1, Vector3.One, 6f);
                     }
@@ -109,6 +119,14 @@ namespace Client.Main.Objects.Effects
                 if (_ballLifeTime <= 0f)
                     _ballLive = false;
             }
+
+            _lightTime += factor * 0.04f;
+            if (_impactAge >= 0f)
+                _impactAge += factor * 0.04f;
+            float ballGlow = _ballLive ? MathHelper.Clamp(_lightTime / 0.08f, 0f, 1f) * MathHelper.Clamp(_ballLifeTime / 3f, 0f, 1f) : 0f;
+            Lights.Set(0, _ballPosition, EnergyGlowColor, 210f, 1.1f * ballGlow);
+            float impactGlow = _impactAge >= 0f ? EffectLights.Flash(_impactAge, ImpactLightSeconds) : 0f;
+            Lights.Set(1, _impactPosition, EnergyGlowColor, 300f, 1.7f * impactGlow);
 
             for (int i = 0; i < _energies.Length; i++)
             {
@@ -195,7 +213,7 @@ namespace Client.Main.Objects.Effects
 
         protected override bool HasActiveContent()
         {
-            if (_ballLive)
+            if (_ballLive || (_impactAge >= 0f && _impactAge < ImpactLightSeconds))
                 return true;
             for (int i = 0; i < _energies.Length; i++) if (_energies[i].Live) return true;
             for (int i = 0; i < _sparks.Length; i++) if (_sparks[i].Live) return true;

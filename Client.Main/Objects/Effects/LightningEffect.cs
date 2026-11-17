@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Threading.Tasks;
 using Client.Main.Models;
 using Client.Main.Objects.Effects.Joints;
@@ -20,6 +21,7 @@ namespace Client.Main.Objects.Effects
         private const int WeaponBone = 33;
         private const float LimitAttackTime = 15f;
         private const float ReleaseFrame = 5f;
+        private static readonly Vector3 ThunderGlowColor = new(0.6f, 0.7f, 1f);
 
         private readonly WalkerObject? _target;
         private readonly SourceHomingThunderPool _pool = SourceHomingThunderPool.Shared;
@@ -30,6 +32,8 @@ namespace Client.Main.Objects.Effects
 
         private float _attackTime = 1f;
         private bool _casting;
+        private float _lightTime;
+        private float _castGlow;
 
         public LightningEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 0f, 0f, 2048)
@@ -72,6 +76,31 @@ namespace Client.Main.Objects.Effects
             }
 
             _pool.Move(this, factor);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _lightTime += factor * 0.04f;
+            bool targetAlive = IsAlive(_target);
+            _castGlow = _casting && targetAlive
+                ? MathF.Min(1f, _castGlow + 0.5f * factor)
+                : _castGlow * MathF.Pow(0.7f, factor);
+            if (_castGlow <= 0.01f)
+            {
+                Lights.Hide(0);
+                Lights.Hide(1);
+                return;
+            }
+
+            bool player = Caster is Player.PlayerObject;
+            if (player)
+                Lights.Set(0, GetCasterBonePosition(WeaponBone), ThunderGlowColor, 190f, _castGlow * EffectLights.Flicker(_lightTime, 1.3f, 0.45f));
+            if (targetAlive)
+                Lights.Set(1, _target!.WorldPosition.Translation + new Vector3(0f, 0f, 80f), ThunderGlowColor, player ? 320f : 240f,
+                    (player ? 1.7f : 1.1f) * _castGlow * EffectLights.Flicker(_lightTime, 4.7f, 0.5f));
+            else
+                Lights.Hide(1);
         }
 
         private static bool IsAlive(WalkerObject? walker)

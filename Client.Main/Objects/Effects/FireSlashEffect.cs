@@ -80,6 +80,11 @@ namespace Client.Main.Objects.Effects
         private float _slashLife;
         private int _slashPushes;
 
+        // Dynamic lights (slot 0: thunder gathering at the left hand, slot 1: fire crescent).
+        private static readonly Vector3 GatherLightColor = new(0.55f, 0.6f, 1f);
+        private static readonly Vector3 SlashLightColor = new(1f, 0.45f, 0.2f);
+        private float _lightTime;
+
         public FireSlashEffect(WalkerObject caster, int skillId)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
         {
@@ -116,6 +121,34 @@ namespace Client.Main.Objects.Effects
             else
             {
                 TickSlash(factor);
+            }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _lightTime += factor * 0.04f;
+
+            if (_gatheringLife > 0f)
+            {
+                float k = EffectLights.Envelope(GatheringLife - _gatheringLife, GatheringLife, 3f, 6f);
+                Lights.Set(0, _handPosition, GatherLightColor, 170f, 0.85f * k * EffectLights.Flicker(_lightTime, 0.2f, 0.4f));
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
+
+            if (_slashStarted && _slashLife > 0f)
+            {
+                // _slashLight starts at 20 / 30 and decays to ~0 by the end of the joint.
+                float k = MathHelper.Clamp(_slashLight * 1.5f, 0f, 1f) * MathHelper.Clamp((20f - _slashLife) / 2f, 0f, 1f);
+                Lights.Set(1, _slashPosition, SlashLightColor, 260f, 1.4f * k * EffectLights.Flicker(_lightTime, 1.4f, 0.25f));
+            }
+            else
+            {
+                Lights.Hide(1);
             }
         }
 

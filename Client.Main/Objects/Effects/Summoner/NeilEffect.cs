@@ -35,6 +35,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private const float NeilVelocity = 0.35f;
         private const float PartVelocity = 0.3f;
         private static readonly Vector3 Red = new(1f, 0f, 0f);
+        private static readonly Vector3 RedGlow = new(1f, 0.15f, 0.1f);
         private static readonly string[] KnifePaths = { "Skill/nelleff_nife01.bmd", "Skill/nelleff_nife02.bmd", "Skill/nelleff_nife03.bmd" };
         private static readonly string[] GroundPaths = { "Skill/nell_nifegrund01.bmd", "Skill/nell_nifegrund02.bmd", "Skill/nell_nifegrund03.bmd" };
         private static readonly Vector3[] Palette =
@@ -72,6 +73,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private float _frame;
         private int _skill;
         private int _spriteCount;
+        private float _partGlow;
         private readonly Vector3[] _sprites = new Vector3[9];
 
         public NeilEffect(WalkerObject caster, Vector3 targetTileCorner)
@@ -137,6 +139,7 @@ namespace Client.Main.Objects.Effects.Summoner
                 if (p.LifeTime <= 0f)
                     p.Live = false;
             }
+            UpdateLights(factor);
 
             if (!_live)
                 return;
@@ -170,6 +173,27 @@ namespace Client.Main.Objects.Effects.Summoner
                 _live = false;
         }
 
+        private void UpdateLights(float factor)
+        {
+            // Slot 0: red glow over the knives / ground blades at the target, eased toward their strongest alpha.
+            float target = 0f;
+            for (int i = 0; i < _parts.Length; i++)
+                if (_parts[i].Live && _parts[i].Alpha > target)
+                    target = _parts[i].Alpha;
+            target = MathF.Min(target, 1f);
+            _partGlow = target > _partGlow ? MathF.Min(target, _partGlow + 0.25f * factor) : MathF.Max(target, _partGlow - 0.1f * factor);
+            if (_partGlow > 0f)
+                Lights.Set(0, TargetCorner + new Vector3(0f, 0f, 60f), RedGlow, 320f, 1.3f * _partGlow);
+            else
+                Lights.Hide(0);
+
+            // Slot 1: Neil itself.
+            if (_live && _alpha > 0f)
+                Lights.Set(1, _position + new Vector3(0f, 0f, 100f), RedGlow, 200f, 0.8f * MathHelper.Clamp(_alpha / 0.7f, 0f, 1f));
+            else
+                Lights.Hide(1);
+        }
+
         private void AddPart(bool ground, int model, Vector3 position, float alpha)
         {
             for (int i = 0; i < _parts.Length; i++)
@@ -183,7 +207,7 @@ namespace Client.Main.Objects.Effects.Summoner
 
         protected override bool HasCreatureContent()
         {
-            if (_live || _blur.IsLive)
+            if (_live || _blur.IsLive || _partGlow > 0f)
                 return true;
             for (int i = 0; i < _parts.Length; i++)
                 if (_parts[i].Live)

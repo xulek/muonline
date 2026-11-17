@@ -25,6 +25,7 @@ namespace Client.Main.Objects.Effects
         private const int SkillId = 11;
         private const float ReleaseDelaySeconds = 14f * 0.04f;
         private const float ModelVelocity = 0.3f;
+        private static readonly Vector3 WaveGlow = new(0.6f, 0.7f, 1f);
 
         private struct Smoke
         {
@@ -115,6 +116,11 @@ namespace Client.Main.Objects.Effects
                 p.Velocity *= 0.4f; // per frame
                 p.Scale += factor * 0.1f;
             }
+
+            // Dynamic light following the wave head.
+            float waveAge = 20f - _waveLifeTime;
+            Lights.Set(0, _wavePosition + new Vector3(0f, 0f, 60f), WaveGlow, 230f,
+                1.1f * EffectLights.Envelope(waveAge, 20f, 2f, 6f));
         }
 
         private void SpawnSmoke()

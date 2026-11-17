@@ -47,6 +47,10 @@ namespace Client.Main.Objects.Effects
         private readonly Shock[] _shocks = new Shock[ShockCount];
         private Texture2D? _ribbonTexture;
         private Texture2D? _shockTexture;
+        private static readonly Vector3 RibbonColor = new(0.9f, 0.9f, 1f);
+        private Vector3 _shockPosition;
+        private float _shockAge = 100f;
+        private float _age;
 
         public RemoveBuffEffect(WalkerObject caster)
             : base(caster, triggerFrame: 3.5f, triggerTimeoutSeconds: 0.56f, maxQuads: 1200)
@@ -151,6 +155,12 @@ namespace Client.Main.Objects.Effects
                 if (joint.Life < 0f)
                     joint.Live = false;
             }
+
+            // slot 0: glow of the ribbon whirl around the caster (60 frames); slot 1: shock wave flash.
+            _age += factor;
+            _shockAge += factor;
+            Lights.Set(0, CasterPosition + Vector3.UnitZ * 80f, RibbonColor, 300f, 1f * EffectLights.Envelope(_age, 60f, 4f, 15f));
+            Lights.Set(1, _shockPosition, RibbonColor, 380f, 1.3f * EffectLights.Flash(_shockAge, 15f, 1.5f));
         }
 
         private void SpawnShock(Vector3 position, float angle, Vector3 light)
@@ -160,6 +170,8 @@ namespace Client.Main.Objects.Effects
                 if (_shocks[i].Live)
                     continue;
                 _shocks[i] = new Shock { Live = true, Position = position, Angle = angle, Life = 15f, Scale = 1f, Light = light };
+                _shockPosition = new Vector3(position.X, position.Y, TerrainHeight(position) + 60f);
+                _shockAge = 0f;
                 return;
             }
         }

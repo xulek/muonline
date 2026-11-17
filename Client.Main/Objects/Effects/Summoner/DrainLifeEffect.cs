@@ -39,7 +39,9 @@ namespace Client.Main.Objects.Effects.Summoner
         private readonly Vector3[] _lastFlares = new Vector3[MaxJoints];
         private readonly WalkerObject _target;
         private Texture2D? _lightTexture, _ghostTexture, _energyTexture, _flareTexture;
+        private static readonly Vector3 DrainGlow = new(1f, 0.2f, 0.25f);
         private float _life = 70f;
+        private float _absorbGlow;
         private int _particleCount, _lastFlareCount;
 
         private static Joint[] CreateJointPool()
@@ -75,6 +77,25 @@ namespace Client.Main.Objects.Effects.Summoner
             }
             MoveParticles(factor);
             MoveJoints(factor, targetAvailable);
+            UpdateLights(factor, targetAvailable);
+        }
+
+        private void UpdateLights(float factor, bool targetAvailable)
+        {
+            // Slot 0: red glow on the drained target while the skill emits.
+            float drain = targetAvailable ? EffectLights.Envelope(70f - _life, 70f, 8f, 20f) : 0f;
+            if (drain > 0f)
+                Lights.Set(0, _target.WorldPosition.Translation + new Vector3(0f, 0f, 100f), DrainGlow, 240f,
+                    1.1f * drain * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 0.7f, 0.12f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: pulse on the caster when energy joints arrive.
+            _absorbGlow = _lastFlareCount > 0 ? 1f : MathF.Max(0f, _absorbGlow - 0.12f * factor);
+            if (_absorbGlow > 0f)
+                Lights.Set(1, Caster.WorldPosition.Translation + new Vector3(0f, 0f, 120f), DrainGlow, 200f, 1.2f * _absorbGlow);
+            else
+                Lights.Hide(1);
         }
 
         private void Emit(float factor)
@@ -245,7 +266,7 @@ namespace Client.Main.Objects.Effects.Summoner
 
         protected override bool HasActiveContent()
         {
-            if (_life > 0f || _particleCount > 0 || _lastFlareCount > 0) return true;
+            if (_life > 0f || _particleCount > 0 || _lastFlareCount > 0 || _absorbGlow > 0f) return true;
             for (int i = 0; i < s_joints.Length; i++) if (s_joints[i].Owner == this) return true;
             return false;
         }

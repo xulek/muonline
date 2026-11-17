@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Models;
+using Client.Main.Objects.Worlds.Common;
 using Client.Main.Graphics;
 using Client.Main.Helpers;
 using Microsoft.Xna.Framework;
@@ -19,6 +20,7 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
     public class LandOfTrialsObject : MapTileObject
     {
         private Controls.DynamicLight? _warmLight;
+        private MapObjectLight? _mapLight;
 
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool AllowMapObjectInstancing => false;
@@ -30,7 +32,10 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
 
         public override async Task Load()
         {
+            // Type 49 torch light (bone 3 flame).
+            _mapLight ??= MapObjectLight.TryAttach(this);
             await base.Load();
+            _mapLight?.Register();
 
             // Type is assigned by the map object factory after construction, so the light is created here.
             if (Type == 42 && _warmLight == null)
@@ -75,6 +80,7 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
             }
 
             base.Update(gameTime);
+            _mapLight?.Update(gameTime);
         }
 
         public override void DrawAfter(GameTime gameTime)
@@ -133,6 +139,8 @@ namespace Client.Main.Objects.Worlds.LandOfTrials
 
         public override void Dispose()
         {
+            _mapLight?.Unregister();
+
             if (_warmLight != null && World?.Terrain != null)
                 World.Terrain.RemoveDynamicLight(_warmLight);
 

@@ -109,6 +109,10 @@ namespace Client.Main.Objects.Effects
         private bool _stageActive;
         private Vector3 _posSword;
         private int _hurt;
+        private bool _stageLights;
+        private float _lightAge;
+        private Vector3 _hurtLightPos;
+        private static readonly Vector3 ThrustGlow = new(0.35f, 0.4f, 1f);
 
         public DeathStabEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 0f, 0f, 2048)
@@ -127,6 +131,7 @@ namespace Client.Main.Objects.Effects
         {
             // AttackStage breaks out for a missing weapon link bone; only players carry bone 33.
             _stageActive = Caster is PlayerObject;
+            _stageLights = _stageActive;
             _posSword = SwordPoint();
         }
 
@@ -155,6 +160,29 @@ namespace Client.Main.Objects.Effects
             MoveCharges(factor);
             MoveFlares(factor);
             MoveThunders(factor);
+
+            _lightAge += factor;
+            UpdateLights();
+        }
+
+        private void UpdateLights()
+        {
+            // Red charge gathering at the sword point, then a blue flash where the spears burst out.
+            float charge = _stageLights ? EffectLights.Envelope(_lightAge - 1f, 12f, 3f, 4f) : 0f;
+            Lights.Set(0, _posSword, ChargeLight, 200f, charge);
+            float thrust = _lightAge - 6f;
+            float flash = _stageLights ? 1.7f * MathF.Min(1f, thrust / 1.5f) * EffectLights.Flash(thrust, 22f, 1.4f) : 0f;
+            Lights.Set(1, _posSword, ThrustGlow, 340f, flash);
+
+            // Flickering thunder on the stabbed target.
+            float hurt = 0f;
+            if (OwnsHurt && IsAlive(_target))
+            {
+                hurt = MathF.Min(1f, _hurt / 8f) * MathF.Min(1f, (HurtFrames - _hurt + 1) / 2f)
+                    * EffectLights.Flicker(_lightAge * 0.04f, 7.3f, 0.45f);
+                _hurtLightPos = _target!.WorldPosition.Translation + new Vector3(0f, 0f, 100f);
+            }
+            Lights.Set(2, _hurtLightPos, ThunderLight, 230f, 1.1f * hurt);
         }
 
         // ------------------------------------------------------------------ AttackStage

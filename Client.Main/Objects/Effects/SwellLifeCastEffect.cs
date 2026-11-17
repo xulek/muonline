@@ -76,6 +76,9 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _flareTexture;
         private Texture2D? _lightTexture;
         private Texture2D? _circleTexture;
+        private static readonly Vector3 LifeColor = new(1f, 0.55f, 0.15f);
+        private Vector3 _origin;
+        private float _age;
 
         public SwellLifeCastEffect(WalkerObject caster)
             : base(caster, float.MaxValue, ReleaseDelaySeconds, 1024)
@@ -93,6 +96,7 @@ namespace Client.Main.Objects.Effects
         protected override void OnStart()
         {
             Vector3 origin = CasterPosition;
+            _origin = origin;
             Vector3 start = origin + new Vector3(0f, 0f, 100f);
             int maxTails = SourceJointMath.ScaledMaxTails(3);
             int circle = 0;
@@ -133,6 +137,12 @@ namespace Client.Main.Objects.Effects
         protected override void OnTick(float factor)
         {
             float fade = MathF.Pow(1f / 1.2f, factor);
+
+            // slot 0: expanding burst as the 36 spirits fly out (20 frames); slot 1: ground circle glow (40 frames).
+            _age += factor;
+            float spread = MathHelper.Clamp(_age / 20f, 0f, 1f);
+            Lights.Set(0, _origin + Vector3.UnitZ * 100f, LifeColor, 260f + 200f * spread, 1.6f * EffectLights.Flash(_age, 20f, 1.3f));
+            Lights.Set(1, _origin + Vector3.UnitZ * 50f, LifeColor, 340f, 0.8f * EffectLights.Envelope(_age, 40f, 4f, 12f));
 
             for (int i = 0; i < SpiritCount; i++)
             {

@@ -34,6 +34,10 @@ namespace Client.Main.Objects.Effects
         private bool _detached;
         private bool _dead;
 
+        // Dynamic light (slot 0: flaming weapon at the left hand).
+        private static readonly Vector3 FireLightColor = new(1f, 0.42f, 0.14f);
+        private float _lightTime;
+
         public FlameStrikeEffect(WalkerObject caster)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
         {
@@ -64,6 +68,7 @@ namespace Client.Main.Objects.Effects
             _blur1.Move();
             _blur2.Move();
             _blur3.Move();
+            UpdateLight(factor);
             if (_life < 20f && _alpha < 0.1f)
             {
                 _dead = true;
@@ -86,6 +91,20 @@ namespace Client.Main.Objects.Effects
             _life -= factor;
             if (_life <= 0f)
                 _dead = true;
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightTime += factor * 0.04f;
+            float k = MathHelper.Clamp(_alpha, 0f, 1f);
+            if (k <= 0f)
+            {
+                Lights.Hide(0);
+                return;
+            }
+
+            Vector3 hand = GetCasterBonePosition(PlayerObject.LeftHandBoneIndex);
+            Lights.Set(0, hand, FireLightColor, 250f, 1.25f * k * EffectLights.Flicker(_lightTime, 0.8f, 0.22f));
         }
 
         private void CreateBlurSamples(double ownerFrame, float factor)

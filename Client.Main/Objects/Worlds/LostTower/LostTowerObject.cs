@@ -215,6 +215,7 @@ namespace Client.Main.Objects.Worlds.LostTower
         private readonly LostTowerObject _owner;
         private Texture2D _magicTexture;
         private Texture2D _lightningTexture;
+        private MapObjectGlowLight _glowLight;
 
         public LostTowerObjectVisualEffect(LostTowerObject owner)
         {
@@ -235,6 +236,48 @@ namespace Client.Main.Objects.Worlds.LostTower
 
             if (sourceType == 20 || sourceType == 40)
                 _lightningTexture = await TextureLoader.Instance.PrepareAndGetTexture("Effect/lightning2.jpg");
+
+            // The magic (19, red) / lightning (20, blue; 40, white) sprite glows get one terrain light.
+            if (sourceType == 19 || sourceType == 20 || sourceType == 40)
+            {
+                _glowLight = new MapObjectGlowLight(this, Constants.TERRAIN_SCALE * 3f, sourceType == 40 ? 0.8f : 0.9f);
+                _glowLight.Register();
+            }
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+
+            if (_glowLight == null || !_owner.Visible || _owner.Status != GameControlStatus.Ready)
+                return;
+
+            int sourceType = _owner.Type;
+            if (!_glowLight.IsPositioned)
+            {
+                if (sourceType == 40)
+                {
+                    _glowLight.SetPosition(_owner.WorldPosition.Translation + new Vector3(0f, 0f, 260f));
+                }
+                else
+                {
+                    // Bone 21 carries the large (scale 1.5) sprite pair.
+                    Matrix[] bones = _owner.GetBoneTransforms();
+                    if (bones == null || bones.Length <= 21)
+                        return;
+                    _glowLight.SetPosition(Vector3.Transform(bones[21].Translation, _owner.WorldPosition));
+                }
+            }
+
+            if (!_glowLight.Step(gameTime))
+                return;
+
+            float luminosity = (MuGame.Random.Next(15) + 85) * 0.01f;
+            _glowLight.SetColor(sourceType == 19
+                ? new Vector3(luminosity, luminosity * 0.25f, luminosity * 0.05f)
+                : sourceType == 20
+                    ? new Vector3(luminosity * 0.4f, luminosity * 0.8f, luminosity)
+                    : new Vector3(luminosity * 0.85f, luminosity * 0.9f, luminosity));
         }
 
         public override void Draw(GameTime gameTime)

@@ -287,7 +287,7 @@ namespace Client.Main.Controls.Terrain
             if (!Constants.ENABLE_DYNAMIC_LIGHTS || _activeLights.Count == 0)
                 return Vector3.Zero;
 
-            return EvaluateSnapshotLights(_activeLights, position);
+            return EvaluateSnapshotLights(_activeLights, _activeGrid, _activeLightsVersion, position);
         }
 
         public Vector3 EvaluateVisibleDynamicLight(Vector2 position)
@@ -295,10 +295,13 @@ namespace Client.Main.Controls.Terrain
             if (!Constants.ENABLE_DYNAMIC_LIGHTS || _visibleLights.Count == 0)
                 return Vector3.Zero;
 
-            return EvaluateSnapshotLights(_visibleLights, position);
+            return EvaluateSnapshotLights(_visibleLights, _visibleGrid, _visibleLightsVersion, position);
         }
 
-        private static Vector3 EvaluateSnapshotLights(IReadOnlyList<DynamicLightSnapshot> lights, Vector2 position)
+        private readonly LightGrid _activeGrid = new();
+        private readonly LightGrid _visibleGrid = new();
+
+        private static Vector3 EvaluateSnapshotLights(List<DynamicLightSnapshot> lights, LightGrid grid, int version, Vector2 position)
         {
             Vector3 result = Vector3.Zero;
             Vector3 negativeResult = Vector3.Zero;
@@ -306,9 +309,20 @@ namespace Client.Main.Controls.Terrain
 
             const float cpuLightScale = 150f;
 
-            for (int i = 0; i < lights.Count; i++)
+            // Map fires can register well over a hundred lights; bucket them so per-vertex and
+            // per-model queries only visit lights whose radius can reach the query cell.
+            int[]? candidates = null;
+            int start = 0;
+            int count = lights.Count;
+            if (count > LightGrid.MinLightsForGrid)
             {
-                var light = lights[i];
+                grid.EnsureBuilt(lights, version);
+                grid.GetCell(position, out candidates, out start, out count);
+            }
+
+            for (int c = 0; c < count; c++)
+            {
+                var light = lights[candidates != null ? candidates[start + c] : c];
                 float radiusSq = light.Radius * light.Radius;
                 if (radiusSq <= 0.0001f)
                     continue;
@@ -344,6 +358,85 @@ namespace Client.Main.Controls.Terrain
                 result += negativeResult;
 
             return result;
+        }
+
+        /// <summary>Uniform XY grid of light indices, rebuilt lazily when its snapshot list changes.</summary>
+        private sealed class LightGrid
+        {
+            public const int MinLightsForGrid = 8;
+            private const float CellSize = 800f;
+            private const float InvCellSize = 1f / CellSize;
+            private static readonly int Dim = Math.Max(1, (int)MathF.Ceiling(Constants.TERRAIN_SIZE * Constants.TERRAIN_SCALE / CellSize));
+
+            private readonly int[] _cellStart = new int[Dim * Dim + 1];
+            private readonly int[] _cellCursor = new int[Dim * Dim];
+            private int[] _indices = new int[256];
+            private int _builtVersion = int.MinValue;
+
+            public void EnsureBuilt(List<DynamicLightSnapshot> lights, int version)
+            {
+                if (_builtVersion == version)
+                    return;
+                _builtVersion = version;
+
+                Array.Clear(_cellCursor, 0, _cellCursor.Length);
+                int total = 0;
+                for (int i = 0; i < lights.Count; i++)
+                {
+                    GetRange(lights[i], out int x0, out int y0, out int x1, out int y1);
+                    for (int y = y0; y <= y1; y++)
+                        for (int x = x0; x <= x1; x++)
+                            _cellCursor[y * Dim + x]++;
+                    total += (x1 - x0 + 1) * (y1 - y0 + 1);
+                }
+
+                if (_indices.Length < total)
+                    _indices = new int[Math.Max(total, _indices.Length * 2)];
+
+                int running = 0;
+                for (int c = 0; c < _cellCursor.Length; c++)
+                {
+                    _cellStart[c] = running;
+                    running += _cellCursor[c];
+                    _cellCursor[c] = _cellStart[c];
+                }
+                _cellStart[_cellCursor.Length] = running;
+
+                for (int i = 0; i < lights.Count; i++)
+                {
+                    GetRange(lights[i], out int x0, out int y0, out int x1, out int y1);
+                    for (int y = y0; y <= y1; y++)
+                        for (int x = x0; x <= x1; x++)
+                            _indices[_cellCursor[y * Dim + x]++] = i;
+                }
+            }
+
+            public void GetCell(Vector2 position, out int[] indices, out int start, out int count)
+            {
+                int cx = ToCell(position.X);
+                int cy = ToCell(position.Y);
+                int cell = cy * Dim + cx;
+                indices = _indices;
+                start = _cellStart[cell];
+                count = _cellStart[cell + 1] - start;
+            }
+
+            private static void GetRange(in DynamicLightSnapshot light, out int x0, out int y0, out int x1, out int y1)
+            {
+                float r = MathF.Max(0f, light.Radius);
+                x0 = ToCell(light.Position.X - r);
+                x1 = ToCell(light.Position.X + r);
+                y0 = ToCell(light.Position.Y - r);
+                y1 = ToCell(light.Position.Y + r);
+            }
+
+            private static int ToCell(float v)
+            {
+                if (!float.IsFinite(v))
+                    return 0;
+                int c = (int)MathF.Floor(v * InvCellSize);
+                return c < 0 ? 0 : (c >= Dim ? Dim - 1 : c);
+            }
         }
 
         private static bool IsLightVisibleInFrustum(BoundingFrustum frustum, in DynamicLightSnapshot light)

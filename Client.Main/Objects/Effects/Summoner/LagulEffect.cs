@@ -100,6 +100,8 @@ namespace Client.Main.Objects.Effects.Summoner
         private int _lagulKeys = 13;
         private float _controllerLife;
         private int _particleCount, _cloudCount;
+        private static readonly Vector3 PollutionGlow = new(0.6f, 0.2f, 1f);
+        private static readonly Vector3 LagulGlow = new(0.5f, 0.5f, 1f);
 
         public LagulEffect(WalkerObject caster, Vector3 targetTileCorner)
             : base(caster, targetTileCorner, 2048)
@@ -168,6 +170,25 @@ namespace Client.Main.Objects.Effects.Summoner
             TickController(factor);
             for (int i = 0; i < _spirits.Length; i++)
                 TickSpirit(ref _spirits[i], factor);
+            UpdateLights();
+        }
+
+        private void UpdateLights()
+        {
+            // Slot 0: purple cloud glow over the target area for the controller's 160 ticks.
+            float area = EffectLights.Envelope(160f - _controllerLife, 160f, 10f, 30f);
+            if (area > 0f)
+                Lights.Set(0, TargetCorner + new Vector3(0f, 0f, 60f), PollutionGlow, 400f,
+                    0.9f * area * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 2.2f, 0.1f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: the first Lagul.
+            ref Spirit s = ref _spirits[0];
+            if (s.LagulLive)
+                Lights.Set(1, s.Position, LagulGlow, 200f, 0.7f * MathHelper.Clamp(s.LagulAlpha, 0f, 1f));
+            else
+                Lights.Hide(1);
         }
 
         private void TickController(float factor)

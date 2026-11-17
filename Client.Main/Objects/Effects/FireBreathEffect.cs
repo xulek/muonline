@@ -53,6 +53,13 @@ namespace Client.Main.Objects.Effects
         private Vector3 _shotAngle;
         private float _shotLifeTime;
 
+        // Dynamic lights (slot 0: fire breath head, slot 1: CreateBomb2 explosion).
+        private static readonly Vector3 FireLightColor = new(1f, 0.5f, 0.18f);
+        private float _shotAge;
+        private bool _bombLight;
+        private float _bombAge;
+        private Vector3 _bombPosition;
+
         public FireBreathEffect(WalkerObject caster)
             : base(caster, 5f, ReleaseDelaySeconds, 512)
         {
@@ -128,6 +135,35 @@ namespace Client.Main.Objects.Effects
             }
 
             _sparkPool.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float dt = factor * 0.04f;
+            if (_shotLive)
+            {
+                _shotAge += dt;
+                float k = MathF.Min(1f, _shotAge / 0.08f) * MathHelper.Clamp(_shotLifeTime / 3f, 0f, 1f);
+                Lights.Set(0, _shotPosition, FireLightColor, 220f, 1.1f * k * EffectLights.Flicker(_shotAge, 0.3f, 0.15f));
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
+
+            if (_bombLight)
+            {
+                _bombAge += dt;
+                float k = EffectLights.Flash(_bombAge, 0.5f, 1.5f);
+                if (k > 0f)
+                    Lights.Set(1, _bombPosition, FireLightColor, 260f + 120f * k, 1.9f * k);
+                else
+                {
+                    _bombLight = false;
+                    Lights.Hide(1);
+                }
+            }
         }
 
         private void MoveShot(float factor)
@@ -155,6 +191,11 @@ namespace Client.Main.Objects.Effects
         private void CreateBomb2(Vector3 position)
         {
             position.Z += 30f;
+            if (!_bombLight && _bombAge <= 0f)
+            {
+                _bombLight = true;
+                _bombPosition = position;
+            }
             for (int j = 0; j < 20; j++)
                 _sparkPool.SpawnSpark(position, new Vector3(MuGame.Random.Next(60) + 60 + 90, 0f, MuGame.Random.Next(30)), 2);
 

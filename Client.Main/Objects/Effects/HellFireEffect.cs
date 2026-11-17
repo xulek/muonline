@@ -65,6 +65,10 @@ namespace Client.Main.Objects.Effects
         private float _frame;
         private float _stoneFrame;
 
+        // Dynamic light (slot 0: circle glow at the caster).
+        private static readonly Vector3 FireLightColor = new(1f, 0.42f, 0.12f);
+        private float _lightAge;
+
         public HellFireEffect(WalkerObject caster)
             : base(caster, 5f, ReleaseDelaySeconds, 16)
         {
@@ -125,6 +129,7 @@ namespace Client.Main.Objects.Effects
 
             _circleLifeTime -= factor;
             _lightLifeTime -= factor;
+            UpdateLight(factor);
 
             bool anyStone = false;
             for (int i = 0; i < _stones.Length; i++)
@@ -142,6 +147,21 @@ namespace Client.Main.Objects.Effects
             }
             if (anyStone)
                 _stoneFrame += ModelVelocity * factor;
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightAge += factor;
+            // MODEL_CIRCLE lives 45 ticks; ramp in over 4, release over the last 15.
+            float k = EffectLights.Envelope(_lightAge, 45f, 4f, 15f);
+            if (k <= 0f)
+            {
+                Lights.Hide(0);
+                return;
+            }
+
+            float intensity = 1.4f * k * EffectLights.Flicker(_lightAge * 0.04f, 2.3f, 0.2f);
+            Lights.Set(0, _position + new Vector3(0f, 0f, 60f), FireLightColor, 420f, intensity);
         }
 
         private void EmitBoneFires(Client.Main.Objects.Player.PlayerObject player)

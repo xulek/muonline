@@ -179,6 +179,13 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                     Get = () => Constants.ENABLE_MENU_SCENE_EFFECTS,
                     Set = v => Constants.ENABLE_MENU_SCENE_EFFECTS = v
                 },
+                new SettingToggle
+                {
+                    Label = "World Glow (Bloom)",
+                    Description = "Soft glow around fire, spells and lamps, with a light colour grade and vignette. Costs a few post-process passes.",
+                    Get = () => Constants.ENABLE_WORLD_BLOOM,
+                    Set = v => Constants.ENABLE_WORLD_BLOOM = v
+                },
                 new SettingHeader { Label = "Shadows" },
                 new SettingChoice
                 {

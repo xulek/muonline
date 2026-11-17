@@ -35,6 +35,9 @@ namespace Client.Main.Objects.Effects
         private static readonly float[] JointScales = { 250f, 100f, 100f, 100f, 100f };
 
         private readonly Joint[] _joints = new Joint[JointCount];
+        private static readonly Vector3 SpikeGlowColor = new(0.85f, 0.7f, 1f);
+        private Vector3 _castOrigin;
+        private float _lightTime;
         private Texture2D? _texture;
 
         private sealed class Joint
@@ -80,6 +83,7 @@ namespace Client.Main.Objects.Effects
                     origin.Z += 40f;
             }
             origin.Z += 150f * SourceJointMath.FrameFactor;   // CreateJoint: o->Position[2] += 150 * F
+            _castOrigin = origin;
 
             for (int i = 0; i < JointCount; i++)
             {
@@ -138,6 +142,23 @@ namespace Client.Main.Objects.Effects
 
                 joint.Life -= factor;
             }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // Beam head + mid-beam glow (flickering, fading with the beam) and a short cast flash at the origin.
+            _lightTime += factor * 0.04f;
+            Joint beam = _joints[0];
+            float beamGlow = beam.Life > 0f
+                ? beam.Light.X * MathHelper.Clamp(beam.Life / 10f, 0f, 1f) * MathHelper.Clamp(_lightTime / 0.06f, 0f, 1f)
+                    * EffectLights.Flicker(_lightTime, 5.1f, 0.35f)
+                : 0f;
+            Lights.Set(0, beam.Position, SpikeGlowColor, 260f, 1.4f * beamGlow);
+            Lights.Set(1, Vector3.Lerp(_castOrigin, beam.Position, 0.5f), SpikeGlowColor, 300f, beamGlow);
+            float castFlash = EffectLights.Flash(_lightTime, 0.35f) * MathHelper.Clamp(_lightTime / 0.05f, 0f, 1f);
+            Lights.Set(2, _castOrigin, SpikeGlowColor, 200f, 1.1f * castFlash);
         }
 
         private void GrowBeam(Joint joint, float factor)

@@ -46,6 +46,10 @@ namespace Client.Main.Objects.Effects
         private float _flameAngle;
         private float _flameLifeTime;
 
+        // Dynamic light (slot 0: ground fire glow).
+        private static readonly Vector3 FireLightColor = new(1f, 0.5f, 0.18f);
+        private float _lightAge;
+
         public FlameEffect(WalkerObject caster, Vector3 targetPosition, bool area)
             : base(caster, 5f, ReleaseDelaySeconds, 256)
         {
@@ -91,6 +95,7 @@ namespace Client.Main.Objects.Effects
                     _flameLive = false;
             }
 
+            UpdateLight(factor);
             _stones.Move(factor, World?.Terrain);
 
             for (int i = 0; i < _particles.Length; i++)
@@ -109,6 +114,22 @@ namespace Client.Main.Objects.Effects
                 // MovePosition with (0, 0, Vz) rotated by a yaw-only angle; the sub 0 move case is empty.
                 p.Position.Z += p.RiseZ * factor;
             }
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightAge += factor;
+            // Flame life plus most of the rising-particle tail, in 25 Hz ticks.
+            float duration = (_area ? 40f : 20f) + 16f;
+            float k = EffectLights.Envelope(_lightAge, duration, 3f, 16f);
+            if (k <= 0f)
+            {
+                Lights.Hide(0);
+                return;
+            }
+
+            float intensity = (_area ? 1.3f : 1.1f) * k * EffectLights.Flicker(_lightAge * 0.04f, 0.9f, 0.2f);
+            Lights.Set(0, _flamePosition + new Vector3(0f, 0f, 60f), FireLightColor, _area ? 320f : 260f, intensity);
         }
 
         private void SpawnParticle(Vector3 position, float scale)

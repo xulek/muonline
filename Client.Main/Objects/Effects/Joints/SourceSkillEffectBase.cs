@@ -28,6 +28,7 @@ namespace Client.Main.Objects.Effects.Joints
         private bool _started;
         private bool _disposed;
         private bool _releaseImmediately;
+        private EffectLights? _lights;
 
         protected SourceSkillEffectBase(WalkerObject caster, float triggerFrame, float triggerTimeoutSeconds, int maxQuads)
         {
@@ -46,6 +47,9 @@ namespace Client.Main.Objects.Effects.Joints
 
         protected WalkerObject Caster { get; }
         protected SourceQuadBatch Batch { get; }
+
+        /// <summary>Dynamic light slots owned by this effect (created on first use, released on dispose).</summary>
+        protected EffectLights Lights => _lights ??= new EffectLights(this, 6);
         protected bool Started => _started;
 
         /// <summary>
@@ -207,6 +211,7 @@ namespace Client.Main.Objects.Effects.Joints
 
             _disposed = true;
             DisposeEffect();
+            _lights?.Dispose();
             Batch.Dispose();
             base.Dispose();
         }

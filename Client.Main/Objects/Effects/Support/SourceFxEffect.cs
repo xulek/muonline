@@ -52,6 +52,10 @@ namespace Client.Main.Objects.Effects.Support
         private float _delayFrames;
         private bool _started;
         private bool _finished;
+        private EffectLights? _lights;
+
+        /// <summary>Dynamic light slots owned by this effect (created on first use, released on dispose).</summary>
+        protected EffectLights Lights => _lights ??= new EffectLights(this, 6);
 
         /// <summary>Number of 25 Hz ticks run since the effect started.</summary>
         protected int TickCount { get; private set; }
@@ -385,6 +389,7 @@ namespace Client.Main.Objects.Effects.Support
             }
 
             RemoveModels();
+            _lights?.Dispose();
             for (int i = 0; i < _trails.Length; i++)
             {
                 _trails[i].Active = false;

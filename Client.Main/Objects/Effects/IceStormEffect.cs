@@ -94,6 +94,9 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _shinyTexture;
         private Texture2D? _lightTexture;
         private float _angleZ;
+        private Vector3 _lightCenter;
+
+        private static readonly Vector3 IceGlowColor = new(0.4f, 0.7f, 1f);
 
         public IceStormEffect(WalkerObject caster, Vector3 target)
             : base(caster, 5f, ReleaseDelaySeconds, 1024)
@@ -124,6 +127,7 @@ namespace Client.Main.Objects.Effects
             const float factor = 1f; // CreateEffect / CreateParticle init offsets: the 5.2 port scales them by FPS_ANIMATION_FACTOR, which shrinks them at high FPS; 25 Hz values
             _angleZ = CasterYawDegrees;
             var ground = new Vector3(_target.X, _target.Y, TerrainHeight(_target));
+            _lightCenter = ground;
 
             for (int i = 0; i < _flakes.Length; i++)
             {
@@ -209,6 +213,44 @@ namespace Client.Main.Objects.Effects
 
             MoveShards(factor);
             MoveParticles(factor);
+            UpdateLights();
+        }
+
+        private void UpdateLights()
+        {
+            // Falling blizzard: cold glow following the live flakes (kept low enough to reach the ground).
+            int flakes = 0;
+            Vector3 sum = Vector3.Zero;
+            float flakeLight = 0f;
+            for (int i = 0; i < _flakes.Length; i++)
+            {
+                if (!_flakes[i].Live)
+                    continue;
+                flakes++;
+                sum += _flakes[i].Position;
+                flakeLight += _flakes[i].Light;
+            }
+            if (flakes > 0)
+            {
+                Vector3 center = sum / flakes;
+                center.Z = MathF.Min(center.Z, _lightCenter.Z + 250f);
+                float glow = MathHelper.Clamp(flakeLight / flakes, 0f, 1f) * (flakes / (float)_flakes.Length);
+                Lights.Set(0, center, IceGlowColor, 320f, 1.1f * glow);
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
+
+            // Impact: bright flash at the target while the crystals burst, decaying with them.
+            float impact = 0f;
+            for (int i = 0; i < _crystals.Length; i++)
+            {
+                ref Crystal c = ref _crystals[i];
+                if (c.Live)
+                    impact = MathF.Max(impact, c.BlendMeshLight * MathHelper.Clamp(c.LifeTime / 20f, 0f, 1f));
+            }
+            Lights.Set(1, _lightCenter + new Vector3(0f, 0f, 60f), IceGlowColor, 300f + 120f * impact, 2f * impact);
         }
 
         private void SpawnShard(Vector3 position)

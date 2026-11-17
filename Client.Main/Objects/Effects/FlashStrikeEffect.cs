@@ -27,6 +27,7 @@ namespace Client.Main.Objects.Effects
         private const string FlareTexturePath = "Effect/Flare.jpg";                  // BITMAP_FLARE
         private const string SoundPath = "Sound/BattleCastle/sDStunCancel.wav";      // SOUND_BMS_STUN_REMOVAL
         private const short BattleCastleWorldIndex = 31;
+        private static readonly Vector3 StrikeGlow = new(0.7f, 0.8f, 1f);
 
         private readonly WalkerObject _target;
         private SourceTrail? _trail;
@@ -92,6 +93,16 @@ namespace Client.Main.Objects.Effects
                 _trail.Push(_position, DownAngle, 120f); // epilogue
 
             _lifeTime -= factor;
+
+            // Dynamic light: flickering bolt head while falling, then an impact flash that decays with the trail.
+            Vector3 lightPos = _position;
+            float ground = TerrainHeight(lightPos) + 60f;
+            if (lightPos.Z < ground)
+                lightPos.Z = ground;
+            float fade = MathF.Max(0f, MathF.Min(1f, _lifeTime / 6f));
+            float intensity = _createTails ? 1.2f : 2.2f * _light.X;
+            Lights.Set(0, lightPos, StrikeGlow, _createTails ? 240f : 400f,
+                intensity * fade * EffectLights.Flicker((40f - _lifeTime) * 0.04f, 3.1f, 0.4f));
         }
 
         protected override bool HasActiveContent() => _lifeTime >= 0f;

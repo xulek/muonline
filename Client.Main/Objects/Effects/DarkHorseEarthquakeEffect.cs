@@ -78,6 +78,11 @@ namespace Client.Main.Objects.Effects
         private bool _furyStarted;
         private double _lastWaveMs = double.MinValue;
         private bool _active = true;
+        private static readonly Vector3 QuakeColor = new(0.79f, 0.72f, 0.49f); // AddTerrainLight colour
+        private static readonly Vector3 BurstColor = new(1f, 0.7f, 0.4f);
+        private float _glow;
+        private float _burst;
+        private float _waveAge = 100f;
 
         public DarkHorseEarthquakeEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 512)
@@ -139,6 +144,20 @@ namespace Client.Main.Objects.Effects
             MoveGroundStones(factor);
             MoveSmokes(factor);
             _stones.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // slot 0: sustained ground glow under the horse, pulsing with every shock wave;
+            // slot 1: burst while the ground stones erupt.
+            _glow = MathHelper.Clamp(_glow + (_active ? 0.15f : -0.08f) * factor, 0f, 1f);
+            _waveAge += factor;
+            _burst = MathF.Max(0f, _burst - 0.12f * factor);
+            Vector3 center = CasterPosition + Vector3.UnitZ * 60f;
+            float pulse = 0.7f + 0.5f * EffectLights.Flash(_waveAge, 10f, 1.5f);
+            Lights.Set(0, center, QuakeColor, 380f, 0.9f * _glow * pulse);
+            Lights.Set(1, center, BurstColor, 500f, 1.5f * _burst * _burst * EffectLights.Flicker(_waveAge * 0.04f, 1.7f, 0.2f));
         }
 
         private void RenderDarkHorseSkill(float frame, float factor)
@@ -151,10 +170,12 @@ namespace Client.Main.Objects.Effects
             {
                 SpawnWave(horse);
                 _lastWaveMs = now;
+                _waveAge = 0f;
             }
 
             if (frame >= 8f && frame <= 9.5f)
             {
+                _burst = 1f;
                 if (FpsCheck(2, factor))
                 {
                     // Vector(0, 150 * (WeaponLevel / 2) * FPS_ANIMATION_FACTOR, 0): integer half of the 25 Hz count.

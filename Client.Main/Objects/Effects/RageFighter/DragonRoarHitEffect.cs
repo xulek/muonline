@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Graphics;
 using Client.Main.Models;
@@ -77,6 +78,7 @@ namespace Client.Main.Objects.Effects.RageFighter
         private int _volcanoMark = -1;
 
         private float _redLightLife;
+        private static readonly Vector3 VolcanoGlow = new(1f, 0.35f, 0.1f);
 
         private bool _waveLive;
         private Vector3 _waveLight;
@@ -220,6 +222,18 @@ namespace Client.Main.Objects.Effects.RageFighter
                 _redLightLife -= factor;
 
             _fires.Move(factor);
+
+            // Dynamic light: one eruption glow per hit (none for hits without a volcano).
+            if (_volcanoLive)
+            {
+                float glow = MathF.Min(1f, (100f - _volcanoLife) / 4f) * MathHelper.Clamp(_volcanoLife / 20f, 0f, 1f);
+                Lights.Set(0, _volcanoPosition + new Vector3(0f, 0f, 80f), VolcanoGlow, 320f,
+                    1.5f * glow * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), _targetId * 0.37f, 0.2f));
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
         }
 
         private void TickTargetFire(float factor)

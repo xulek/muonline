@@ -22,6 +22,9 @@ namespace Client.Main.Worlds
         /// <summary>Glow and grade settings of this scene.</summary>
         internal SceneBloom Glow { get; } = new();
 
+        // The menu scene applies its own glow (Glow); no second gameplay pass on top.
+        protected override bool UsesWorldGlow => false;
+
         public override void Draw(GameTime gameTime)
         {
             var gd = GraphicsManager.Instance.GraphicsDevice;

@@ -121,7 +121,9 @@ namespace Client.Main.Graphics
                 return;
 
             DisposeTargets();
-            _scene = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.Depth24Stencil8, samples, RenderTargetUsage.DiscardContents);
+            // PreserveContents: gameplay worlds switch to other targets mid-frame (ground shadow mask, part atlas)
+            // and come back; a DiscardContents target is cleared on rebind, which wiped the terrain and objects.
+            _scene = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.Depth24Stencil8, samples, RenderTargetUsage.PreserveContents);
             _half = new RenderTarget2D(device, Math.Max(1, width / 2), Math.Max(1, height / 2), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterA = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterB = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);

@@ -61,6 +61,7 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _ballTexture;
         private Vector3 _startPosition;
         private int _ballCount;
+        private float _hitAge = -1f;
 
         public LanceEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, triggerFrame: 5f, triggerTimeoutSeconds: 14f * 0.04f, maxQuads: 64)
@@ -132,6 +133,8 @@ namespace Client.Main.Objects.Effects
                         float distance = SourceJointMath.MoveHumming(ref j.Position, ref j.HeadAngle, _startPosition, j.Velocity, factor);
                         if (distance < 100f)
                         {
+                            if (_hitAge < 0f)
+                                _hitAge = 0f;
                             j.Position = _startPosition;
                             j.Scale += 0.04f * factor;
                             if ((int)j.LifeTime % 3 == 0 && FpsCheck(1, factor))
@@ -183,6 +186,17 @@ namespace Client.Main.Objects.Effects
                     }
                     b.Position += b.Step * factor;
                 }
+            }
+
+            // Dynamic lights: glow on the lead javelin, flash where the javelins reach the target.
+            ref Javelin lead = ref _javelins[0];
+            float flyGlow = lead.Live ? MathF.Min(1f, (35f - lead.LifeTime) / 3f) * MathF.Max(0f, MathF.Min(1f, lead.LifeTime / 6f)) : 0f;
+            Lights.Set(0, lead.Position, BodyLight, 220f, flyGlow);
+            if (_hitAge >= 0f)
+            {
+                _hitAge += factor;
+                Lights.Set(1, _startPosition, BodyLight, 340f,
+                    1.7f * MathF.Min(1f, _hitAge / 1.5f) * EffectLights.Flash(_hitAge, 16f, 1.4f));
             }
         }
 

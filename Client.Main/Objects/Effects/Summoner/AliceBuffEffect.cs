@@ -186,6 +186,33 @@ namespace Client.Main.Objects.Effects.Summoner
             }
 
             MoveJoints(factor);
+            UpdateLights();
+        }
+
+        private void UpdateLights()
+        {
+            if (Minus)
+                return;
+
+            // Slot 1: release circle at the caster, grows with the decal and fades over its last 5 ticks.
+            if (_circleLife > 0f)
+            {
+                float luminosity = _circleLife < 5f ? _circleLife * 0.2f : 1f;
+                float rise = MathHelper.Clamp((20f - _circleLife) / 3f, 0f, 1f);
+                Lights.Set(1, _circleCenter + new Vector3(0f, 0f, 50f), _circleLight, 200f + (20f - _circleLife) * 6f,
+                    0.9f * MathF.Min(luminosity, rise));
+            }
+            else
+            {
+                Lights.Hide(1);
+            }
+
+            // Slot 0: buff rings on the target, following the ring alpha.
+            ref Ring ring = ref _rings[0];
+            if (ring.Live)
+                Lights.Set(0, ring.Position, _ringLight, 260f, 1.4f * MathHelper.Clamp(ring.Alpha, 0f, 1f));
+            else
+                Lights.Hide(0);
         }
 
         private void SpawnJoint(int ring, Vector3 start, Vector3 angle)

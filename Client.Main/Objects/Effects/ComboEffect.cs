@@ -20,6 +20,7 @@ namespace Client.Main.Objects.Effects
         private const string LightTexturePath = "Effect/flare01.jpg"; // BITMAP_LIGHT
         private const int RayCount = 60;
         private const float ModelVelocity = 0.3f;
+        private static readonly Vector3 ComboGlow = new(0.25f, 0.55f, 1f);
 
         private struct Ray
         {
@@ -126,6 +127,11 @@ namespace Client.Main.Objects.Effects
                 if (r.LifeTime < 0f)
                     r.Live = false;
             }
+
+            // Dynamic light: blue burst at the combo core, decaying with the model.
+            float comboAge = 20f - _comboLifeTime;
+            Lights.Set(0, _comboPosition + new Vector3(0f, 0f, 30f), ComboGlow, 300f + comboAge * 6f,
+                2f * MathF.Min(1f, comboAge / 1.5f) * EffectLights.Flash(comboAge, 20f, 1.4f));
         }
 
         protected override bool HasActiveContent()

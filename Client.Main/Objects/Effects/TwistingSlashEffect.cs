@@ -159,6 +159,12 @@ namespace Client.Main.Objects.Effects
 
             _sparkPool.Move(factor, World?.Terrain);
             MoveSmokes(factor);
+
+            // Dynamic lights: warm glow on the lead wheel plus a soft fill around the caster.
+            ref Wheel lead = ref _wheels[0];
+            float wheelGlow = lead.Live ? EffectLights.Envelope(25f - lead.LifeTime, 25f, 3f, 8f) : 0f;
+            Lights.Set(0, lead.Position + new Vector3(0f, 0f, 40f), LightSpriteLight, 230f, 1.2f * wheelGlow);
+            Lights.Set(1, owner + new Vector3(0f, 0f, 60f), LightSpriteLight, 360f, 0.55f * wheelGlow);
         }
 
         private void SpawnWheel(int subType)

@@ -50,6 +50,8 @@ namespace Client.Main.Worlds
             }
         }
 
+        public override Color SceneClearColor => new(30, 40, 40);
+
         // SourceMain: WD_24HELLAS.. clear color (30/256, 40/256, 40/256)
         public override void Draw(GameTime time)
         {

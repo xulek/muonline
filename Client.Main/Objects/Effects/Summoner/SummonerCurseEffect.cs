@@ -29,6 +29,8 @@ namespace Client.Main.Objects.Effects.Summoner
         private const string ZinTexturePath = "Effect/mzine_typer2.jpg"; // BITMAP_MAGIC_ZIN
         private const string WeaknessSound = "Sound/SE_Ch_summoner_weakness.wav";
         private const string EnervationSound = "Sound/SE_Ch_summoner_innovation.wav";
+        private static readonly Vector3 WeaknessGlow = new(1f, 0.25f, 0.2f);
+        private static readonly Vector3 EnervationGlow = new(0.25f, 1f, 0.7f);
 
         private static readonly string[] CircleModels =
         {
@@ -123,6 +125,19 @@ namespace Client.Main.Objects.Effects.Summoner
                         break;
                 }
                 z.LifeTime -= factor;
+            }
+
+            // Dynamic light: ground circle glow, follows the sub 0 circle alpha (50 ticks, fades below 20).
+            ref Zin glow = ref _zins[1];
+            if (glow.LifeTime > 0f)
+            {
+                float fadeIn = MathHelper.Clamp((50f - glow.LifeTime) / 4f, 0f, 1f);
+                Lights.Set(0, _center + new Vector3(0f, 0f, 60f), _weakness ? WeaknessGlow : EnervationGlow, 380f,
+                    1.1f * fadeIn * MathHelper.Clamp(glow.Alpha, 0f, 1f));
+            }
+            else
+            {
+                Lights.Hide(0);
             }
 
             if (_modelLife > 0f)

@@ -26,6 +26,7 @@ namespace Client.Main.Objects.Effects.Summoner
     {
         private const string ImpactTexturePath = "Effect/empact01.jpg"; // BITMAP_SUMMON_IMPACT
         private const string LightTexturePath = "Effect/flare01.jpg";   // BITMAP_LIGHT
+        private const int CastLightSlot = 5;
 
         private static readonly string[] CastingModelPaths =
         {
@@ -178,6 +179,13 @@ namespace Client.Main.Objects.Effects.Summoner
                 if (m.LifeTime <= 0f)
                     m.Live = false;
             }
+
+            // Dynamic light: casting circle glow at the caster (slot 5; creatures use 0..4).
+            if (_magic9Life > 0f)
+                Lights.Set(CastLightSlot, _origin + new Vector3(0f, 0f, 50f), _magic9Light, 260f,
+                    0.9f * EffectLights.Envelope(40f - _magic9Life, 40f, 4f, 16f));
+            else
+                Lights.Hide(CastLightSlot);
         }
 
         protected sealed override bool HasActiveContent()

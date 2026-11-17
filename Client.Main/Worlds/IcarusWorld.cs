@@ -12,6 +12,8 @@ namespace Client.Main.Worlds
     public class IcarusWorld : WalkableWorldControl
     {
         private static readonly Color CLEAR_COLOR = new Color(3f / 256f, 25f / 256f, 44f / 256f, 1f);
+
+        public override Color SceneClearColor => CLEAR_COLOR;
         private IcarusCloudLayer _cloudLayer;
         private IcarusStormSystem _stormSystem;
         private IcarusAmbientManager _ambientManager;

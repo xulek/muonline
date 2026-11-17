@@ -65,6 +65,7 @@ namespace Client.Main.Objects.Effects
         private float _circleLife;
         private float _lightLife;
         private float _frame;
+        private static readonly Vector3 SummonColor = new(0.4f, 0.5f, 1f);
 
         public PartySummonEffect(WalkerObject caster)
             : base(caster, triggerFrame: float.MaxValue, triggerTimeoutSeconds: 5f * 0.04f, maxQuads: 64 + 64 * 200 * 2)
@@ -117,6 +118,13 @@ namespace Client.Main.Objects.Effects
 
             MoveFlares(factor);
             MoveJoints(factor);
+
+            // slot 0: the summoning circle on the ground (250 frames); slot 1: the flare column above it.
+            float age = 250f - _circleLife;
+            float pulse = EffectLights.Flicker(age * 0.04f, 0.4f, 0.08f);
+            Lights.Set(0, _origin + Vector3.UnitZ * 60f, SummonColor, 420f, 1f * EffectLights.Envelope(age, 250f, 10f, 40f) * pulse);
+            float column = 250f - _lightLife;
+            Lights.Set(1, _origin + Vector3.UnitZ * 320f, SummonColor, 300f, 0.6f * EffectLights.Envelope(column, 220f, 15f, 30f) * pulse);
         }
 
         private void SpawnFlare(Vector3 position)

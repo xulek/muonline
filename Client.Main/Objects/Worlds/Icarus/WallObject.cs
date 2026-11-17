@@ -12,6 +12,8 @@ namespace Client.Main.Objects.Worlds.Icarus
         {
             LightEnabled = true;
             BlendState = BlendState.AlphaBlend;
+            // WD_10HEAVEN case 10: BITMAP_LIGHT flame on bone 3.
+            Children.Add(new IcarusWallFlareEffect(this));
         }
 
         public override async Task Load()

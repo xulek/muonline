@@ -27,6 +27,8 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _texture;
         private bool _released;
         private float _attackTime = 1f;
+        private float _glowAge;
+        private static readonly Vector3 SpiralGlow = new(0.75f, 0.85f, 1f);
 
         private sealed class Joint
         {
@@ -98,6 +100,15 @@ namespace Client.Main.Objects.Effects
                 else
                     i++;
             }
+
+            // Dynamic light: cold glow around the caster while the spiral blades live.
+            float maxLife = 0f;
+            for (int i = 0; i < _jointCount; i++)
+                maxLife = MathF.Max(maxLife, _joints[i]!.Life);
+            if (_jointCount > 0)
+                _glowAge += factor;
+            Lights.Set(0, CasterPosition + new Vector3(0f, 0f, 100f), SpiralGlow, 300f,
+                1.1f * MathF.Min(1f, _glowAge / 3f) * MathHelper.Clamp(maxLife / 8f, 0f, 1f));
         }
 
         private void Spawn(int kind)

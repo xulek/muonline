@@ -37,6 +37,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private const string SmokeTexturePath = "Effect/smoke01.jpg";       // BITMAP_SMOKE
         private const float LimitAttackTime = 15f;
         private const int MaxHandParticles = 96;
+        private const int HandLightSlot = 5; // subclasses use slots 0..4
 
         private struct HandParticle
         {
@@ -59,6 +60,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private bool _casting = true;
         private bool _handVisible;
         private Vector3 _handPosition;
+        private float _handGlow;
 
         protected AliceSkillEffectBase(WalkerObject caster, Skill skill, int maxQuads)
             : base(caster, 0f, 0f, maxQuads)
@@ -153,6 +155,14 @@ namespace Client.Main.Objects.Effects.Summoner
                     }
                 }
             }
+
+            // Dynamic light: hand glow while casting (Blind's minus blend gets none).
+            _handGlow = _handVisible ? System.MathF.Min(1f, _handGlow + 0.25f * factor) : System.MathF.Max(0f, _handGlow - 0.2f * factor);
+            if (_handGlow > 0f && !Minus)
+                Lights.Set(HandLightSlot, _handPosition, _pinLight, 170f,
+                    0.9f * _handGlow * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 1.3f, 0.12f));
+            else
+                Lights.Hide(HandLightSlot);
 
             MoveHandParticles(factor);
 
@@ -251,7 +261,7 @@ namespace Client.Main.Objects.Effects.Summoner
         }
 
         protected sealed override bool HasActiveContent() =>
-            _casting || !_released || _handParticleCount > 0 || HasReleaseContent();
+            _casting || !_released || _handParticleCount > 0 || _handGlow > 0f || HasReleaseContent();
 
         protected sealed override void OnDraw()
         {

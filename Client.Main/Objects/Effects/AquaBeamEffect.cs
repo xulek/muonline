@@ -51,6 +51,11 @@ namespace Client.Main.Objects.Effects
         protected override void OnTick(float factor)
         {
             _lifeTime -= factor;
+
+            // Three lights along the beam: quick rise, fade over the last 10 frames.
+            float glow = EffectLights.Envelope(20f - _lifeTime, 20f, 2f, 10f);
+            for (int i = 0; i < 3; i++)
+                Lights.Set(i, _position + _direction * (3f + i * 7f), BeamLight, 260f, 1.2f * glow);
         }
 
         protected override bool HasActiveContent() => _lifeTime > 0f;

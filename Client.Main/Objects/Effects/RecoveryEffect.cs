@@ -62,6 +62,9 @@ namespace Client.Main.Objects.Effects
         private float _impactLifeTime;
         private float _impactScale;
         private float _impactAlpha;
+        private static readonly Vector3 RecoveryColor = new(1f, 0.65f, 0.3f);
+        private static readonly Vector3 ImpactColor = new(1f, 0.85f, 0.3f);
+        private float _age;
 
         public RecoveryEffect(WalkerObject caster, WalkerObject target, bool remoteCaster)
             : base(target, 0f, 0f, 256)
@@ -181,6 +184,16 @@ namespace Client.Main.Objects.Effects
                 if (_impactLifeTime <= 40f)
                     _impactAlpha -= 0.1f * factor;
                 _impactLifeTime -= factor;
+            }
+
+            // slot 0: warm glow on the target over the twilight decals (80 frames);
+            // slot 1: the remote caster's impact sprite.
+            _age += factor;
+            Lights.Set(0, _center + Vector3.UnitZ * 80f, RecoveryColor, 320f, 1f * EffectLights.Envelope(_age, 80f, 6f, 30f));
+            if (_remoteCaster)
+            {
+                float impact = _impactLifeTime > 0f ? MathHelper.Clamp(_impactScale, 0f, 1f) * MathHelper.Clamp(_impactAlpha, 0f, 1f) : 0f;
+                Lights.Set(1, _casterForImpact.WorldPosition.Translation + Vector3.UnitZ * 130f, ImpactColor, 200f, 0.9f * impact);
             }
         }
 

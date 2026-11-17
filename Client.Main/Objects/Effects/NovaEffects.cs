@@ -58,6 +58,11 @@ namespace Client.Main.Objects.Effects
         private bool _finishing;
         private byte _stage;
 
+        // Dynamic light (slot 0: charge glow around the caster, grows with the stage).
+        private static readonly Vector3 ChargeLightColor = new(0.4f, 0.45f, 1f);
+        private float _glow;
+        private float _lightTime;
+
         private NovaChargeEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 4096)
         {
@@ -169,6 +174,26 @@ namespace Client.Main.Objects.Effects
             }
 
             MoveHealings(factor);
+            UpdateLight(factor);
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightTime += factor * 0.04f;
+            bool charging = !_finishing && Caster is PlayerObject p && p.CurrentAction == PlayerAction.PlayerSkillHellBegin;
+            // Ease toward on/off so start and stop never pop.
+            float target = charging ? 1f : 0f;
+            _glow += (target - _glow) * MathHelper.Clamp(factor * (charging ? 0.15f : 0.3f), 0f, 1f);
+            if (_glow < 0.02f && !charging)
+            {
+                _glow = 0f;
+                Lights.Hide(0);
+                return;
+            }
+
+            float stage = _stage / (float)MaxStage;
+            float intensity = (0.6f + 0.6f * stage) * _glow * EffectLights.Flicker(_lightTime, 3.1f, 0.12f);
+            Lights.Set(0, CasterPosition + new Vector3(0f, 0f, 100f), ChargeLightColor, 200f + 120f * stage, intensity);
         }
 
         private void EmitCharge(PlayerObject player)
@@ -351,6 +376,10 @@ namespace Client.Main.Objects.Effects
         private Vector3 _position;
         private float _circleLifeTime;
 
+        // Dynamic light (slot 0: blast flash expanding with the spirits).
+        private static readonly Vector3 BlastLightColor = new(0.4f, 0.5f, 1f);
+        private float _lightAge;
+
         public NovaReleaseEffect(WalkerObject caster, byte stage)
             : base(caster, 14f, ReleaseDelaySeconds, 2048)
         {
@@ -408,6 +437,24 @@ namespace Client.Main.Objects.Effects
                 if (s.LifeTime < 0f)
                     s.Live = false;
             }
+
+            UpdateLight(factor);
+        }
+
+        private void UpdateLight(float factor)
+        {
+            _lightAge += factor * 0.04f;
+            float duration = 0.8f + _stage * 0.04f;
+            float k = MathF.Min(1f, _lightAge / 0.06f) * EffectLights.Flash(_lightAge, duration, 1.3f);
+            if (k <= 0f)
+            {
+                Lights.Hide(0);
+                return;
+            }
+
+            float stage = _stage / 12f;
+            float radius = 320f + 160f * stage + 160f * (1f - k);
+            Lights.Set(0, _position + new Vector3(0f, 0f, 100f), BlastLightColor, radius, (1.6f + 0.8f * stage) * k);
         }
 
         private void SpawnSpirit(Vector3 position, Vector3 angle, int subType)

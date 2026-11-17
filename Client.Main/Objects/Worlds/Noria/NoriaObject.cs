@@ -144,6 +144,7 @@ namespace Client.Main.Objects.Worlds.Noria
         private Texture2D? _sparkTexture;
         private Texture2D? _jointSparkTexture;
         private SpriteBatch? _spriteBatch;
+        private MapObjectGlowLight? _glowLight;
 
         private struct ShinyParticle
         {
@@ -217,11 +218,27 @@ namespace Client.Main.Objects.Worlds.Noria
             }
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
+
+            // The source only draws BITMAP_LIGHT sprites for these lamps; one soft blue
+            // terrain light per object makes the glow reach the ground.
+            float glowRadiusTiles = sourceType switch
+            {
+                1 => 2f,
+                9 or 17 or 35 or 39 => 3f,
+                _ => 0f,
+            };
+            if (glowRadiusTiles > 0f)
+            {
+                _glowLight = new MapObjectGlowLight(this, Constants.TERRAIN_SCALE * glowRadiusTiles, 0.7f);
+                _glowLight.Register();
+            }
         }
 
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
+
+            UpdateGlowLight(gameTime);
 
             if (_owner.Type != 39 || !_owner.Visible ||
                 _owner.Status != GameControlStatus.Ready)
@@ -315,6 +332,40 @@ namespace Client.Main.Objects.Worlds.Noria
             {
                 draw();
             }
+        }
+
+        private void UpdateGlowLight(GameTime gameTime)
+        {
+            if (_glowLight == null || !_owner.Visible || _owner.Status != GameControlStatus.Ready)
+                return;
+
+            if (!_glowLight.IsPositioned)
+            {
+                Matrix[] bones = _owner.GetEffectBoneTransforms();
+                if (bones == null)
+                    return;
+
+                // Source sprite bones: 1 -> 2/4/6, 9 -> 1, 17 -> 4/7/10/13, 35 -> 3, 39 -> 57.
+                int boneIndex = _owner.Type switch
+                {
+                    1 => 4,
+                    9 => 1,
+                    17 => 7,
+                    35 => 3,
+                    _ => 57,
+                };
+                if (!TryGetBonePosition(bones, boneIndex, out Vector3 position))
+                    position = _owner.EffectWorldPosition.Translation;
+                _glowLight.SetPosition(position);
+            }
+
+            if (!_glowLight.Step(gameTime))
+                return;
+
+            float luminosity = (MuGame.Random.Next(10) + 85) * 0.01f;
+            _glowLight.SetColor(_owner.Type == 39
+                ? new Vector3(luminosity * 0.6f, luminosity * 0.8f, luminosity)
+                : new Vector3(luminosity * 0.4f, luminosity * 0.7f, luminosity));
         }
 
         private void DrawChaosMachineSprites(

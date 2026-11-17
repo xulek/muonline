@@ -16,6 +16,7 @@ namespace Client.Main.Objects.Effects
         private readonly ModelObject _sourceModel;
         private readonly ushort _targetId;
         private readonly int _requiredAction;
+        private readonly EffectLights _lights;
         private float _elapsed;
 
         public MonsterMagicAttackEffect(
@@ -28,6 +29,7 @@ namespace Client.Main.Objects.Effects
             _sourceModel = sourceModel;
             _targetId = targetId;
             _requiredAction = requiredAction;
+            _lights = new EffectLights(this, 1);
 
             int[] bones = sourceBones == null || sourceBones.Length == 0
                 ? new[] { 0 }
@@ -81,7 +83,21 @@ namespace Client.Main.Objects.Effects
 
             _elapsed += (float)gameTime.ElapsedGameTime.TotalSeconds;
             if (_elapsed >= LifetimeSeconds)
+            {
                 RemoveSelf();
+                return;
+            }
+
+            // Cool-white lightning glow at the struck target, flickering with the arcs.
+            float glow = 0.85f * EffectLights.Envelope(_elapsed, LifetimeSeconds, 0.05f, 0.35f) *
+                EffectLights.Flicker(_elapsed, 1.7f, 0.4f);
+            _lights.Set(0, GetTargetPosition() + Vector3.UnitZ * 60f, new Vector3(0.75f, 0.85f, 1f), 260f, glow);
+        }
+
+        public override void Dispose()
+        {
+            _lights.Dispose();
+            base.Dispose();
         }
 
         private Vector3 GetTargetPosition()

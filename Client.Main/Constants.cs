@@ -125,6 +125,8 @@ namespace Client.Main
         public static bool ENABLE_ITEM_MATERIAL_ANIMATION;
         /// <summary>Login and character selection extras: glow and grading, animated water, spray and mist, fireflies, sparkles, stars.</summary>
         public static bool ENABLE_MENU_SCENE_EFFECTS = true;
+        /// <summary>Gameplay worlds: soft glow around bright light (fire, spells, lamps) plus a light colour grade and vignette.</summary>
+        public static bool ENABLE_WORLD_BLOOM = true;
         /// <summary>Use remastered world textures bundled with the client (Assets/Remaster) instead of the Data files.</summary>
         public static bool REMASTERED_TEXTURES = true;
         /// <summary>Terrain textures are sampled twice (rotated, through a noise mask) to hide their repeating grid.</summary>

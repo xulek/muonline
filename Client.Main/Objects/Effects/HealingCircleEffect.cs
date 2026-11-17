@@ -47,6 +47,7 @@ namespace Client.Main.Objects.Effects
         private Vector3 _center;
         private float _angleZ;
         private float _lifeTime;
+        private float _age;
 
         public HealingCircleEffect(WalkerObject caster, WalkerObject owner, int subType, string? sound)
             : base(caster, 5f, ReleaseDelaySeconds, 256)
@@ -88,6 +89,11 @@ namespace Client.Main.Objects.Effects
                 CreateHealing();
                 _lifeTime -= factor;
             }
+
+            // Soft glow of the support circle in its tint (20 frames of circle + 12 of joints).
+            _age += factor;
+            Vector3 glowPosition = (OwnerAlive ? _owner.WorldPosition.Translation : _center) + Vector3.UnitZ * 70f;
+            Lights.Set(0, glowPosition, _tint, 300f, 1f * EffectLights.Envelope(_age, 32f, 4f, 14f));
 
             Vector3 target = (OwnerAlive ? _owner.WorldPosition.Translation : _center) + new Vector3(0f, 0f, 120f * factor);
             for (int i = 0; i < _healings.Length; i++)

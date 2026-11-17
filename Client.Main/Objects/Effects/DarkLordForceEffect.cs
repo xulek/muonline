@@ -73,6 +73,9 @@ namespace Client.Main.Objects.Effects
         private float _piercingLight;
         private float _piercingFrame;
         private float _piercingLife;
+        private float _age;
+        private Vector3 _castOrigin;
+        private static readonly Vector3 ForceColor = new(1f, 0.75f, 0.5f);
 
         public DarkLordForceEffect(WalkerObject caster)
             : base(caster, triggerFrame: 3f, triggerTimeoutSeconds: 14f * 0.04f,
@@ -130,6 +133,7 @@ namespace Client.Main.Objects.Effects
             _piercingDirectionY = -60f;
             _piercingLight = 1f;
             _piercingLife = 10f;
+            _castOrigin = _piercingPosition;
 
             SoundController.Instance.PlayBuffer(HitSoundPath); // SOUND_SKILL_SWORD1 was played at the packet
         }
@@ -179,6 +183,8 @@ namespace Client.Main.Objects.Effects
                     b.Live = false;
             }
 
+            UpdateLights(factor);
+
             if (_piercingLife > 0f)
             {
                 _piercingDirectionY = MathF.Min(0f, _piercingDirectionY + 12f * factor);
@@ -194,6 +200,15 @@ namespace Client.Main.Objects.Effects
                 _piercingPosition += SourceJointMath.Rotate(new Vector3(0f, _piercingDirectionY, 0f), _piercingAngle) * factor;
                 _piercingLife -= factor;
             }
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _age += factor;
+            // slot 0: cast flash at the caster; slot 1: the piercing head travelling forward (10 frames).
+            Lights.Set(0, _castOrigin, ForceColor, 210f, 1.1f * EffectLights.Flash(_age, 8f, 1.5f));
+            float pierce = EffectLights.Envelope(_age, 10f, 1f, 4f);
+            Lights.Set(1, _piercingPosition, ForceColor, 240f, 1.3f * pierce);
         }
 
         private void SpawnTrailWave(Vector3 position, int pkKey)

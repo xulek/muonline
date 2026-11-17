@@ -70,6 +70,11 @@ namespace Client.Main.Objects.Effects
         private float _modelFrame;
         private float _stoneFrame;
 
+        // Dynamic lights (slot 0: ring of bombs flash, slot 1: lingering ember glow).
+        private static readonly Vector3 FireLightColor = new(1f, 0.45f, 0.15f);
+        private static readonly Vector3 EmberLightColor = new(1f, 0.35f, 0.1f);
+        private float _lightAge;
+
         public InfernoEffect(WalkerObject caster)
             : base(caster, 5f, ReleaseDelaySeconds, 512)
         {
@@ -238,6 +243,26 @@ namespace Client.Main.Objects.Effects
             }
 
             _sparkPool.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _lightAge += factor * 0.04f;
+            Vector3 center = _position + new Vector3(0f, 0f, 80f);
+
+            // Explosions: short attack (no pop), then a 0.7 s decay.
+            float flash = MathF.Min(1f, _lightAge / 0.05f) * EffectLights.Flash(_lightAge, 0.7f, 1.4f);
+            if (flash > 0f)
+                Lights.Set(0, center, FireLightColor, 300f + 200f * flash, 2.3f * flash);
+            else
+                Lights.Hide(0);
+
+            float ember = EffectLights.Envelope(_lightAge, 1.4f, 0.2f, 0.9f);
+            if (ember > 0f)
+                Lights.Set(1, center, EmberLightColor, 360f, 0.7f * ember * EffectLights.Flicker(_lightAge, 0.4f, 0.2f));
+            else
+                Lights.Hide(1);
         }
 
         private void SpawnFire(Vector3 position, Vector3 angle, int subType)

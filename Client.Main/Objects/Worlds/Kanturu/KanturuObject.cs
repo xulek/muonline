@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Models;
+using Client.Main.Objects.Worlds.Common;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -20,6 +21,7 @@ namespace Client.Main.Objects.Worlds.Kanturu
 
         private Controls.DynamicLight? _furnaceLight;
         private KanturuCoreGlowEmitter? _coreGlow;
+        private MapObjectLight? _mapLight;
 
         protected override bool RequiresPerFrameAnimation => true;
         protected override bool AllowMapObjectInstancing => false;
@@ -32,7 +34,10 @@ namespace Client.Main.Objects.Worlds.Kanturu
 
         public override async Task Load()
         {
+            // Map-object fire/glow lights (Kanturu 1st Types 60/61, 2nd Types 4/8).
+            _mapLight ??= MapObjectLight.TryAttach(this);
             await base.Load();
+            _mapLight?.Register();
 
             // Type is assigned by the map object factory after construction, so the light is created here.
             if (Type == 70 && _furnaceLight == null)
@@ -122,6 +127,7 @@ namespace Client.Main.Objects.Worlds.Kanturu
             }
 
             base.Update(gameTime);
+            _mapLight?.Update(gameTime);
 
             if (_furnaceLight != null && World?.Terrain != null)
                 _furnaceLight.Position = WorldPosition.Translation;
@@ -129,6 +135,8 @@ namespace Client.Main.Objects.Worlds.Kanturu
 
         public override void Dispose()
         {
+            _mapLight?.Unregister();
+
             if (_furnaceLight != null && World?.Terrain != null)
                 World.Terrain.RemoveDynamicLight(_furnaceLight);
 

@@ -27,16 +27,26 @@ namespace Client.Main.Objects.Worlds.Lorencia
     /// </summary>
     internal sealed class LorenciaObjectParticleEffect : SourceParticleSystem
     {
-        private const float LightRadius = Constants.TERRAIN_SCALE * 4f;
+        private const float DefaultLightRadius = Constants.TERRAIN_SCALE * 4f;
+        private const double LightStepSeconds = 1.0 / 25.0;
 
         private readonly ModelObject _owner;
         private Vector3 _localOffset;
         private readonly DynamicLight _terrainLight;
         private Texture2D? _texture;
         private Vector2 _textureCenter;
+        private double _lightAccumulator = LightStepSeconds;
 
         public LorenciaObjectEffectKind Kind { get; set; }
         public Vector3 LocalOffset { get => _localOffset; set => _localOffset = value; }
+
+        /// <summary>Radius of the CreateFire terrain light (source: AddTerrainLight range 4).</summary>
+        public float LightRadius { get => _terrainLight.Radius; set => _terrainLight.Radius = value; }
+
+        /// <summary>Per-channel multiplier of the flickering luminosity used for the terrain light.</summary>
+        public Vector3 LightTint { get; set; } = new(1f, 0.6f, 0.4f);
+
+        public float LightIntensity { get; set; } = 1f;
 
         protected override Texture2D? ParticleTexture => _texture;
         protected override Vector2 ParticleTextureCenter => _textureCenter;
@@ -62,7 +72,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
             {
                 Owner = this,
                 Color = Vector3.Zero,
-                Radius = LightRadius,
+                Radius = DefaultLightRadius,
                 Intensity = 0f,
             };
         }
@@ -92,6 +102,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
             float animationFactor = FPSCounter.Instance.FPS_ANIMATION_FACTOR;
             UpdateParticles(animationFactor);
+            _lightAccumulator += gameTime.ElapsedGameTime.TotalSeconds;
             EmitLegacyTick();
         }
 
@@ -191,20 +202,28 @@ namespace Client.Main.Objects.Worlds.Lorencia
                 return;
 
             Matrix rotation = Matrix.CreateFromQuaternion(MathUtils.AngleQuaternion(_owner.Angle));
-            Vector3 localPosition = _localOffset + new Vector3(
+            Vector3 flamePosition = _owner.WorldPosition.Translation +
+                                    Vector3.TransformNormal(_localOffset, rotation);
+            Vector3 position = flamePosition + Vector3.TransformNormal(new Vector3(
                 MuGame.Random.Next(-8, 8),
                 MuGame.Random.Next(-8, 8),
-                MuGame.Random.Next(-8, 8));
-            Vector3 position = _owner.WorldPosition.Translation +
-                               Vector3.TransformNormal(localPosition, rotation);
+                MuGame.Random.Next(-8, 8)), rotation);
 
             if (Kind == LorenciaObjectEffectKind.Fire)
             {
                 float luminosity = MuGame.Random.Next(6, 12) * 0.1f;
                 Vector3 light = new(luminosity, luminosity * 0.6f, luminosity * 0.4f);
-                _terrainLight.Position = position;
-                _terrainLight.Color = light;
-                _terrainLight.Intensity = 1f;
+
+                // The terrain light stays at the un-jittered flame position (static for the
+                // light selection cache); only its colour flickers, at the legacy 25 Hz step.
+                if (_terrainLight.Position != flamePosition)
+                    _terrainLight.Position = flamePosition;
+                if (_lightAccumulator >= LightStepSeconds)
+                {
+                    _lightAccumulator = 0d;
+                    _terrainLight.Color = LightTint * luminosity;
+                    _terrainLight.Intensity = LightIntensity;
+                }
 
                 if (FPSCounter.Instance.RandFPSCheck(2))
                 {

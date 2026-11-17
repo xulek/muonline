@@ -100,6 +100,10 @@ namespace Client.Main.Objects.Effects
         private int _furySubType;
         private bool _gravityFlipped;
         private bool _sound2Played;
+        private float _impactAge = -1f;
+        private Vector3 _impactPos;
+        private static readonly Vector3 BlastGlow = new(1f, 0.55f, 0.25f);
+        private static readonly Vector3 EmberGlow = new(1f, 0.4f, 0.12f);
 
         // o->Kind: 0 = Rageful Blow (weapon swing, tails, sparks, wave); 2 = Dark Horse Earthshake (GOBoid.cpp:771).
         private readonly int _kind;
@@ -166,6 +170,17 @@ namespace Client.Main.Objects.Effects
             MoveModels(factor);
             MoveParticles(factor);
             _sparkPool.Move(factor, World?.Terrain);
+
+            // Dynamic lights: blast flash at the ground impact, then a flickering ember glow from the cracks.
+            if (_impactAge >= 0f)
+            {
+                _impactAge += factor;
+                Vector3 pos = _impactPos + new Vector3(0f, 0f, 50f);
+                Lights.Set(0, pos, BlastGlow, MathF.Max(200f, 440f - _impactAge * 8f),
+                    2.3f * MathF.Min(1f, _impactAge / 1.5f) * EffectLights.Flash(_impactAge, 16f, 1.5f));
+                Lights.Set(1, pos, EmberGlow, 380f,
+                    0.85f * EffectLights.Envelope(_impactAge, 40f, 4f, 16f) * EffectLights.Flicker(_impactAge * 0.04f, 1.7f, 0.15f));
+            }
         }
 
         // ------------------------------------------------------------------ MODEL_SKILL_FURY_STRIKE
@@ -179,6 +194,11 @@ namespace Client.Main.Objects.Effects
             {
                 _furyStart = _furyPosition + SourceJointMath.Rotate(new Vector3(-25f, -80f, 0f), ownerAngle);
                 _furyStart.Z = TerrainHeight(_furyStart) + 25f;
+                if (_impactAge < 0f)
+                {
+                    _impactAge = 0f;
+                    _impactPos = _furyStart;
+                }
 
                 if (FpsCheck(1, factor))
                     SpawnExplosion(_furyStart, 0.5f);

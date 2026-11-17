@@ -29,6 +29,7 @@ namespace Client.Main.Objects.Effects
         private const float ReleaseDelaySeconds = 14f * 0.04f;
         private const float ModelVelocity = 0.3f;
         private const float ThunderVelocity = 50f;
+        private static readonly Vector3 StormGlowColor = new(0.7f, 0.78f, 1f);
 
         private struct Smoke
         {
@@ -138,6 +139,11 @@ namespace Client.Main.Objects.Effects
                 if (_stormLifeTime <= 0f)
                     _stormLive = false;
             }
+
+            // Flickering glow travelling with the tornado (59 frames).
+            float stormAge = 59f - _stormLifeTime;
+            float stormGlow = _stormLive ? EffectLights.Envelope(stormAge, 59f, 4f, 12f) * EffectLights.Flicker(stormAge * 0.04f, 3.3f, 0.35f) : 0f;
+            Lights.Set(0, _stormPosition + new Vector3(0f, 0f, 80f), StormGlowColor, 320f, 1.1f * stormGlow);
 
             MoveSmokes(factor);
             MoveThunders(factor);

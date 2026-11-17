@@ -84,6 +84,9 @@ namespace Client.Main.Objects.Effects
         private float _runeLife;
         private float _attackTime = 1f;
         private bool _released;
+        private static readonly Vector3 ManaColor = new(0.2f, 0.55f, 1f);
+        private Vector3 _releaseOrigin;
+        private float _releaseAge = -1f;
 
         public SwellManaEffect(WalkerObject caster)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: SpiritCount * 8 + 64)
@@ -121,6 +124,8 @@ namespace Client.Main.Objects.Effects
         {
             _released = true;
             Vector3 origin = CasterPosition;
+            _releaseOrigin = origin + Vector3.UnitZ * 100f;
+            _releaseAge = 0f;
             int tails = SourceJointMath.ScaledMaxTails(3);
             for (int i = 0; i < SpiritCount; i++)
             {
@@ -188,6 +193,25 @@ namespace Client.Main.Objects.Effects
                 g.LifeTime -= factor;
                 if (g.LifeTime <= 0f)
                     g.Live = false;
+            }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // slot 0: the floating rune (grows at 40..30, fades with its alpha below 15);
+            // slot 1: burst when the spirits are released (20 frames).
+            float rune = _runeLife > 0f && _runeLife <= 43f
+                ? MathHelper.Clamp(_runeScale, 0f, 1f) * MathHelper.Clamp(_runeAlpha / 0.3f, 0f, 1f)
+                : 0f;
+            Lights.Set(0, _runePosition, RuneBodyLight, 260f, 1f * rune);
+
+            if (_releaseAge >= 0f)
+            {
+                _releaseAge += factor;
+                float spread = MathHelper.Clamp(_releaseAge / 20f, 0f, 1f);
+                Lights.Set(1, _releaseOrigin, ManaColor, 280f + 180f * spread, 1.5f * EffectLights.Flash(_releaseAge, 22f, 1.3f));
             }
         }
 

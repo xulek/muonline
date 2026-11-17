@@ -101,6 +101,11 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _sparkTexture;
         private float _shinyLife;
         private bool _shinyValid;
+        private static readonly Vector3 DarkColor = new(0.6f, 0.2f, 1f);
+        private static readonly Vector3 BombColor = new(1f, 0.5f, 0.18f);
+        private Vector3 _bombPosition;
+        private bool _hasBomb;
+        private float _age;
 
         public ChaoticDiseierEffect(WalkerObject caster, WalkerObject? bombTarget)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: GhostCount * 200 * 2 + 512)
@@ -161,16 +166,24 @@ namespace Client.Main.Objects.Effects
             _shinyLife = 24f;
 
             if (_bombTarget != null)
+            {
+                _bombPosition = _bombTarget.WorldPosition.Translation + Vector3.UnitZ * 80f;
+                _hasBomb = true;
                 _bombs.Spawn(_bombTarget.WorldPosition.Translation);
+            }
         }
 
         protected override void OnTick(float factor)
         {
+            Vector3 ghostSum = Vector3.Zero;
+            int ghostCount = 0;
             for (int i = 0; i < _ghosts.Length; i++)
             {
                 ref Ghost g = ref _ghosts[i];
                 if (!g.Live)
                     continue;
+                ghostSum += g.Position;
+                ghostCount++;
                 g.Position += SourceJointMath.Rotate(new Vector3(0f, -g.Velocity, 0f), g.Angle) * factor;
                 g.Angle.Z += ((int)g.LifeTime % 16 <= 7 ? 10f : -10f) * factor;
                 if (FpsCheck(1, factor))
@@ -234,6 +247,18 @@ namespace Client.Main.Objects.Effects
 
             if (_shinyLife > 0f)
                 _shinyLife -= factor;
+
+            // slot 0: violet aura on the caster (shiny, 24 frames); slot 1: glow riding with the ghost swarm;
+            // slot 2: bomb flash on the target.
+            _age += factor;
+            Lights.Set(0, CasterPosition + Vector3.UnitZ * 100f, DarkColor, 240f, 0.9f * EffectLights.Envelope(_age, 24f, 2f, 10f));
+            if (ghostCount > 0)
+                Lights.Set(1, ghostSum / ghostCount, DarkColor, 300f,
+                    0.85f * EffectLights.Envelope(_age, 67f, 4f, 25f) * EffectLights.Flicker(_age * 0.04f, 0.9f, 0.12f));
+            else
+                Lights.Hide(1);
+            if (_hasBomb)
+                Lights.Set(2, _bombPosition, BombColor, 380f, 2f * EffectLights.Flash(_age, 20f, 1.4f));
         }
 
         private void SpawnSmoke(Vector3 position)

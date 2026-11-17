@@ -37,6 +37,8 @@ namespace Client.Main.Objects.Effects
         private static readonly Vector3 FireLight = new(0.8f, 0.5f, 0.1f);
         private static readonly Vector3 HeadAngle = new(0f, 20f, 0f);
         private static readonly Vector3 ImpactLight = new(0.1f, 0.5f, 0.1f);
+        private static readonly Vector3 PoisonGlowColor = new(0.4f, 0.9f, 0.2f);
+        private const float ImpactLightSeconds = 0.6f;
 
         private struct Ball
         {
@@ -87,6 +89,9 @@ namespace Client.Main.Objects.Effects
         private Vector3 _trailRight;
         private Vector3 _trailUp;
         private float _infernoFrame;
+        private readonly Vector3[] _impactLightPositions = new Vector3[2];
+        private readonly float[] _impactLightAges = { -1f, -1f };
+        private float _lightTime;
 
         public DecayEffect(WalkerObject caster, Vector3 target)
             : base(caster, 5f, ReleaseDelaySeconds, 512)
@@ -157,6 +162,8 @@ namespace Client.Main.Objects.Effects
                 if (b.Position.Z < height)
                 {
                     b.Position.Z = height;
+                    _impactLightPositions[i] = b.Position;
+                    _impactLightAges[i] = 0f;
                     Impact(i, b.Position, factor);
                     b.Live = false;
                     continue;
@@ -200,6 +207,35 @@ namespace Client.Main.Objects.Effects
             MoveSmokes(factor);
             MoveFires(factor);
             _stones.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // One slot per ball: green glow while falling, then a poison burst flash where it lands.
+            _lightTime += factor * 0.04f;
+            float fadeIn = MathHelper.Clamp(_lightTime / 0.15f, 0f, 1f);
+            for (int i = 0; i < _balls.Length; i++)
+            {
+                ref Ball b = ref _balls[i];
+                if (b.Live)
+                {
+                    Lights.Set(i, b.Position, PoisonGlowColor, 220f, fadeIn * MathHelper.Clamp(b.LifeTime / 5f, 0f, 1f));
+                    continue;
+                }
+
+                float age = _impactLightAges[i];
+                if (age < 0f)
+                {
+                    Lights.Hide(i);
+                    continue;
+                }
+
+                age += factor * 0.04f;
+                _impactLightAges[i] = age;
+                float flash = EffectLights.Flash(age, ImpactLightSeconds);
+                Lights.Set(i, _impactLightPositions[i] + new Vector3(0f, 0f, 60f), PoisonGlowColor, 260f + 160f * flash, 2f * flash);
+            }
         }
 
         private void Impact(int index, Vector3 position, float factor)

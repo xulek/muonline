@@ -70,6 +70,10 @@ namespace Client.Main.Objects.Effects.RageFighter
         private Vector3 _flarePosition;
         private bool _flareVisible;
         private int _pillarCount;
+        private static readonly Vector3 BombGlow = new(1f, 0.6f, 0.3f);
+        private float _flareGlow;
+        private float _bombAge = -1f;
+        private Vector3 _bombPosition;
 
         public BeastUppercutEffect(WalkerObject caster, ushort targetId)
             : base(caster, triggerFrame: caster is PlayerObject { IsMainWalker: true } ? 2f : 0f,
@@ -160,6 +164,31 @@ namespace Client.Main.Objects.Effects.RageFighter
             TickPillars(factor);
             _bombs.Move(factor, World?.Terrain);
             _stones.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // Slot 0: force pillar glow on the punching fist.
+            _flareGlow = _flareVisible && _dummy >= 0
+                ? System.MathF.Min(1f, _flareGlow + 0.35f * factor)
+                : System.MathF.Max(0f, _flareGlow - 0.25f * factor);
+            if (_flareGlow > 0f)
+                Lights.Set(0, _flarePosition, PillarLight, 200f, _flareGlow);
+            else
+                Lights.Hide(0);
+
+            // Slot 1: bomb flash on the target (restarted by each uppercut).
+            if (_bombAge >= 0f)
+            {
+                _bombAge += factor;
+                float flash = EffectLights.Flash(_bombAge, 14f, 1.4f);
+                if (flash > 0f)
+                    Lights.Set(1, _bombPosition, BombGlow, 300f + 120f * flash,
+                        2f * flash * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 2.3f, 0.2f));
+                else
+                    Lights.Hide(1);
+            }
         }
 
         private void TickDummy(float factor)
@@ -189,6 +218,8 @@ namespace Client.Main.Objects.Effects.RageFighter
                 else
                 {
                     _bombs.Spawn(_target!.WorldPosition.Translation, 3, factor, 0.9f);
+                    _bombAge = 0f;
+                    _bombPosition = _target!.WorldPosition.Translation + new Vector3(0f, 0f, 60f);
                     SoundController.Instance.PlayBuffer(AttackSoundPath);
                     _dummyLife = 40f;
                 }
@@ -276,7 +307,7 @@ namespace Client.Main.Objects.Effects.RageFighter
             }
         }
 
-        protected override bool HasActiveContent() => _dummy >= 0 || _pillarCount > 0 || _bombs.HasLive || _stones.HasLive;
+        protected override bool HasActiveContent() => _dummy >= 0 || _pillarCount > 0 || _flareGlow > 0f || _bombs.HasLive || _stones.HasLive;
 
         protected override void OnDraw()
         {

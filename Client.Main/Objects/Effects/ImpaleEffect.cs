@@ -91,6 +91,12 @@ namespace Client.Main.Objects.Effects
         private int _lastAttackEffectTime = -1;
         private bool _stageActive;
         private float _spearFrame;
+        private bool _stageLights;
+        private float _lightAge;
+        private float _thrustAge = -1f;
+        private Vector3 _thrustPos;
+        private static readonly Vector3 GatherGlow = new(1f, 1f, 0.5f);
+        private static readonly Vector3 ThrustGlow = new(0.85f, 0.9f, 1f);
 
         public ImpaleEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 1024)
@@ -111,6 +117,7 @@ namespace Client.Main.Objects.Effects
         {
             // AttackStage breaks out for a missing weapon link bone; only players carry bone 33.
             _stageActive = Caster is PlayerObject;
+            _stageLights = _stageActive;
         }
 
         protected override void OnTick(float factor)
@@ -170,6 +177,25 @@ namespace Client.Main.Objects.Effects
 
             MoveHealings(factor);
             MoveFlares(factor);
+
+            // Dynamic lights: yellow energy gathering on the weapon, then a flash travelling with the spear thrust.
+            _lightAge += factor;
+            float gather = _stageLights && _lastAttackEffectTime >= 4 ? 0.9f * EffectLights.Envelope(_lightAge - 3f, 8f, 2f, 3f) : 0f;
+            Lights.Set(0, _gatherers[0].Position, GatherGlow, 180f, gather);
+
+            ref Spear lead = ref _spears[0];
+            if (lead.Live)
+            {
+                if (_thrustAge < 0f)
+                    _thrustAge = 0f;
+                _thrustPos = lead.Position;
+            }
+            if (_thrustAge >= 0f)
+            {
+                _thrustAge += factor;
+                Lights.Set(1, _thrustPos, ThrustGlow, 320f,
+                    1.6f * MathF.Min(1f, _thrustAge / 1.5f) * EffectLights.Flash(_thrustAge, 18f, 1.4f));
+            }
         }
 
         // ------------------------------------------------------------------ AttackStage

@@ -44,6 +44,24 @@ namespace Client.Main.Objects.Effects.Joints
         private Vector3 _angle;
         private Vector3 _light = Vector3.One;
 
+        // Dynamic light: only the first projectile spawned in a frame is lit; later
+        // same-frame siblings just bump its counter so radial fans (Hydra 9x,
+        // DeathBeamKnight 18x) get one origin flash instead of a light per shot.
+        private const int BurstSiblingThreshold = 3;
+        private const float BurstFlashSeconds = 0.5f;
+        private const float ImpactFlashSeconds = 0.4f;
+        private static SourceProjectileEffect? s_frameLead;
+        private static int s_frameLeadId = -1;
+        private EffectLights? _lights;
+        private Vector3 _lightColor;
+        private Vector3 _origin;
+        private int _siblings;
+        private float _ageFrames;
+        private bool _ended;
+        private bool _impact;
+        private float _endFrames;
+        private Vector3 _impactPosition;
+
         private SourceProjectileEffect(SourceProjectileKind kind)
         {
             _kind = kind;
@@ -95,6 +113,26 @@ namespace Client.Main.Objects.Effects.Joints
                     break;
             }
 
+            e._origin = position;
+            e._lightColor = kind switch
+            {
+                SourceProjectileKind.StaffOfDestruction => new Vector3(0.65f, 0.3f, 1f),
+                SourceProjectileKind.FireCone => new Vector3(1f, 0.45f, 0.15f),
+                _ => e._light
+            };
+
+            int frame = MuGame.FrameIndex;
+            if (s_frameLead == null || s_frameLeadId != frame)
+            {
+                s_frameLeadId = frame;
+                s_frameLead = e;
+                e._lights = new EffectLights(e, 1);
+            }
+            else
+            {
+                s_frameLead._siblings++;
+            }
+
             return e;
         }
 
@@ -120,6 +158,18 @@ namespace Client.Main.Objects.Effects.Joints
                 return;
 
             float f = SourceJointMath.FrameFactor;
+            _ageFrames += f;
+
+            if (_ended)
+            {
+                _endFrames += f;
+                if (!UpdateLight())
+                {
+                    World?.RemoveObject(this);
+                    Dispose();
+                }
+                return;
+            }
 
             // Generic flyer motion (MoveEffect): rotate Direction by Angle each frame;
             // Direction is per-frame units, damped 0.9^factor.
@@ -151,14 +201,83 @@ namespace Client.Main.Objects.Effects.Joints
 
             if (dead || terrainHit)
             {
+                // Lit instance lingers (invisible, motionless) until its light has faded.
+                if (_lights != null)
+                {
+                    _ended = true;
+                    _impact = terrainHit && _siblings < BurstSiblingThreshold;
+                    if (_impact)
+                    {
+                        float ground = World?.Terrain != null
+                            ? World.Terrain.RequestTerrainHeight(Position.X, Position.Y)
+                            : Position.Z;
+                        _impactPosition = new Vector3(Position.X, Position.Y, ground + 50f);
+                    }
+                    if (UpdateLight())
+                        return;
+                }
+
                 World?.RemoveObject(this);
                 Dispose();
+                return;
             }
+
+            UpdateLight();
+        }
+
+        /// <summary>Drives the single light slot; returns false once it has nothing left to show.</summary>
+        private bool UpdateLight()
+        {
+            if (_lights == null)
+                return false;
+
+            float ageS = _ageFrames / 25f;
+            if (_siblings >= BurstSiblingThreshold)
+            {
+                // Radial fan: one flash at the launch point.
+                if (ageS >= BurstFlashSeconds)
+                {
+                    _lights.Hide(0);
+                    return !_ended;
+                }
+                float burst = 1.2f * EffectLights.Flash(ageS, BurstFlashSeconds) * MathHelper.Clamp(ageS / 0.06f, 0f, 1f);
+                _lights.Set(0, _origin + Vector3.UnitZ * 60f, _lightColor, 380f, burst);
+                return true;
+            }
+
+            if (_ended)
+            {
+                if (!_impact)
+                    return false;
+                float endS = _endFrames / 25f;
+                if (endS >= ImpactFlashSeconds)
+                {
+                    _lights.Hide(0);
+                    return false;
+                }
+                float k = endS / ImpactFlashSeconds;
+                _lights.Set(0, _impactPosition, _lightColor, MathHelper.Lerp(300f, 200f, k),
+                    1.2f * EffectLights.Flash(endS, ImpactFlashSeconds));
+                return true;
+            }
+
+            // Single shot: light rides the projectile head, fading out with its life.
+            float head = MathHelper.Clamp(ageS / 0.08f, 0f, 1f) * MathHelper.Clamp(LifeTimeFrames / 6f, 0f, 1f);
+            _lights.Set(0, Position, _lightColor, 220f, 1.0f * head);
+            return true;
+        }
+
+        public override void Dispose()
+        {
+            _lights?.Dispose();
+            if (ReferenceEquals(s_frameLead, this))
+                s_frameLead = null;
+            base.Dispose();
         }
 
         public override void DrawAfter(GameTime gameTime)
         {
-            if (Hidden || Status != GameControlStatus.Ready || _trailTexture == null)
+            if (Hidden || _ended || Status != GameControlStatus.Ready || _trailTexture == null)
                 return;
 
             var spriteBatch = GraphicsManager.Instance.Sprite;

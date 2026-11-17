@@ -28,6 +28,7 @@ namespace Client.Main.Objects.Effects
         private const string SmokeTexturePath = "Effect/smoke01.jpg";          // BITMAP_SMOKE
 
         private const float ModelVelocity = 0.3f;
+        private static readonly Vector3 DestructionGlow = new(0.35f, 0.45f, 1f);
 
         private enum Kind { NightWater, CrackA, CrackB, CrackGrand, Count }
 
@@ -167,6 +168,19 @@ namespace Client.Main.Objects.Effects
 
             MoveModels(factor);
             MoveParticles(factor);
+
+            // Dynamic lights: both blows share the 40-frame clock; a gathering glow at the caster,
+            // then a blue burst at the caster cracks and a stronger one at the target splash.
+            float age = 40f - _blow1.LifeTime;
+            float burst = age - 16f;
+            float burstFlash = MathF.Min(1f, burst / 1.5f) * EffectLights.Flash(burst, 24f, 1.3f);
+            float charge = 0.7f * EffectLights.Envelope(age, 18f, 5f, 3f);
+            Vector3 p0 = _blow0.Position;
+            p0.Z = TerrainHeight(p0) + 60f;
+            Lights.Set(0, p0, DestructionGlow, 260f + 80f * burstFlash, MathF.Max(charge, 1.4f * burstFlash));
+            Vector3 p1 = _blow1.Position;
+            p1.Z = TerrainHeight(p1) + 70f;
+            Lights.Set(1, p1, DestructionGlow, 460f, 2.3f * burstFlash);
         }
 
         private static void Age(ref Blow blow, float factor)

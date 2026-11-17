@@ -200,6 +200,73 @@ namespace Client.Main.Controls
 
         /// <summary>Background behind the world where no terrain or object covers the screen.</summary>
         public virtual Color ClearColor => new(12, 12, 20);
+
+        /// <summary>
+        /// Colour the world glow target is cleared to. Worlds that clear the screen themselves with a different
+        /// colour than <see cref="ClearColor"/> (which also drives the distance fog) override this.
+        /// </summary>
+        public virtual Color SceneClearColor => ClearColor;
+
+        private Graphics.SceneBloom _worldGlow;
+        private bool _worldGlowActive;
+
+        /// <summary>False for worlds that apply their own scene grade (menu scenes).</summary>
+        protected virtual bool UsesWorldGlow => true;
+
+        /// <summary>Glow and grade used for this world (gameplay preset; worlds may tune it in <see cref="ConfigureWorldGlow"/>).</summary>
+        internal Graphics.SceneBloom WorldGlow
+        {
+            get
+            {
+                if (_worldGlow == null)
+                {
+                    _worldGlow = new Graphics.SceneBloom
+                    {
+                        Threshold = 0.72f,
+                        Knee = 0.3f,
+                        Intensity = 0.55f,
+                        Saturation = 1.06f,
+                        Contrast = 1.04f,
+                        Vignette = 0.22f,
+                    };
+                    ConfigureWorldGlow(_worldGlow);
+                }
+
+                return _worldGlow;
+            }
+        }
+
+        /// <summary>Per-world tuning of the gameplay glow and colour grade.</summary>
+        private protected virtual void ConfigureWorldGlow(Graphics.SceneBloom glow)
+        {
+        }
+
+        private void BeginWorldGlow()
+        {
+            if (_worldGlowActive)
+                EndWorldGlow(); // previous frame never reached the end (render failure)
+
+            _worldGlowActive = Constants.ENABLE_WORLD_BLOOM && UsesWorldGlow &&
+                               WorldGlow.Begin(GraphicsDevice, SceneClearColor);
+        }
+
+        /// <summary>Writes the glowing, graded world back to the scene target. Overlays (damage numbers, names) follow.</summary>
+        private void EndWorldGlow()
+        {
+            if (!_worldGlowActive)
+                return;
+
+            _worldGlowActive = false;
+            try
+            {
+                _worldGlow.End(GraphicsDevice);
+            }
+            catch (Exception ex)
+            {
+                RecordRenderFailure(null, "Draw.WorldGlow", ex);
+                RestoreSafeWorldRenderState();
+            }
+        }
         private readonly Dictionary<WorldObject, int> _visibleObjectIndices = [];
         private bool _isUpdatingVisibleObjects;
         private bool _visibleObjectsNeedCompaction;
@@ -925,6 +992,8 @@ namespace Client.Main.Controls
                 PrepareShadowMapForDraw();
             _preparedShadowFrame = int.MinValue;
 
+            BeginWorldGlow();
+
             RenderDrawCounter.Mark(RenderDrawCounter.Step.Other);
             var worldBaseStarted = RenderPassProfiler.Start();
             try
@@ -955,6 +1024,7 @@ namespace Client.Main.Controls
             finally
             {
                 RenderPassProfiler.AddWorldObjects(objectsStarted);
+                EndWorldGlow(); // normally already ended before the overlays
             }
         }
 
@@ -1493,6 +1563,9 @@ namespace Client.Main.Controls
                 RecordRenderFailure(null, "Draw.LateScrollOfFlame", ex);
             }
             RenderDrawCounter.Mark(RenderDrawCounter.Step.Effects);
+
+            // Glow / grade covers the 3D world only; damage numbers and names stay crisp.
+            EndWorldGlow();
 
             DrawQueuedDamageTexts(time);
 
@@ -3062,6 +3135,9 @@ namespace Client.Main.Controls
             var defaultType = typeof(MapTileObject);
             for (int i = 0; i < MapTileObjects.Length; i++)
                 MapTileObjects[i] = defaultType;
+
+            // Fire / glow map objects of worlds without their own object classes.
+            Client.Main.Objects.Worlds.Common.MapObjectLightCatalog.ApplyTileTypes(WorldIndex, MapTileObjects);
         }
 
         // --- Disposal ---
@@ -3069,6 +3145,8 @@ namespace Client.Main.Controls
         public override void Dispose()
         {
             _cutoutMapBatch.Dispose();
+            _worldGlow?.Dispose();
+            _worldGlow = null;
             var sw = Stopwatch.StartNew();
 
             // Dispose can occur after objects were queued for a later instanced flush. Clear

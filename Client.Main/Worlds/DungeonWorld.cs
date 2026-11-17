@@ -64,6 +64,8 @@ namespace Client.Main.Worlds
             base.CreateMapTileObjects();
             MapTileObjects[1] = typeof(SpiderWeb1Object);
             MapTileObjects[17] = typeof(SpiderWeb17Object);
+            MapTileObjects[41] = typeof(DungeonTorchObject);
+            MapTileObjects[42] = typeof(DungeonTorchObject);
             MapTileObjects[52] = typeof(RestPlaceObject);
             MapTileObjects[60] = typeof(RestPlaceObject);
         }

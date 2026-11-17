@@ -32,6 +32,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private const int MaxFlashes = 512;
         private static readonly Vector3 JointLight = new(0.4f, 0.4f, 1f);
         private static readonly Vector3 FlashLight = new(0.2f, 0.2f, 0.8f);
+        private static readonly Vector3 BoltGlow = new(0.45f, 0.5f, 1f);
 
         public struct Hop
         {
@@ -99,11 +100,24 @@ namespace Client.Main.Objects.Effects.Summoner
 
         protected override void OnTick(float factor)
         {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
             for (int i = 0; i < _hops.Length; i++)
             {
                 ref ActiveHop hop = ref _hops[i];
                 if (hop.Live)
                     MoveHop(ref hop, factor);
+
+                // Dynamic light: one short flickery flash per struck target.
+                if (hop.Live && (hop.SubType == 0 || hop.Owner != hop.Target))
+                {
+                    float intensity = 1.6f * EffectLights.Envelope(20f - hop.LifeTime, 20f, 1.5f, 7f)
+                        * EffectLights.Flicker(time, i * 1.7f, 0.45f);
+                    Lights.Set(i, hop.Target.WorldPosition.Translation + new Vector3(0f, 0f, 80f), BoltGlow, 280f, intensity);
+                }
+                else
+                {
+                    Lights.Hide(i);
+                }
             }
 
             _pool.Move(this, factor);

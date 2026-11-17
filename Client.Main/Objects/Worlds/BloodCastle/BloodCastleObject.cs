@@ -366,6 +366,7 @@ namespace Client.Main.Objects.Worlds.BloodCastle
         private SpriteBatch? _spriteBatch;
         private int _particleCount;
         private int _timer;
+        private MapObjectGlowLight? _glowLight;
 
         private enum ParticleKind
         {
@@ -417,6 +418,17 @@ namespace Client.Main.Objects.Worlds.BloodCastle
             }
 
             _spriteBatch = GraphicsManager.Instance.Sprite;
+
+            // Type 11 (seven orange BITMAP_LIGHT lamps) and 13 (white flare) are sprite-only in
+            // the source; one terrain light per object carries their glow to the surroundings.
+            if (_owner.Type == 11 || _owner.Type == 13)
+            {
+                _glowLight = new MapObjectGlowLight(
+                    this,
+                    Constants.TERRAIN_SCALE * (_owner.Type == 11 ? 3.5f : 3f),
+                    _owner.Type == 11 ? 1f : 0.8f);
+                _glowLight.Register();
+            }
         }
 
         public override void Update(GameTime gameTime)
@@ -433,6 +445,38 @@ namespace Client.Main.Objects.Worlds.BloodCastle
             UpdateParticles(frameFactor);
             if (_owner.Type == 37)
                 EmitType37Particles();
+            else if (_glowLight != null)
+                UpdateGlowLight(gameTime);
+        }
+
+        private void UpdateGlowLight(GameTime gameTime)
+        {
+            if (!_glowLight!.IsPositioned)
+            {
+                Matrix[] bones = _owner.GetBoneTransforms();
+                int boneIndex = _owner.Type == 11 ? 6 : 3;
+                if (bones == null || bones.Length <= boneIndex)
+                    return;
+                _glowLight.SetPosition(Vector3.Transform(bones[boneIndex].Translation, _owner.WorldPosition));
+            }
+
+            if (!_glowLight.Step(gameTime))
+                return;
+
+            float milliseconds = (float)gameTime.TotalGameTime.TotalMilliseconds;
+            if (_owner.Type == 11)
+            {
+                // Same phase as the sprites, floored so the lamp never goes fully dark.
+                float luminosity = MathF.Sin(
+                    (MathHelper.ToDegrees(_owner.Angle.Z) * 20f + milliseconds) * 0.001f) * 0.5f + 0.5f;
+                luminosity = 0.35f + luminosity * 0.65f;
+                _glowLight.SetColor(new Vector3(luminosity, luminosity * 0.5f, luminosity * 0.1f));
+            }
+            else
+            {
+                float luminosity = MathF.Sin(milliseconds * 0.001f) * 0.3f + 0.7f;
+                _glowLight.SetColor(new Vector3(luminosity * 0.9f, luminosity * 0.9f, luminosity));
+            }
         }
 
         public override void Draw(GameTime gameTime)

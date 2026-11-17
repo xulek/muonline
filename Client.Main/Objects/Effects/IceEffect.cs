@@ -65,6 +65,9 @@ namespace Client.Main.Objects.Effects
         private float _iceFrame;
         private float _iceVelocity;
         private float _smallFrame;
+        private float _lightTime;
+
+        private static readonly Vector3 IceGlowColor = new(0.4f, 0.7f, 1f);
 
         public IceEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 5f, ReleaseDelaySeconds, 128)
@@ -122,6 +125,7 @@ namespace Client.Main.Objects.Effects
 
         protected override void OnTick(float factor)
         {
+            _lightTime += factor * 0.04f;
             if (_iceLive)
             {
                 if (_iceFrame >= 5f)
@@ -144,6 +148,10 @@ namespace Client.Main.Objects.Effects
                 if (_iceLifeTime <= 0f)
                     _iceLive = false;
             }
+
+            // Cold glow at the ice block, fading out with its alpha.
+            float iceGlow = _iceLive ? MathHelper.Clamp(_iceAlpha, 0f, 1f) * MathHelper.Clamp(_lightTime / 0.08f, 0f, 1f) : 0f;
+            Lights.Set(0, _icePosition + new Vector3(0f, 0f, 60f), IceGlowColor, 280f, 1.4f * iceGlow);
 
             bool anyShard = false;
             for (int i = 0; i < _shards.Length; i++)

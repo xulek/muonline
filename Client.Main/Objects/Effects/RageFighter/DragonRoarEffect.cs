@@ -103,6 +103,10 @@ namespace Client.Main.Objects.Effects.RageFighter
         private Vector3 _redLightPosition;
         private float _redLightLife;
         private float _redLightRotation;
+        private static readonly Vector3 LavaGlow = new(1f, 0.4f, 0.1f);
+        private static readonly Vector3 CrackGlow = new(1f, 0.25f, 0.08f);
+        private float _handGlow;
+        private float _columnGlow;
 
         public DragonRoarEffect(WalkerObject caster, Vector3? targetPosition)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
@@ -193,6 +197,33 @@ namespace Client.Main.Objects.Effects.RageFighter
             _sparks.Move(factor, World?.Terrain);
             if (_redLightLife > 0f)
                 _redLightLife -= factor;
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
+            // Slot 0: lava ribbons on the fist.
+            _handGlow = _lavaCount > 0 ? MathF.Min(1f, _handGlow + 0.3f * factor) : MathF.Max(0f, _handGlow - 0.2f * factor);
+            if (_handGlow > 0f)
+                Lights.Set(0, GetCasterBonePosition(RightHandBone), LavaGlow, 200f, _handGlow * EffectLights.Flicker(time, 0.6f, 0.15f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: fire column at the caster (frame > 5 until the lava effect ends).
+            bool column = _lavaLive && _lavaLife <= 95f;
+            _columnGlow = column ? MathF.Min(1f, _columnGlow + 0.25f * factor) : MathF.Max(0f, _columnGlow - 0.08f * factor);
+            if (_columnGlow > 0f)
+                Lights.Set(1, _origin + new Vector3(0f, 0f, 80f), LavaGlow, 420f, 1.6f * _columnGlow * EffectLights.Flicker(time, 2.9f, 0.2f));
+            else
+                Lights.Hide(1);
+
+            // Slot 2: ground crack red light.
+            if (_redLightLife > 0f)
+                Lights.Set(2, _redLightPosition + new Vector3(0f, 0f, 50f), CrackGlow, 300f,
+                    1.4f * MathF.Min(1f, (50f - _redLightLife) / 3f) * (_redLightLife / 50f));
+            else
+                Lights.Hide(2);
         }
 
         private void TickLavaEffect(float factor)
@@ -443,7 +474,7 @@ namespace Client.Main.Objects.Effects.RageFighter
 
         protected override bool HasActiveContent() =>
             _lavaLive || _blowLife > 0f || _crackLive || _shockLive || _groundLive || _lavaCount > 0 ||
-            _redLightLife > 0f || _fires.HasLive || _sparks.HasLive;
+            _redLightLife > 0f || _handGlow > 0f || _columnGlow > 0f || _fires.HasLive || _sparks.HasLive;
 
         protected override void OnDraw()
         {

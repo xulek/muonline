@@ -17,9 +17,18 @@ namespace Client.Main.Objects.Effects
 
         private readonly BlizzardPiece[] _blizzards = new BlizzardPiece[BlizzardCount];
 
+        private const float LightFadeOutSeconds = 0.4f;
+        private static readonly Vector3 IceLightColor = new(0.4f, 0.7f, 1f);
+        private readonly EffectLights _lights;
+        private float _age;
+        private float _impactPulse;
+        private float _fadeOut = -1f;
+        private float _lastGlow;
+
         public MonsterBlizzardStrikeEffect(Vector3 position)
         {
             Position = position;
+            _lights = new EffectLights(this, 1);
             IsTransparent = true;
             AffectedByTransparency = true;
 
@@ -72,6 +81,24 @@ namespace Client.Main.Objects.Effects
                 return;
 
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            _age += dt;
+            _impactPulse *= MathF.Exp(-dt * 8f);
+
+            if (_fadeOut >= 0f)
+            {
+                // All shards have landed: fade the ice glow out, then remove.
+                _fadeOut += dt;
+                float k = 1f - _fadeOut / LightFadeOutSeconds;
+                if (k <= 0f)
+                {
+                    World?.RemoveObject(this);
+                    Dispose();
+                    return;
+                }
+                SetIceLight(_lastGlow * k);
+                return;
+            }
+
             bool anyAlive = false;
 
             foreach (var piece in _blizzards)
@@ -102,17 +129,50 @@ namespace Client.Main.Objects.Effects
                     piece.Dead = true;
                     piece.Position = new Vector3(piece.Position.X, piece.Position.Y, groundZ + 40f);
                     piece.PlayImpactGlow();
+                    _impactPulse = MathF.Min(1f, _impactPulse + 0.35f);
                     continue;
                 }
 
                 anyAlive = true;
             }
 
+            float glow = MathF.Min(1.2f, 0.55f * MathHelper.Clamp(_age / 0.2f, 0f, 1f) + 0.65f * _impactPulse);
+
             if (!anyAlive)
             {
+                // Keep the visuals' original end (shards hidden now) but let the light fade.
+                if (_lastGlow > 0.01f)
+                {
+                    for (int i = 0; i < _blizzards.Length; i++)
+                        if (_blizzards[i] != null)
+                            _blizzards[i].Hidden = true;
+                    _lastGlow = glow;
+                    _fadeOut = 0f;
+                    SetIceLight(glow);
+                    return;
+                }
+
                 World?.RemoveObject(this);
                 Dispose();
+                return;
             }
+
+            _lastGlow = glow;
+            SetIceLight(glow);
+        }
+
+        private void SetIceLight(float intensity)
+        {
+            float ground = World?.Terrain != null
+                ? World.Terrain.RequestTerrainHeight(Position.X, Position.Y)
+                : Position.Z;
+            _lights.Set(0, new Vector3(Position.X, Position.Y, ground + 60f), IceLightColor, 340f, intensity);
+        }
+
+        public override void Dispose()
+        {
+            _lights.Dispose();
+            base.Dispose();
         }
 
         private sealed class BlizzardPiece : ModelObject

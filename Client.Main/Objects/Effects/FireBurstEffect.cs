@@ -81,6 +81,11 @@ namespace Client.Main.Objects.Effects
         private SourceModelRenderer? _flashRenderer;
         private Texture2D? _fireTexture;
 
+        // Dynamic lights (slot 0: homing heads, slot 1: cast flash at the weapon).
+        private static readonly Vector3 FireLightColor = new(1f, 0.55f, 0.25f);
+        private Vector3 _castPosition;
+        private float _lightAge;
+
         public FireBurstEffect(WalkerObject caster, ushort targetId)
             : base(caster, triggerFrame: 3f, triggerTimeoutSeconds: 14f * 0.04f, maxQuads: 256)
         {
@@ -112,6 +117,7 @@ namespace Client.Main.Objects.Effects
             if (Caster is PlayerObject player && player.TryGetBoneWorldMatrix(0, out Matrix bone))
                 position = Vector3.Transform(new Vector3(80f, 0f, 20f), bone);
 
+            _castPosition = position;
             float yaw = CasterYawDegrees;
             float height = _target?.BoundingBoxLocal.Max.Z ?? 0f;
             SpawnHead(0, position, yaw + 90f, new Vector3(0f, 0f, height));
@@ -207,6 +213,43 @@ namespace Client.Main.Objects.Effects
                 if (f.LifeTime <= 0f)
                     f.Live = false;
             }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _lightAge += factor * 0.04f;
+
+            // Heads: one light at the centroid of the live heads, fading with their last 5 ticks.
+            Vector3 sum = Vector3.Zero;
+            float life = 0f;
+            int live = 0;
+            for (int i = 0; i < _heads.Length; i++)
+            {
+                ref Head h = ref _heads[i];
+                if (!h.Live)
+                    continue;
+                sum += h.Position;
+                life = MathF.Max(life, h.LifeTime);
+                live++;
+            }
+
+            if (live > 0)
+            {
+                float k = MathF.Min(1f, _lightAge / 0.1f) * MathHelper.Clamp(life / 5f, 0f, 1f);
+                Lights.Set(0, sum / live, FireLightColor, 230f, 1.2f * k * EffectLights.Flicker(_lightAge, 0.6f, 0.12f));
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
+
+            float flash = MathF.Min(1f, _lightAge / 0.04f) * EffectLights.Flash(_lightAge, 0.3f, 1.4f);
+            if (flash > 0f)
+                Lights.Set(1, _castPosition, FireLightColor, 190f, 1.0f * flash);
+            else
+                Lights.Hide(1);
         }
 
         private void SpawnSegment(Vector3 position, Vector3 angle, float ownerLifeTime)

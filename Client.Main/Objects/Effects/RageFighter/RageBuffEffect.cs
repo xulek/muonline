@@ -85,6 +85,7 @@ namespace Client.Main.Objects.Effects.RageFighter
         private Vector3 _burstColor;
         private float _burstScale;
         private float _burstLife;
+        private float _lightAge;
 
         public RageBuffEffect(WalkerObject caster, ushort skillId)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 256)
@@ -189,6 +190,14 @@ namespace Client.Main.Objects.Effects.RageFighter
                 if (_burstLife <= 0f)
                     _burstLive = false;
             }
+
+            // Dynamic light: buff burst glow at the caster, tinted like the shockwave.
+            _lightAge += factor;
+            float glow = EffectLights.Envelope(_lightAge, 40f, 2f, 30f);
+            if (glow > 0f)
+                Lights.Set(0, _origin + new Vector3(0f, 0f, 70f), _burstLight, 360f, 1.4f * glow);
+            else
+                Lights.Hide(0);
         }
 
         private void TickMonoEffect(float factor)

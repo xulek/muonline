@@ -23,6 +23,8 @@ namespace Client.Main.Objects.Effects
         private int _jointCount;
         private Texture2D? _thunderTexture;
         private Texture2D? _flashTexture;
+        private Vector3 _lightColor;
+        private float _lightTime;
 
         private struct Joint
         {
@@ -60,6 +62,13 @@ namespace Client.Main.Objects.Effects
         protected override void OnStart()
         {
             SoundController.Instance.PlayBufferSingleChannel("Sound/pWskill.wav");
+            _lightColor = _fenrirType switch
+            {
+                0 => new Vector3(0.7f, 1f, 0.7f),
+                1 => new Vector3(1f, 0.6f, 0.6f),
+                2 => new Vector3(0.7f, 0.7f, 1f),
+                _ => new Vector3(0.9f, 0.9f, 0.3f)
+            };
             _ = MuGame.Random.Next(360); // unused iAngle in the source release branch
             if (_mainTarget == null || _mainTarget.World == null || _mainTarget.Status == Models.GameControlStatus.Disposed)
                 return;
@@ -182,6 +191,22 @@ namespace Client.Main.Objects.Effects
                 if (joint.Life < 0f)
                     joint.Live = false;
             }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _lightTime += factor * 0.04f;
+            if (_jointCount == 0)
+                return;
+
+            float glow = EffectLights.Envelope(_lightTime, 0.85f, 0.05f, 0.35f) * EffectLights.Flicker(_lightTime, 2.1f, 0.4f);
+            Lights.Set(0, CasterOffset(-140f, 130f), _lightColor, 220f, 1.1f * glow);
+            if (_mainTarget != null && _mainTarget.World != null && _mainTarget.Status != Models.GameControlStatus.Disposed)
+                Lights.Set(1, _mainTarget.WorldPosition.Translation + Vector3.UnitZ * 80f, _lightColor, 340f, 1.9f * glow);
+            else
+                Lights.Hide(1);
         }
 
         private static void MoveThunder(ref Joint joint, float factor)

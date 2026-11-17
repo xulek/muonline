@@ -91,6 +91,13 @@ namespace Client.Main.Objects.Effects.RageFighter
         private Vector3 _dummyAngle;       // degrees
         private int _windCount;
         private int _burstCount;
+        private static readonly Vector3 BurstGlow = new(0.6f, 0.65f, 1f);
+        private static readonly Vector3 RingGlow = new(0.5f, 0.56f, 1f);
+        private bool _bursting;
+        private bool _ringsSpawned;
+        private float _burstGlow;
+        private float _lightAge;
+        private Vector3 _burstPosition;
 
         public DragonSlasherEffect(WalkerObject caster, ushort targetId)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
@@ -142,6 +149,7 @@ namespace Client.Main.Objects.Effects.RageFighter
                 Vector3 angle = _dummyAngle;
                 angle.Z = SourceJointMath.CreateAngle2D(CasterPosition, _target!.WorldPosition.Translation);
                 _rings.SpawnSet(CasterPosition, angle, new Vector3(0.8f, 0.9f, 1.6f));
+                _ringsSpawned = true;
             }
         }
 
@@ -159,10 +167,31 @@ namespace Client.Main.Objects.Effects.RageFighter
             TickBursts(factor);
             _sparks.Move(factor, World?.Terrain);
             _rings.Move(factor);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // Slot 0: kick bursts on the target.
+            _burstGlow = _bursting ? MathF.Min(1f, _burstGlow + 0.4f * factor) : MathF.Max(0f, _burstGlow - 0.15f * factor);
+            if (_burstGlow > 0f)
+                Lights.Set(0, _burstPosition, BurstGlow, 320f,
+                    1.6f * _burstGlow * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 1.4f, 0.35f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: multishot ring flash at the caster.
+            _lightAge += factor;
+            float ring = _ringsSpawned ? EffectLights.Envelope(_lightAge, 14f, 1.5f, 10f) : 0f;
+            if (ring > 0f)
+                Lights.Set(1, CasterPosition + new Vector3(0f, 0f, 110f), RingGlow, 220f, 1.1f * ring);
+            else
+                Lights.Hide(1);
         }
 
         private void TickDummy(float factor)
         {
+            _bursting = false;
             if (!_dummyLive)
                 return;
 
@@ -202,7 +231,11 @@ namespace Client.Main.Objects.Effects.RageFighter
             if (TargetAlive)
             {
                 if (frame > 5f)
+                {
                     SpawnBursts(_target!.WorldPosition.Translation, factor);
+                    _bursting = true;
+                    _burstPosition = _target!.WorldPosition.Translation + new Vector3(0f, 0f, 80f);
+                }
 
                 _dummyAngle = OwnerAngleDegrees;
                 _dummyPosition = CasterPosition;
@@ -401,7 +434,7 @@ namespace Client.Main.Objects.Effects.RageFighter
         }
 
         protected override bool HasActiveContent() =>
-            _dummyLive || _windCount > 0 || _burstCount > 0 || _sparks.HasLive || _rings.HasLive;
+            _dummyLive || _windCount > 0 || _burstCount > 0 || _burstGlow > 0f || _sparks.HasLive || _rings.HasLive;
 
         protected override void OnDraw()
         {

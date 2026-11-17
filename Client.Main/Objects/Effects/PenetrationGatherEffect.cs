@@ -39,6 +39,8 @@ namespace Client.Main.Objects.Effects
         private Vector3 _position;
         private float _lifeTime;
         private int _sprites;
+        private static readonly Vector3 GatherColor = new(0.85f, 0.9f, 1f);
+        private float _age;
         private readonly Vector3[] _spriteScales = new Vector3[3];
 
         public PenetrationGatherEffect(WalkerObject caster)
@@ -65,6 +67,10 @@ namespace Client.Main.Objects.Effects
         protected override void OnTick(float factor)
         {
             _sprites = 0;
+            // Charge glow at the gathering point (10 frames + spark tail).
+            _age += factor;
+            Lights.Set(0, _position, GatherColor, 180f,
+                1f * EffectLights.Envelope(_age, 15f, 3f, 6f) * EffectLights.Flicker(_age * 0.04f, 5.3f, 0.15f));
             if (_lifeTime > 0f)
             {
                 for (int j = 0; j < 3; j++)

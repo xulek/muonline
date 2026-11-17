@@ -101,6 +101,13 @@ namespace Client.Main.Objects.Effects
         private float _pierVelocity;
         private float _pierLife;
         private int _liveCount;
+        private static readonly Vector3 ManaRayColor = new(0.3f, 0.7f, 1f);
+        private static readonly Vector3 FireColor = new(1f, 0.45f, 0.15f);
+        private float _age;
+        private float _impactAge = -1f;
+        private bool _pierWasLive;
+        private Vector3 _castPosition;
+        private Vector3 _impactPosition;
 
         public ForceJointSkillEffect(WalkerObject caster, WalkerObject? target, bool fireBlast)
             : base(caster, triggerFrame: 3f, triggerTimeoutSeconds: 14f * 0.04f, maxQuads: 512)
@@ -156,6 +163,7 @@ namespace Client.Main.Objects.Effects
 
                 Vector3 position = CasterPosition;
                 position.Z += 130f;
+                _castPosition = position;
                 SpawnForce(position, new Vector3(0f, 0f, CasterYawDegrees));
                 SoundController.Instance.PlayBuffer(ManaRaysSoundPath);
             }
@@ -208,6 +216,45 @@ namespace Client.Main.Objects.Effects
             TickForces(factor);
             TickFlares(factor);
             TickRings(factor);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            _age += factor;
+            if (_fireBlast)
+            {
+                // slot 0: homing fire head; slot 1: blast where it ends.
+                if (_pierLive)
+                {
+                    _pierWasLive = true;
+                    _impactPosition = _pierPosition + Vector3.UnitZ * 60f;
+                    Lights.Set(0, _impactPosition, FireColor, 240f,
+                        1.2f * EffectLights.Envelope(_age, 20f, 2f, 4f) * EffectLights.Flicker(_age * 0.04f, 2.3f, 0.15f));
+                }
+                else
+                {
+                    Lights.Hide(0);
+                    if (_impactAge < 0f && _pierWasLive)
+                        _impactAge = 0f;
+                }
+
+                if (_impactAge >= 0f)
+                {
+                    _impactAge += factor;
+                    Lights.Set(1, _impactPosition, FireColor, 400f - 150f * MathHelper.Clamp(_impactAge / 14f, 0f, 1f),
+                        2f * EffectLights.Flash(_impactAge, 14f, 1.5f));
+                }
+                return;
+            }
+
+            // Mana Rays: slot 0 cast flash at the caster, slot 1 the travelling ray head.
+            Lights.Set(0, _castPosition, ManaRayColor, 200f, 1f * EffectLights.Flash(_age, 8f, 1.5f));
+            ref Force head = ref _forces[0];
+            if (head.Live)
+                Lights.Set(1, head.Position, ManaRayColor, 260f, 1.3f * EffectLights.Envelope(_age, 20f, 2f, 8f));
+            else
+                Lights.Hide(1);
         }
 
         private void TickPier(float factor)

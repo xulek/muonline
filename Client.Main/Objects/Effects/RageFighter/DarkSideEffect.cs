@@ -76,6 +76,11 @@ namespace Client.Main.Objects.Effects.RageFighter
         private float _playSpeed = 0.3f;
         private float _attackTime = 1f;
         private bool _struck;
+        private static readonly Vector3 AuraGlow = new(1f, 0.5f, 0.2f);
+        private static readonly Vector3 StrikeGlow = new(1f, 0.85f, 0.7f);
+        private float _lightAge;
+        private float _strikeAge = -1f;
+        private Vector3 _strikePosition;
 
         private bool _shockLive;
         private int _shockSubType;
@@ -173,6 +178,31 @@ namespace Client.Main.Objects.Effects.RageFighter
                 d.Scale *= MathF.Pow(1.2f, factor);
                 d.Light *= 0.55f; // per frame
             }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
+            // Slot 0: wind / cloud aura at the cast point.
+            _lightAge += factor;
+            float aura = EffectLights.Envelope(_lightAge, 45f, 2f, 35f);
+            if (aura > 0f)
+                Lights.Set(0, _origin + new Vector3(0f, 0f, 60f), AuraGlow, 320f, 1.3f * aura * EffectLights.Flicker(time, 0.4f, 0.12f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: strike flash on the target.
+            if (_strikeAge >= 0f)
+            {
+                _strikeAge += factor;
+                float flash = EffectLights.Flash(_strikeAge, 10f, 1.5f);
+                if (flash > 0f)
+                    Lights.Set(1, _strikePosition, StrikeGlow, 260f + 80f * flash, 1.8f * flash);
+                else
+                    Lights.Hide(1);
+            }
         }
 
         private void TickWinds(float factor)
@@ -244,6 +274,9 @@ namespace Client.Main.Objects.Effects.RageFighter
                 start.Normalize();
             _shockStart = start * 30f;
             _shockPosition = position + _shockStart * 5f * factor;
+
+            _strikeAge = 0f;
+            _strikePosition = target + new Vector3(0f, 0f, 80f);
 
             // BITMAP_DAMAGE2 particle
             for (int i = 0; i < _damages.Length; i++)

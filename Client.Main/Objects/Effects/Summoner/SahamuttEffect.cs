@@ -65,6 +65,9 @@ namespace Client.Main.Objects.Effects.Summoner
         private float _frame;
         private int _action;
         private float _distance;
+        private float _boomGlow;
+        private static readonly Vector3 BodyGlow = new(1f, 0.5f, 0.2f);
+        private static readonly Vector3 BoomGlow = new(1f, 0.55f, 0.25f);
 
         public SahamuttEffect(WalkerObject caster, Vector3 targetTileCorner)
             : base(caster, targetTileCorner, 4096)
@@ -117,6 +120,7 @@ namespace Client.Main.Objects.Effects.Summoner
         {
             MoveFires(factor);
             _bombs.Move(factor, World?.Terrain);
+            UpdateLights(factor);
 
             if (!_live)
                 return;
@@ -171,6 +175,26 @@ namespace Client.Main.Objects.Effects.Summoner
             _lifeTime -= factor;
             if (_lifeTime <= 0f)
                 _live = false;
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
+            // Slot 0: fiery body glow, follows the model alpha.
+            if (_live && _alpha > 0f)
+                Lights.Set(0, _position + new Vector3(0f, 0f, 80f), BodyGlow, 240f,
+                    MathHelper.Clamp(_alpha / 0.7f, 0f, 1f) * EffectLights.Flicker(time, 0.9f, 0.15f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: explosion while the bombs are spawned (frame >= 11), fading after.
+            bool exploding = _live && _frame >= 11f;
+            _boomGlow = exploding ? MathF.Min(1f, _boomGlow + 0.5f * factor) : MathF.Max(0f, _boomGlow - 0.08f * factor);
+            if (_boomGlow > 0f)
+                Lights.Set(1, _position + new Vector3(0f, 0f, 60f), BoomGlow, 380f,
+                    1.8f * _boomGlow * EffectLights.Flicker(time, 3.7f, 0.25f));
+            else
+                Lights.Hide(1);
         }
 
         private void Face(Vector3 target)
@@ -242,7 +266,7 @@ namespace Client.Main.Objects.Effects.Summoner
             }
         }
 
-        protected override bool HasCreatureContent() => _live || _fireCount > 0 || _bombs.HasLive;
+        protected override bool HasCreatureContent() => _live || _fireCount > 0 || _boomGlow > 0f || _bombs.HasLive;
 
         protected override void DrawCreature()
         {

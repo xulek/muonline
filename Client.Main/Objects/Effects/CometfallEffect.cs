@@ -61,6 +61,14 @@ namespace Client.Main.Objects.Effects
         private Vector3 _trailRight;
         private Vector3 _trailUp;
 
+        // Dynamic lights (slot i: comet i in flight, then its impact flash at the same slot).
+        private static readonly Vector3 CometLightColor = new(1f, 0.8f, 0.6f);
+        private static readonly Vector3 ImpactLightColor = new(1f, 0.5f, 0.2f);
+        private const float ImpactLightSeconds = 0.6f;
+        private readonly float[] _impactAge = { -1f, -1f };
+        private readonly Vector3[] _impactPosition = new Vector3[2];
+        private float _lightAge;
+
         public CometfallEffect(WalkerObject caster, Vector3 target)
             : base(caster, 5f, ReleaseDelaySeconds, 256)
         {
@@ -121,6 +129,8 @@ namespace Client.Main.Objects.Effects
                             _stones.Spawn(b.Position, BlastAngle, Vector3.One, 0);
 
                     Vector3 burst = b.Position + new Vector3(0f, 0f, 80f);
+                    _impactAge[i] = 0f;
+                    _impactPosition[i] = burst;
                     if (FpsCheck(1, factor))
                         _rings[i] = new Burst { Live = true, Position = burst, LifeTime = 20f };
                     if (FpsCheck(1, factor))
@@ -148,6 +158,37 @@ namespace Client.Main.Objects.Effects
             }
 
             _stones.Move(factor, World?.Terrain);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float dt = factor * 0.04f;
+            _lightAge += dt;
+            for (int i = 0; i < _blasts.Length; i++)
+            {
+                ref Blast b = ref _blasts[i];
+                if (b.Live)
+                {
+                    float k = MathF.Min(1f, _lightAge / 0.12f) * MathHelper.Clamp(b.LifeTime / 5f, 0f, 1f);
+                    Lights.Set(i, b.Position, CometLightColor, 220f, 1.1f * k);
+                    continue;
+                }
+
+                if (_impactAge[i] >= 0f)
+                {
+                    _impactAge[i] += dt;
+                    float k = EffectLights.Flash(_impactAge[i], ImpactLightSeconds, 1.5f);
+                    if (k > 0f)
+                    {
+                        Lights.Set(i, _impactPosition[i], ImpactLightColor, 260f + 160f * k, 2.0f * k);
+                        continue;
+                    }
+                    _impactAge[i] = -1f;
+                }
+
+                Lights.Hide(i);
+            }
         }
 
         private static void Age(ref Burst burst, float factor)

@@ -46,6 +46,9 @@ namespace Client.Main.Objects.Effects.Summoner
         private const int MaxSprites = 64;
         private const int HandBone = 27;
         private static readonly Vector3 ThunderLight = new(0.2f, 0.2f, 1f);
+        private static readonly Vector3 HandGlow = new(0.3f, 0.35f, 1f);
+        private static readonly Vector3 FlightGlow = new(0.3f, 0.6f, 1f);
+        private static readonly Vector3 BurstGlow = new(0.4f, 0.55f, 1f);
 
         private enum Tex { Shiny1, Shiny5, Magic, PinLight, Energy, Spark, Shock, Smoke, Count }
 
@@ -97,6 +100,8 @@ namespace Client.Main.Objects.Effects.Summoner
         private float _attackTime = 1f;
         private bool _released;
         private bool _casting = true;
+        private Vector3 _handPosition;
+        private float _handGlow;
 
         public LightningOrbEffect(WalkerObject caster, WalkerObject? target)
             : base(caster, 0f, 0f, 1024)
@@ -138,6 +143,7 @@ namespace Client.Main.Objects.Effects.Summoner
                 if (_casting)
                 {
                     Vector3 forearm = GetCasterBonePosition(HandBone);
+                    _handPosition = forearm;
                     _thunders.Spawn(this, 2, forearm, ThunderLight, factor);
                     _thunders.Spawn(this, 2, forearm, ThunderLight, factor);
                 }
@@ -177,6 +183,44 @@ namespace Client.Main.Objects.Effects.Summoner
                 if (o.LifeTime <= 0f)
                     o.Live = false;
             }
+
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float time = (float)(FPSCounter.Instance.WorldTime * 0.001);
+            // Slot 0: forearm glow while casting.
+            _handGlow = _casting ? MathF.Min(1f, _handGlow + 0.3f * factor) : MathF.Max(0f, _handGlow - 0.25f * factor);
+            if (_handGlow > 0f)
+                Lights.Set(0, _handPosition, HandGlow, 180f, 0.9f * _handGlow * EffectLights.Flicker(time, 1.1f, 0.35f));
+            else
+                Lights.Hide(0);
+
+            // Slot 1: flying orb, slot 2: burst on the target.
+            bool flight = false, burst = false;
+            for (int i = 0; i < _orbs.Length; i++)
+            {
+                ref Orb o = ref _orbs[i];
+                if (!o.Live)
+                    continue;
+                if (o.SubType == 0 && !flight)
+                {
+                    flight = true;
+                    Lights.Set(1, o.Position, FlightGlow, 230f,
+                        1.2f * EffectLights.Envelope(20f - o.LifeTime, 20f, 2f, 4f) * EffectLights.Flicker(time, 3.3f, 0.3f));
+                }
+                else if (o.SubType == 1 && !burst)
+                {
+                    burst = true;
+                    float flash = EffectLights.Flash(18f - o.LifeTime, 18f, 1.3f);
+                    Lights.Set(2, o.Position, BurstGlow, 260f + 160f * flash, 2f * flash * EffectLights.Flicker(time, 4.7f, 0.4f));
+                }
+            }
+            if (!flight)
+                Lights.Hide(1);
+            if (!burst)
+                Lights.Hide(2);
         }
 
         private void MoveFlight(ref Orb o, float rot, float factor)
@@ -416,7 +460,7 @@ namespace Client.Main.Objects.Effects.Summoner
 
         protected override bool HasActiveContent()
         {
-            if (_casting || !_released || _particleCount > 0 || _thunders.HasLive(this))
+            if (_casting || !_released || _handGlow > 0f || _particleCount > 0 || _thunders.HasLive(this))
                 return true;
             for (int i = 0; i < _orbs.Length; i++)
                 if (_orbs[i].Live)

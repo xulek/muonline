@@ -49,6 +49,8 @@ namespace Client.Main.Objects.Effects
         private float _arrowLight = 1f;
         private Vector3 _arrow4Light = new(1f, 0.5f, 0.3f);
         private float _arrow4Scale = 1f;
+        private static readonly Vector3 GlowColor = new(1f, 0.5f, 0.3f);
+        private float _age;
 
         public InfinityArrowEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 3072)
@@ -102,6 +104,14 @@ namespace Client.Main.Objects.Effects
             }
 
             MoveFlares(factor);
+
+            // Chest glow while the arrows / flares gather (carrier 40 frames, flares fade by ~55).
+            _age += factor;
+            float glow = 1.1f * EffectLights.Envelope(_age, 55f, 3f, 25f) * EffectLights.Flicker(_age * 0.04f, 4.2f, 0.1f);
+            if (glow > 0f)
+                Lights.Set(0, ChestPosition, GlowColor, 220f, glow);
+            else
+                Lights.Hide(0);
         }
 
         private void EmitCarrierFlares(float factor)

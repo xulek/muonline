@@ -78,6 +78,11 @@ namespace Client.Main.Objects.Effects
         {
             _frame += 0.1f * factor;
             _life -= factor;
+
+            // Weapon flash (LifeTime 10): quick rise, fades out with the model.
+            float glow = 1.1f * EffectLights.Envelope(10f - _life, 10f, 1f, 6f);
+            for (int i = 0; i < 2; i++)
+                Lights.Set(i, _positions[i], FlashLight, 180f, _active[i] ? glow : 0f);
         }
 
         protected override bool HasActiveContent() => _life > 0f;

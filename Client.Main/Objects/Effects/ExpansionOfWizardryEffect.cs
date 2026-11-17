@@ -31,6 +31,7 @@ namespace Client.Main.Objects.Effects
         private static readonly Vector3 BoneLight = new(0.7f, 0.3f, 0.9f);
         private static readonly Vector3 FlareLight = new(0.2f, 0.2f, 0.9f);
         private static readonly Vector3 GhostLight = new(0.3f, 0.2f, 0.9f);
+        private static readonly Vector3 AuraGlowColor = new(0.5f, 0.3f, 1f);
 
         private struct Ring
         {
@@ -75,6 +76,7 @@ namespace Client.Main.Objects.Effects
         private float _lifeTime = 45f;
         private float _frame;
         private float _flareFrame;
+        private float _lightTime;
 
         public ExpansionOfWizardryEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 2048)
@@ -87,13 +89,14 @@ namespace Client.Main.Objects.Effects
             _twlightTexture = await LoadTexture(TwlightTexturePath);
             _ghostTexture = await LoadTexture(GhostTexturePath);
             _lightTexture = await LoadTexture(LightTexturePath);
-            _bodyModel = await LoadModel(BodyModelPath, -1);
+            // BlendMesh = 0 (ZzzObject.cpp:1906): mesh 0 is additive, so its black texture background drops out.
+            _bodyModel = await LoadModel(BodyModelPath, 0);
             if (_bodyModel != null)
             {
                 _bodyModel.AnimationSpeed = 0f;
                 _bodyModel.UseNormalBlend();
             }
-            _flareModel = await LoadModel(FlareModelPath, -1);
+            _flareModel = await LoadModel(FlareModelPath, 0); // BlendMesh = 0 (ZzzObject.cpp:1917)
             if (_flareModel != null)
             {
                 _flareModel.AnimationSpeed = 0f;
@@ -112,6 +115,13 @@ namespace Client.Main.Objects.Effects
                 _lifeTime = 0f;
                 return;
             }
+
+            // Violet aura on the caster, pulsing with each of the three ring waves (every 10 frames).
+            _lightTime += factor * 0.04f;
+            float wave = _lightTime % 0.4f;
+            float pulse = _lightTime < 1.2f ? EffectLights.Flash(wave, 0.4f) * MathHelper.Clamp(wave / 0.05f, 0f, 1f) : 0f;
+            float aura = EffectLights.Envelope(_lightTime, 2f, 0.15f, 0.8f) * (0.7f + 0.6f * pulse);
+            Lights.Set(0, CasterPosition + new Vector3(0f, 0f, 60f), AuraGlowColor, 340f, aura);
 
             if (_lifeTime > 0f)
             {

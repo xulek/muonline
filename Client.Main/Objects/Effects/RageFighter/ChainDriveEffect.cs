@@ -114,6 +114,10 @@ namespace Client.Main.Objects.Effects.RageFighter
         private float _playSpeed = 0.4f;
         private int _actionKeys = int.MaxValue;
         private int _liveCount;
+        private static readonly Vector3 HitGlow = new(0.6f, 0.8f, 1f);
+        private float _ribbonGlow;
+        private float _hitAge = -1f;
+        private Vector3 _hitPosition;
 
         public ChainDriveEffect(WalkerObject caster, ushort targetId)
             : base(caster, triggerFrame: 0f, triggerTimeoutSeconds: 0f, maxQuads: 512)
@@ -183,6 +187,28 @@ namespace Client.Main.Objects.Effects.RageFighter
             TickRibbons(factor);
             TickParticles(_damages, factor, 1.2f, 0.8f);
             TickParticles(_rings, factor, 1.1f, 0.9f);
+            UpdateLights(factor);
+        }
+
+        private void UpdateLights(float factor)
+        {
+            // Slot 0: swinging ribbon glow on the fist (bone 5).
+            _ribbonGlow = _life > 0f ? MathF.Min(1f, _ribbonGlow + 0.3f * factor) : MathF.Max(0f, _ribbonGlow - 0.2f * factor);
+            if (_ribbonGlow > 0f)
+                Lights.Set(0, GetCasterBonePosition(5), RibbonLight, 200f, 0.9f * _ribbonGlow);
+            else
+                Lights.Hide(0);
+
+            // Slot 1: hit flash on the target, restarted by both strikes.
+            if (_hitAge >= 0f)
+            {
+                _hitAge += factor;
+                float flash = EffectLights.Flash(_hitAge, 12f, 1.4f);
+                if (flash > 0f)
+                    Lights.Set(1, _hitPosition, HitGlow, 300f + 100f * flash, 1.8f * flash);
+                else
+                    Lights.Hide(1);
+            }
         }
 
         private void TickEffect(float factor)
@@ -437,6 +463,8 @@ namespace Client.Main.Objects.Effects.RageFighter
 
         private void SpawnTargetFx(bool ring, Vector3 position, float lifeTime)
         {
+            _hitAge = 0f;
+            _hitPosition = position + new Vector3(0f, 0f, 100f);
             for (int i = 0; i < _targetFx.Length; i++)
             {
                 ref TargetFx fx = ref _targetFx[i];
@@ -530,7 +558,7 @@ namespace Client.Main.Objects.Effects.RageFighter
             }
         }
 
-        protected override bool HasActiveContent() => _life > 0f || _liveCount > 0;
+        protected override bool HasActiveContent() => _life > 0f || _liveCount > 0 || _ribbonGlow > 0f;
 
         protected override void OnDraw()
         {

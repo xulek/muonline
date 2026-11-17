@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Threading.Tasks;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
@@ -24,6 +25,7 @@ namespace Client.Main.Objects.Effects.Summoner
         private const string SoundPath = "Sound/SE_Ch_summoner_skill08_chainlightning.wav";
         private const float LimitAttackTime = 15f;
         private static readonly Vector3 HandLight = new(0.4f, 0.4f, 0.8f);
+        private static readonly Vector3 CastGlow = new(0.45f, 0.5f, 1f);
 
         private readonly SourceFenrirThunderPool _thunders = SourceFenrirThunderPool.Shared;
         private SourceModelRenderer? _thunderModel;
@@ -33,6 +35,8 @@ namespace Client.Main.Objects.Effects.Summoner
         private bool _casting = true;
         private int _handSprites;
         private readonly Vector3[] _handSpritePositions = new Vector3[2];
+        private Vector3 _handLightPosition;
+        private float _handGlow;
 
         public ChainLightningCastEffect(WalkerObject caster)
             : base(caster, 0f, 0f, 64)
@@ -71,6 +75,15 @@ namespace Client.Main.Objects.Effects.Summoner
                 }
             }
 
+            // Dynamic light: crackling glow between the hands while casting.
+            if (_handSprites > 0)
+                _handLightPosition = _handSprites > 1 ? (_handSpritePositions[0] + _handSpritePositions[1]) * 0.5f : _handSpritePositions[0];
+            _handGlow = _handSprites > 0 ? MathF.Min(1f, _handGlow + 0.3f * factor) : MathF.Max(0f, _handGlow - 0.25f * factor);
+            if (_handGlow > 0f)
+                Lights.Set(0, _handLightPosition, CastGlow, 210f, _handGlow * EffectLights.Flicker((float)(FPSCounter.Instance.WorldTime * 0.001), 2.7f, 0.4f));
+            else
+                Lights.Hide(0);
+
             if (!_released)
             {
                 _attackTime += factor;
@@ -92,7 +105,7 @@ namespace Client.Main.Objects.Effects.Summoner
             _handSpritePositions[_handSprites++] = hand;
         }
 
-        protected override bool HasActiveContent() => _casting || !_released || _thunders.HasLive(this);
+        protected override bool HasActiveContent() => _casting || !_released || _handGlow > 0f || _thunders.HasLive(this);
 
         protected override void OnDraw()
         {

@@ -81,6 +81,15 @@ namespace Client.Main.Objects.Effects
         private float _ballScale;
         private float _stoneFrame;
 
+        // Dynamic lights (slot 0: ball, slot 1: impact flash).
+        private static readonly Vector3 FireLightColor = new(1f, 0.45f, 0.15f);
+        private const float ImpactLightSeconds = 0.55f;
+        private float _lightTime;
+        private float _ballAge;
+        private bool _impactLight;
+        private float _impactAge;
+        private Vector3 _impactPosition;
+
         public FireBallEffect(WalkerObject caster, WalkerObject? target, bool meteor = false)
             : base(caster, 5f, ReleaseDelaySeconds, 256)
         {
@@ -161,6 +170,7 @@ namespace Client.Main.Objects.Effects
                     if (_ballPosition.Z < height)
                     {
                         _ballPosition.Z = height;
+                        StartImpactLight(_ballPosition + new Vector3(0f, 0f, 60f));
                         for (int j = 0; j < 6; j++)
                             if (FpsCheck(1, factor))
                                 SpawnStone(_ballPosition, _ballAngle);
@@ -188,6 +198,7 @@ namespace Client.Main.Objects.Effects
                     if (MathF.Sqrt(dx * dx + dy * dy) <= 100f)
                     {
                         _ballLifeTime = 1f;
+                        StartImpactLight(_ballPosition);
                         for (int j = 0; j < 2; j++)
                             if (FpsCheck(1, factor))
                                 SpawnStone(_ballPosition, _ballAngle);
@@ -246,6 +257,51 @@ namespace Client.Main.Objects.Effects
                 _stoneFrame += ModelVelocity * factor;
 
             MoveFires(factor);
+            UpdateLights(factor);
+        }
+
+        private void StartImpactLight(Vector3 position)
+        {
+            if (_impactLight)
+                return;
+            _impactLight = true;
+            _impactAge = 0f;
+            _impactPosition = position;
+        }
+
+        private void UpdateLights(float factor)
+        {
+            float dt = factor * 0.04f;
+            _lightTime += dt;
+
+            if (_ballLive)
+            {
+                _ballAge += dt;
+                // Fade in over 0.12 s, out over the last 5 ticks (matches the Luminosity fade).
+                float fade = MathF.Min(1f, _ballAge / 0.12f) * MathHelper.Clamp(_ballLifeTime / 5f, 0f, 1f);
+                float intensity = (_meteor ? 1.25f : 1.1f) * fade * EffectLights.Flicker(_lightTime, 1.7f, 0.1f);
+                Lights.Set(0, _ballPosition, FireLightColor, _meteor ? 240f : 210f, intensity);
+            }
+            else
+            {
+                Lights.Hide(0);
+            }
+
+            if (_impactLight)
+            {
+                _impactAge += dt;
+                float k = EffectLights.Flash(_impactAge, ImpactLightSeconds, 1.5f);
+                if (k <= 0f)
+                {
+                    _impactLight = false;
+                    Lights.Hide(1);
+                }
+                else
+                {
+                    float radius = (_meteor ? 240f : 200f) + (_meteor ? 160f : 120f) * k;
+                    Lights.Set(1, _impactPosition, FireLightColor, radius, (_meteor ? 2.2f : 1.7f) * k);
+                }
+            }
         }
 
         private void SpawnStone(Vector3 position, Vector3 angle)

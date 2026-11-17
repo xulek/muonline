@@ -65,7 +65,7 @@ namespace Client.Main.Objects.Effects.Joints
         /// (Phantom Knight 36x, scale 60, Velocity 70, LifeTime 49).</summary>
         public static SourceJointEffect SpiritBurst(Vector3 origin, float yawDeg, float pitchDeg, float scale)
         {
-            return new SourceJointEffect
+            return WithLight(new SourceJointEffect
             {
                 Family = JointFamily.Spirit,
                 SubType = 1,
@@ -78,7 +78,7 @@ namespace Client.Main.Objects.Effects.Joints
                 JointTexturePath = "Effect/JointSpirit01.jpg",
                 _angle = new Vector3(pitchDeg, 0f, yawDeg),
                 _startPosition = origin
-            };
+            });
         }
 
         /// <summary>JOINT_SPIRIT sub3 / SPIRIT2: fast homing spirit (Velocity 140,
@@ -98,7 +98,7 @@ namespace Client.Main.Objects.Effects.Joints
                 _originProvider = originProvider,
                 LightTint = whiteSpirit ? Vector3.One : new Vector3(1f, 0.5f, 0.1f)
             };
-            return joint;
+            return WithLight(joint);
         }
 
         /// <summary>JOINT_THUNDER sub2-style homing arc toward a live target
@@ -106,7 +106,7 @@ namespace Client.Main.Objects.Effects.Joints
         public static SourceJointEffect ThunderHoming(Vector3 origin, Func<Vector3> targetProvider, float scale, float lifeFrames = 8f)
         {
             var target = targetProvider();
-            return new SourceJointEffect
+            return WithLight(new SourceJointEffect
             {
                 Family = JointFamily.Thunder,
                 SubType = 2,
@@ -119,14 +119,14 @@ namespace Client.Main.Objects.Effects.Joints
                 MaxTails = 50,
                 JointTexturePath = "Effect/JointThunder01.jpg",
                 LightTint = new Vector3(1f, 0.6f, 0.2f)
-            };
+            });
         }
 
         /// <summary>BITMAP_JOINT_LASER+1 swarm beam: per-frame humming at speed 25
         /// with jittered tails (BeamKnight/Devil energy bolts).</summary>
         public static SourceJointEffect LaserSwarm(Vector3 origin, Func<Vector3> targetProvider, float scale, bool redTint)
         {
-            return new SourceJointEffect
+            return WithLight(new SourceJointEffect
             {
                 Family = JointFamily.Laser1,
                 SubType = redTint ? 1 : 0,
@@ -139,12 +139,73 @@ namespace Client.Main.Objects.Effects.Joints
                 MaxTails = 20,
                 JointTexturePath = "Effect/JointLaser01.jpg",
                 LightTint = redTint ? new Vector3(1f, 0.35f, 0.35f) : new Vector3(1f, 0.75f, 0.55f)
-            };
+            });
         }
 
         private Func<Vector3>? _originProvider;
         private Vector3 _angle = new(0f, 0f, 0f);
         private float _ageFrames;
+
+        // Dynamic light: only the first joint created in a frame is lit; same-frame
+        // siblings (36x/24x spirit bursts) only bump its counter.
+        private const int BurstSiblingThreshold = 3;
+        private const float BurstFlashSeconds = 0.6f;
+        private static SourceJointEffect? s_frameLead;
+        private static int s_frameLeadId = -1;
+        private EffectLights? _lights;
+        private int _siblings;
+
+        private static SourceJointEffect WithLight(SourceJointEffect joint)
+        {
+            int frame = MuGame.FrameIndex;
+            if (s_frameLead == null || s_frameLeadId != frame)
+            {
+                s_frameLeadId = frame;
+                s_frameLead = joint;
+                joint._lights = new EffectLights(joint, 1);
+            }
+            else
+            {
+                s_frameLead._siblings++;
+            }
+            return joint;
+        }
+
+        private void UpdateLight()
+        {
+            if (_lights == null)
+                return;
+
+            float ageS = _ageFrames / 25f;
+            // Pure white tints read better slightly cool on terrain.
+            Vector3 color = LightTint == Vector3.One ? new Vector3(0.8f, 0.87f, 1f) : LightTint;
+
+            if (Family == JointFamily.Spirit && SubType == 1)
+            {
+                // Radial burst: one flash at the burst centre.
+                float burst = 1.2f * EffectLights.Flash(ageS, BurstFlashSeconds) * MathHelper.Clamp(ageS / 0.06f, 0f, 1f);
+                float radius = _siblings >= BurstSiblingThreshold ? 340f : 220f;
+                _lights.Set(0, _startPosition, color, radius, burst);
+                return;
+            }
+
+            if (Position == Vector3.Zero)
+                return;
+
+            // Head light riding the joint, faded with the same LifeTime fade as the ribbon.
+            float intensity = MathHelper.Clamp(ageS / 0.08f, 0f, 1f) * MathHelper.Clamp(LifeTimeFrames / 10f, 0f, 1f);
+            if (Family == JointFamily.Thunder)
+                intensity *= MathF.Min(1.2f, EffectLights.Flicker(ageS, 3.1f, 0.4f));
+            _lights.Set(0, Position, color, 200f, intensity);
+        }
+
+        public override void Dispose()
+        {
+            _lights?.Dispose();
+            if (ReferenceEquals(s_frameLead, this))
+                s_frameLead = null;
+            base.Dispose();
+        }
 
         public override async Task Load()
         {
@@ -218,6 +279,7 @@ namespace Client.Main.Objects.Effects.Joints
                 PushRing(Position);
 
             LifeTimeFrames -= f;
+            UpdateLight();
             if (LifeTimeFrames < 0f || _ageFrames > 12f && _ringCount == 0)
             {
                 World?.RemoveObject(this);

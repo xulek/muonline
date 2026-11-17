@@ -51,6 +51,8 @@ namespace Client.Main.Objects.Effects
         private float _lastOwnedAlpha;
         private bool _changedAlpha;
         private bool _alphaRecovered;
+        private static readonly Vector3 CloakColor = new(1f, 0.5f, 0.25f);
+        private float _age;
 
         public InvisibilityCastEffect(WalkerObject owner)
             : base(owner, 0f, 0f, 1024)
@@ -114,6 +116,12 @@ namespace Client.Main.Objects.Effects
             }
 
             MoveParticles(factor);
+
+            // Ember glow on the owner while the cloak particles stream off (60 frames + particle tail).
+            _age += factor;
+            Lights.Set(0, _owner.WorldPosition.Translation + Vector3.UnitZ * 100f, CloakColor, 240f,
+                0.9f * EffectLights.Envelope(_age, 75f, 6f, 25f) * EffectLights.Flicker(_age * 0.04f, 6.1f, 0.12f));
+
             for (int i = 0; i < _rings.Length; i++)
             {
                 if (!_rings[i].Active)

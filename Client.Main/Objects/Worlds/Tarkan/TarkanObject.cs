@@ -27,6 +27,7 @@ namespace Client.Main.Objects.Worlds.Tarkan
         // SourceMain AddTerrainLight: type 4 -> white range 3; type 7 -> warm range 3;
         // types 61/65/66 -> warm range 2
         private Controls.DynamicLight? _terrainLight;
+        private bool _impactLightPositioned;
 
         // Only the types with SourceMain per-frame effects (UV scrolling, pulsing light, blend meshes, hidden
         // meshes with particles, flag animation, chrome pass) need the per-object path; the plain props and
@@ -78,7 +79,8 @@ namespace Client.Main.Objects.Worlds.Tarkan
             await base.Load();
 
             // Type is assigned by the map object factory after construction, so the light is created here.
-            float lightRangeTiles = Type == 4 || Type == 7 ? 3f : Type is 61 or 65 or 66 ? 2f : 0f;
+            // 63/64 (BITMAP_IMPACT glow sprites, unlit in the source) get a small tinted light.
+            float lightRangeTiles = Type == 4 || Type == 7 ? 3f : Type is 61 or 65 or 66 or 63 or 64 ? 2f : 0f;
             if (lightRangeTiles > 0f && _terrainLight == null)
             {
                 _terrainLight = new Controls.DynamicLight
@@ -86,7 +88,7 @@ namespace Client.Main.Objects.Worlds.Tarkan
                     Owner = this,
                     Position = WorldPosition.Translation,
                     Radius = lightRangeTiles * Constants.TERRAIN_SCALE,
-                    Intensity = 1f
+                    Intensity = Type is 63 or 64 ? 0.8f : 1f
                 };
             }
 
@@ -180,6 +182,27 @@ namespace Client.Main.Objects.Worlds.Tarkan
                 MathF.Min(1f, light.X),
                 MathF.Min(1f, light.Y),
                 MathF.Min(1f, light.Z));
+        }
+
+        private void UpdateImpactGlowLight(int sourceType, float totalMs, float angleDeg)
+        {
+            if (_terrainLight == null)
+                return;
+
+            // Static position at the sprite bone (2); computed once the bones are available.
+            if (!_impactLightPositioned)
+            {
+                var bones = GetBoneTransforms();
+                if (bones == null || bones.Length <= 2)
+                    return;
+                _terrainLight.Position = Vector3.Transform(bones[2].Translation, WorldPosition);
+                _impactLightPositioned = true;
+            }
+
+            float luminosity = MathF.Sin((totalMs + angleDeg * 5f) * 0.002f) * 0.3f + 0.7f;
+            _terrainLight.Color = sourceType == 64
+                ? new Vector3(luminosity, luminosity * 0.32f, luminosity * 0.32f)
+                : new Vector3(luminosity / 1.7f, luminosity, luminosity);
         }
 
         public override void Dispose()
@@ -276,6 +299,7 @@ namespace Client.Main.Objects.Worlds.Tarkan
                 case 63:
                 case 64:
                     HiddenMesh = -2;
+                    UpdateImpactGlowLight(sourceType, totalMs, angleDeg);
                     break;
 
                 case 72:

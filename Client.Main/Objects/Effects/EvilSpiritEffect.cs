@@ -24,6 +24,10 @@ namespace Client.Main.Objects.Effects
         private const int SkillId = 9;
         private const float ReleaseDelaySeconds = 14f * 0.04f;
         private const float Velocity = 70f;
+        private const float SpiritLifeFrames = 49f;
+        // Dark (negative) lights: each large spirit drags a moving shadow over the terrain and models.
+        private const float DarkLightRadius = 330f;
+        private const float DarkLightIntensity = 1.45f;
 
         private struct Spirit
         {
@@ -52,6 +56,7 @@ namespace Client.Main.Objects.Effects
         private readonly Laser[] _lasers = new Laser[32];
         private Texture2D? _spiritTexture;
         private SourceModelRenderer? _laserModel;
+        private float _lightTime;
 
         public EvilSpiritEffect(WalkerObject caster)
             : base(caster, 5f, ReleaseDelaySeconds, 512)
@@ -94,7 +99,7 @@ namespace Client.Main.Objects.Effects
             s.Angle = angle;
             s.Scale = scale;
             s.Light = 1f;
-            s.LifeTime = 49f;
+            s.LifeTime = SpiritLifeFrames;
             s.Trail = new SourceTrail(maxTails);
             s.Trail.Push(start, angle, scale);
         }
@@ -153,6 +158,23 @@ namespace Client.Main.Objects.Effects
                 s.LifeTime -= factor;
                 if (s.LifeTime < 0f)
                     s.Live = false;
+            }
+
+            // One shadow light per large spirit (indices 0, 2, 4, 6), fading with the spirit.
+            _lightTime += factor * 0.04f;
+            float fadeIn = MathHelper.Clamp(_lightTime / 0.12f, 0f, 1f);
+            for (int i = 0; i < 4; i++)
+            {
+                ref Spirit s = ref _spirits[i * 2];
+                if (!s.Live)
+                {
+                    Lights.Hide(i);
+                    continue;
+                }
+
+                float life = MathHelper.Clamp(s.LifeTime / SpiritLifeFrames, 0f, 1f);
+                float darkness = -0.62f - 0.55f * life;
+                Lights.Set(i, s.Position, new Vector3(darkness), DarkLightRadius, DarkLightIntensity * life * fadeIn);
             }
         }
 

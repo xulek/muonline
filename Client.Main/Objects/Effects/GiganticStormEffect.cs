@@ -29,6 +29,7 @@ namespace Client.Main.Objects.Effects
         private const int SkillId = 237;
         private const float ReleaseDelaySeconds = 14f * 0.04f;
         private static readonly Vector3 StormLight = new(0.45f, 0.45f, 0.7f);
+        private static readonly Vector3 StormGlowColor = new(0.6f, 0.6f, 1f);
 
         private struct Storm
         {
@@ -79,6 +80,8 @@ namespace Client.Main.Objects.Effects
         private Texture2D? _energyTexture;
         private float _lifeTime;
         private Vector3 _angle;
+        private Vector3 _center;
+        private float _lightTime;
 
         public GiganticStormEffect(WalkerObject caster)
             : base(caster, 8f, ReleaseDelaySeconds, 2048)
@@ -98,6 +101,7 @@ namespace Client.Main.Objects.Effects
             Vector3 origin = CasterPosition;
             float yaw = CasterYawDegrees;
             _angle = new Vector3(0f, 0f, yaw);
+            _center = origin;
             for (int i = 0; i < _storms.Length; i++)
             {
                 Vector3 p = origin + SourceJointMath.Rotate(new Vector3(0f, 200f, 0f), new Vector3(0f, 0f, yaw + i * 72f));
@@ -134,6 +138,11 @@ namespace Client.Main.Objects.Effects
             MoveThunders(factor);
             MoveDecals(factor);
             MoveSmokes(factor);
+
+            // Flickering storm glow over the whole ring of columns.
+            _lightTime += factor * 0.04f;
+            float glow = EffectLights.Envelope(_lightTime, 1.3f, 0.1f, 0.5f) * EffectLights.Flicker(_lightTime, 0.7f, 0.4f);
+            Lights.Set(0, _center + new Vector3(0f, 0f, 80f), StormGlowColor, 480f, 1.3f * glow);
         }
 
         // ------------------------------------------------------------------ BITMAP_JOINT_THUNDER sub 16
