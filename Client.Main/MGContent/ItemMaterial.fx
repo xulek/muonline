@@ -456,6 +456,17 @@ float4 ShadeOverlay(float3 normal, float2 uv, float mode)
 UNIFORM_DEFAULT(float, RimStrength, 0.0);
 UNIFORM_DEFAULT(float3, RimColor, float3(0.6, 0.7, 0.85));
 
+float3 RimLight(float3 worldPos, float3 normal)
+{
+    float3 result = float3(0.0, 0.0, 0.0);
+    [branch] if (RimStrength > 0.0)
+    {
+        float rim = 1.0 - saturate(dot(normal, normalize(EyePosition - worldPos)));
+        result = RimColor * (rim * rim * RimStrength);
+    }
+    return result;
+}
+
 // Same base lighting as DynamicLighting.fx so upgraded parts match the rest of the body.
 float3 ComputeItemLight(float3 worldPos, float3 normal)
 {
@@ -465,11 +476,7 @@ float3 ComputeItemLight(float3 worldPos, float3 normal)
     float3 light = AmbientLight * shadowFactor + SunColor * (ndotl * SunStrength);
     float shadowTerm = SampleShadow(worldPos, normal);
     light *= lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
-    [branch] if (RimStrength > 0.0)
-    {
-        float rim = 1.0 - saturate(dot(normal, normalize(EyePosition - worldPos)));
-        light += RimColor * (rim * rim * rim * RimStrength);
-    }
+    light += RimLight(worldPos, normal);
     return light;
 }
 
@@ -568,6 +575,7 @@ float4 ShadeItemCore(float4 diffuse, float3 worldPos, float3 normal, float itemO
         rgb += tex2D(Chrome02Sampler, float2(d, 1.0 - d)).rgb * ancientColor * a;
     }
 
+    rgb += RimLight(worldPos, normal) * 0.3; // dark armour textures still get a visible edge
     return float4(ApplyWorldFog(rgb, worldPos), diffuse.a * Alpha);
 }
 

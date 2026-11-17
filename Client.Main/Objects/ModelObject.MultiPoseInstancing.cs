@@ -124,6 +124,8 @@ namespace Client.Main.Objects
             /// read-only depth, branches drawn later (of the same or a neighbouring tree) covered the nearer ones.
             /// </summary>
             public bool WritesDepth;
+            /// <summary>Monster / NPC (or their attached parts) rather than an animated map placement: gets rim light.</summary>
+            public bool Character;
             public VertexBuffer GeometryVertexBuffer;
             public IndexBuffer GeometryIndexBuffer;
             public int PrimitiveCount;
@@ -629,7 +631,10 @@ namespace Client.Main.Objects
                 batch.Texture = texture;
 
                 if (batch.Instances.Count == 0)
+                {
+                    batch.Character = !IsMapPlacementObject;
                     _walkerCrowdMultiPoseActiveBatches.Add(batch);
+                }
 
                 batch.Instances.Add(instanceData);
                 _walkerCrowdMultiPoseMeshInstancesThisFrame++;
@@ -723,6 +728,7 @@ namespace Client.Main.Objects
                     if (batch.Instances.Count == 0)
                     {
                         batch.WritesDepth = IsMapPlacementObject;
+                        batch.Character = !IsMapPlacementObject;
                         _walkerCrowdTransparentActiveBatches.Add(batch);
                     }
 
@@ -844,6 +850,7 @@ namespace Client.Main.Objects
                 ? RasterizerState.CullNone
                 : RasterizerState.CullClockwise;
             bindings.DiffuseTexture?.SetValue(batch.Texture);
+            ApplyCrowdRimLight(bindings, batch.Character);
 
             batch.VertexBindings[0] = new VertexBufferBinding(batch.GeometryVertexBuffer);
             batch.VertexBindings[1] = new VertexBufferBinding(batch.InstanceBuffer, 0, 1);

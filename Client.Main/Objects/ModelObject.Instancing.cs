@@ -931,6 +931,15 @@ namespace Client.Main.Objects
             return success;
         }
 
+        /// <summary>Rim light for a crowd batch: monsters / NPCs on, animated map placements off.</summary>
+        private static void ApplyCrowdRimLight(ModelEffectBindings bindings, bool character)
+        {
+            float strength = character ? Constants.RIM_LIGHT_STRENGTH : 0f;
+            bindings.RimStrength?.SetValue(strength);
+            if (strength > 0f && Camera.Instance != null)
+                bindings.RimEyePosition?.SetValue(Camera.Instance.Position);
+        }
+
         private static void FlushWalkerCrowdLegacyInstancingBatches(WorldControl world)
         {
             if (_walkerCrowdInstancingActiveBatches.Count == 0)
@@ -986,6 +995,8 @@ namespace Client.Main.Objects
 
                     if (!batch.PoseSource.TryUploadGpuSkinBoneMatrices(effect, batch.BoneCount))
                         continue;
+
+                    ApplyCrowdRimLight(bindings, !batch.PoseSource.IsMapPlacementObject);
 
                     EnsureInstanceUploadBuffer(batch, instanceCount);
                     for (int j = 0; j < instanceCount; j++)

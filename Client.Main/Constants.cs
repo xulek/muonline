@@ -136,7 +136,7 @@ namespace Client.Main
         /// <summary>SSAO amount, 1 = default (0..2).</summary>
         public static float SSAO_STRENGTH = 1f;
         /// <summary>Rim light on characters and monsters (0 = off).</summary>
-        public static float RIM_LIGHT_STRENGTH = 0.35f;
+        public static float RIM_LIGHT_STRENGTH = 0.5f;
         /// <summary>Use remastered world textures bundled with the client (Assets/Remaster) instead of the Data files.</summary>
         public static bool REMASTERED_TEXTURES = true;
         /// <summary>Terrain textures are sampled twice (rotated, through a noise mask) to hide their repeating grid.</summary>

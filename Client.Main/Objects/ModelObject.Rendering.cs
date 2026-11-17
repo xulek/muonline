@@ -1196,6 +1196,9 @@ namespace Client.Main.Objects
             bindings.SunColor?.SetValue(_sunColor);
             bindings.SunStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
             bindings.RimStrength?.SetValue(ResolveRimStrength());
+            // Rim light needs the camera position on every item path (merged player parts, fast shader too).
+            if (Camera.Instance != null)
+                bindings.EyePosition?.SetValue(Camera.Instance.Position);
 
             int itemOptions = EffectiveItemLevel & 0x0F;
             if (HasExcellentGlow)

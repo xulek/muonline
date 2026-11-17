@@ -1083,14 +1083,17 @@ float3 ShadeObjectRgb(PixelInput input, float3 texRgb, float3 normal,
     float3 finalLight = baseLight * shadowScale + dynLight;     // sun shadow only
 #endif
 
+    float3 rimAdd = float3(0.0, 0.0, 0.0);
     [branch] if (RimStrength > 0.0)
     {
         float3 toEye = normalize(RimEyePosition - input.WorldPos);
         float rim = 1.0 - saturate(dot(normal, toEye));
-        finalLight += RimColor * (rim * rim * rim * RimStrength);
+        float3 rimLight = RimColor * (rim * rim * RimStrength);
+        finalLight += rimLight;
+        rimAdd = rimLight * 0.3; // dark armour textures still get a visible edge
     }
 
-    float3 finalColor = texRgb * finalLight * MaterialTint;
+    float3 finalColor = texRgb * finalLight * MaterialTint + rimAdd;
 
     if (hasDynamicLight)
     {
