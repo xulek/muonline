@@ -119,7 +119,7 @@ namespace Client.Main.Graphics
             {
                 case GraphicsQualityPreset.Low:
                     Constants.RENDER_SCALE = 0.75f;
-                    Constants.MSAA_ENABLED = false;
+                    Constants.MSAA_SAMPLES = 0;
                     Constants.ENABLE_DYNAMIC_LIGHTS = false;
                     Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = false;
                     Constants.ENABLE_TERRAIN_GPU_LIGHTING = false;
@@ -135,7 +135,7 @@ namespace Client.Main.Graphics
 
                 case GraphicsQualityPreset.Medium:
                     Constants.RENDER_SCALE = 0.9f;
-                    Constants.MSAA_ENABLED = false;
+                    Constants.MSAA_SAMPLES = 0;
                     Constants.ENABLE_DYNAMIC_LIGHTS = true;
                     Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = true;
                     Constants.ENABLE_TERRAIN_GPU_LIGHTING = false;
@@ -152,7 +152,7 @@ namespace Client.Main.Graphics
                 case GraphicsQualityPreset.High:
                 default:
                     Constants.RENDER_SCALE = 1.0f;
-                    Constants.MSAA_ENABLED = false;
+                    Constants.MSAA_SAMPLES = 4;
                     Constants.ENABLE_DYNAMIC_LIGHTS = true;
                     Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = true;
                     Constants.ENABLE_TERRAIN_GPU_LIGHTING = true;

@@ -314,7 +314,7 @@ namespace Client.Main.Controllers
             int targetWidth = Math.Max(1, (int)MathF.Round(backBufferWidth * Constants.RENDER_SCALE));
             int targetHeight = Math.Max(1, (int)MathF.Round(backBufferHeight * Constants.RENDER_SCALE));
             SurfaceFormat renderTargetFormat = Constants.MSAA_ENABLED ? SurfaceFormat.Color : pp.BackBufferFormat;
-            int sampleCount = Constants.MSAA_ENABLED ? pp.MultiSampleCount : 0;
+            int sampleCount = Constants.MSAA_ENABLED ? Constants.MSAA_SAMPLES : 0;
 
             bool recreateMain = !IsTargetValid(MainRenderTarget, targetWidth, targetHeight) ||
                                 (requireRecoveryTarget && !IsTargetValid(RecoveryRenderTarget, targetWidth, targetHeight)) ||

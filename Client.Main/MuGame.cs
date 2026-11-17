@@ -186,7 +186,8 @@ namespace Client.Main
             {
                 PreferredBackBufferWidth = 1280,
                 PreferredBackBufferHeight = 720,
-                PreferMultiSampling = Constants.MSAA_ENABLED,
+                // MSAA lives on the scene render target (Constants.MSAA_SAMPLES); the backbuffer never needs it.
+                PreferMultiSampling = false,
                 HardwareModeSwitch = false // Required for dynamic resolution changes at runtime
             };
 
@@ -1501,9 +1502,10 @@ namespace Client.Main
                 ? TimeSpan.FromMilliseconds(1)
                 : TimeSpan.FromSeconds(1.0 / 60.0);
 #endif
-            graphicsDeviceChangeRequired |=
-                _graphics.PreferMultiSampling != Constants.MSAA_ENABLED;
-            _graphics.PreferMultiSampling = Constants.MSAA_ENABLED;
+            // MSAA is applied to the scene render target only (GraphicsManager.EnsureRenderTargets recreates it when
+            // Constants.MSAA_SAMPLES changes), so switching it never resets the device.
+            graphicsDeviceChangeRequired |= _graphics.PreferMultiSampling;
+            _graphics.PreferMultiSampling = false;
 
             // ApplyChanges recreates the backbuffer and render targets. Avoid doing that for
             // no-op UI refreshes because it can produce a visible black frame.
@@ -1872,7 +1874,9 @@ namespace Client.Main
             GraphicsDevice.SetRenderTarget(destination);
             // Opaque presentation covers every pixel, including when render scale differs.
 
-            Effect gammaEffect = Constants.MSAA_ENABLED && destination != null ? GraphicsManager.Instance.GammaCorrectionEffect : null;
+            // The scene is plain (non-sRGB) colour end to end; the old sRGB->linear pass for MSAA made the
+            // composited image much darker.
+            Effect gammaEffect = null;
 
             GraphicsManager.Instance.Sprite.Begin(
                 SpriteSortMode.Deferred,

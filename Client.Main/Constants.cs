@@ -61,7 +61,9 @@ namespace Client.Main
         public static bool DRAW_GRASS;
 
         // Rendering
-        public static bool MSAA_ENABLED;
+        /// <summary>Multisample count of the scene render target: 0 (off), 2, 4 or 8 (clamped to what the GPU supports).</summary>
+        public static int MSAA_SAMPLES;
+        public static bool MSAA_ENABLED => MSAA_SAMPLES > 0;
         public static bool ENABLE_DYNAMIC_LIGHTS;
         public static bool ENABLE_DYNAMIC_LIGHTING_SHADER;
         public static bool ENABLE_GPU_SKINNING;
@@ -306,7 +308,7 @@ namespace Client.Main
             ENABLE_LOW_QUALITY_SWITCH = true;
             ENABLE_LOW_QUALITY_IN_LOGIN_SCENE = false;
 
-            MSAA_ENABLED = false;
+            MSAA_SAMPLES = 0;
             ENABLE_DYNAMIC_LIGHTS = true;
             ENABLE_DYNAMIC_LIGHTING_SHADER = true;
             ENABLE_GPU_SKINNING = true;

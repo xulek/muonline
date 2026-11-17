@@ -14,6 +14,8 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
     /// </summary>
     internal static class SettingsCatalog
     {
+        private static readonly int[] MsaaSampleChoices = { 0, 2, 4, 8 };
+
         /// <summary>Every option of every category, with its "Category/Label" key.</summary>
         public static IEnumerable<(string Key, SettingOption Option)> AllOptions()
         {
@@ -142,6 +144,14 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                     Description = "Smooth jagged edges with a fast post-process filter.",
                     Get = () => GraphicsManager.Instance.IsFXAAEnabled,
                     Set = v => GraphicsManager.Instance.IsFXAAEnabled = v
+                },
+                new SettingChoice
+                {
+                    Label = "Anti-Aliasing (MSAA)",
+                    Description = "Hardware edge smoothing of models and terrain. Sharper than FXAA; 4x is a good balance, 8x costs more GPU.",
+                    Choices = new[] { "Off", "2x", "4x", "8x" },
+                    GetIndex = () => Array.IndexOf(MsaaSampleChoices, Constants.MSAA_SAMPLES),
+                    SetIndex = i => Constants.MSAA_SAMPLES = MsaaSampleChoices[Math.Clamp(i, 0, MsaaSampleChoices.Length - 1)]
                 },
                 new SettingToggle
                 {
