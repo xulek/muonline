@@ -78,6 +78,8 @@ namespace Client.Main.Objects
                 GroundPatch = effect.Parameters["GroundPatch"];
                 GroundPatchOrigin = effect.Parameters["GroundPatchOrigin"];
                 ShadowOpaqueCaster = effect.Parameters["ShadowOpaqueCaster"];
+                RimStrength = effect.Parameters["RimStrength"];
+                RimEyePosition = effect.Parameters["RimEyePosition"];
             }
 
             public EffectParameter BonePaletteTexture { get; }
@@ -139,6 +141,8 @@ namespace Client.Main.Objects
             public EffectParameter GroundPatch { get; }
             public EffectParameter GroundPatchOrigin { get; }
             public EffectParameter ShadowOpaqueCaster { get; }
+            public EffectParameter RimStrength { get; }
+            public EffectParameter RimEyePosition { get; }
 
             // Palette currently selected in this shared Effect instance (GpuSkinPalette base and generation);
             // consecutive meshes of the same pose keep it without touching the parameters.
@@ -409,6 +413,9 @@ namespace Client.Main.Objects
             bindings.TerrainDynamicIntensityScale?.SetValue(1.5f);
             bindings.AmbientLight?.SetValue(_ambientLightVector * SunCycleManager.AmbientMultiplier);
             bindings.DebugLightingAreas?.SetValue(Constants.DEBUG_LIGHTING_AREAS ? 1.0f : 0.0f);
+            // Shared effect: set every draw so map objects never inherit a character's rim.
+            bindings.RimStrength?.SetValue(ResolveRimStrength());
+            bindings.RimEyePosition?.SetValue(camera.Position);
 
             if (!Constants.ENABLE_DYNAMIC_LIGHTS)
             {

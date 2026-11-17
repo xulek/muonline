@@ -299,6 +299,33 @@ UNIFORM_DEFAULT(float, FogStart, 2000.0);
 UNIFORM_DEFAULT(float, FogEnd, 2700.0);
 UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
 
+// Height fog: a ground-hugging layer below HeightFogBase (world Z near the player), thicker with distance.
+// HeightFogDensity 0 = off (uniform branch).
+UNIFORM_DEFAULT(float, HeightFogDensity, 0.0);
+UNIFORM_DEFAULT(float3, HeightFogColor, float3(0.5, 0.5, 0.5));
+UNIFORM_DEFAULT(float, HeightFogBase, 0.0);
+UNIFORM_DEFAULT(float, HeightFogFalloff, 0.008);
+UNIFORM_DEFAULT(float, HeightFogStart, 400.0);
+UNIFORM_DEFAULT(float, HeightFogRange, 2500.0);
+
+float HeightFogFactor(float3 worldPos)
+{
+    float f = 0.0;
+    [branch] if (HeightFogDensity > 0.0)
+    {
+        float dist = length(worldPos - FogCameraPosition);
+        float above = max(worldPos.z - HeightFogBase, 0.0);
+        f = saturate(HeightFogDensity * exp2(-above * HeightFogFalloff) *
+                     saturate((dist - HeightFogStart) / max(HeightFogRange, 1.0)));
+    }
+    return f;
+}
+
+// Rim light for characters (RimStrength 0 for everything else): view-grazing edges pick up RimColor.
+UNIFORM_DEFAULT(float, RimStrength, 0.0);
+UNIFORM_DEFAULT(float3, RimColor, float3(0.6, 0.7, 0.85));
+UNIFORM_DEFAULT(float3, RimEyePosition, float3(0.0, 0.0, 0.0));
+
 // Uniform branch: worlds without fog skip the length()/divide entirely.
 float3 ApplyWorldFog(float3 color, float3 worldPos)
 {
@@ -307,6 +334,7 @@ float3 ApplyWorldFog(float3 color, float3 worldPos)
         float f = saturate((length(worldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0));
         color = lerp(color, FogColor, f * FogEnabled);
     }
+    color = lerp(color, HeightFogColor, HeightFogFactor(worldPos));
     return color;
 }
 
@@ -1055,6 +1083,13 @@ float3 ShadeObjectRgb(PixelInput input, float3 texRgb, float3 normal,
     float3 finalLight = baseLight * shadowScale + dynLight;     // sun shadow only
 #endif
 
+    [branch] if (RimStrength > 0.0)
+    {
+        float3 toEye = normalize(RimEyePosition - input.WorldPos);
+        float rim = 1.0 - saturate(dot(normal, toEye));
+        finalLight += RimColor * (rim * rim * rim * RimStrength);
+    }
+
     float3 finalColor = texRgb * finalLight * MaterialTint;
 
     if (hasDynamicLight)
@@ -1107,6 +1142,7 @@ float4 PS_AdditiveAlphaTest(UnlitPixelInput input) : SV_Target
     // Additive: fog fades the contribution out instead of blending towards the fog colour.
     [branch] if (FogEnabled > 0.0)
         color.rgb *= 1.0 - saturate((length(input.WorldPos - FogCameraPosition) - FogStart) / max(FogEnd - FogStart, 1.0)) * FogEnabled;
+    color.rgb *= 1.0 - HeightFogFactor(input.WorldPos);
     return color;
 }
 

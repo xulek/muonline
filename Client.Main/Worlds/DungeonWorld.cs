@@ -9,6 +9,19 @@ namespace Client.Main.Worlds
     [WorldInfo(1, "Dungeon")]
     public class DungeonWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.900f, 0.850f, 1.000f);
+            glow.Saturation = 0.95f;
+            glow.Contrast = 1.08f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.000f, 0.012f);
+            glow.Vignette = 0.34f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.100f, 0.100f, 0.140f), 0.45f, Falloff: 1f / 100f);
+
         private AmbientFlockSystem _batFlock;
         private AmbientFlockSystem _ratFlock;
 

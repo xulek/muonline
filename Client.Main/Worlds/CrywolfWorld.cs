@@ -13,6 +13,19 @@ namespace Client.Main.Worlds
     [WorldInfo(34, "Crywolf")]
     internal class CrywolfWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.950f, 0.900f, 1.000f);
+            glow.Saturation = 1f;
+            glow.Contrast = 1.06f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.005f, 0.000f, 0.012f);
+            glow.Vignette = 0.26f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.300f, 0.300f, 0.350f), 0.38f);
+
         private CrywolfWeatherSystem _weatherSystem;
         private Client.Main.Objects.Worlds.Events.AmbientFlockSystem _scorpionFlock;
 

@@ -8,6 +8,19 @@ namespace Client.Main.Worlds
     [WorldInfo(7, "Atlans")]
     public class AtlansWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.700f, 0.950f, 1.000f);
+            glow.Saturation = 1.05f;
+            glow.Contrast = 1.04f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.020f, 0.035f);
+            glow.Vignette = 0.25f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.080f, 0.280f, 0.380f), 0.5f, Falloff: 1f / 200f);
+
         private BoidManager _boidManager;
         private Objects.Worlds.Noria.NoriaLeafAmbientEffect _leafEffect;
 

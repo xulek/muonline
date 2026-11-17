@@ -1195,6 +1195,7 @@ namespace Client.Main.Objects
             bindings.AmbientLight?.SetValue(_ambientLightVector * SunCycleManager.AmbientMultiplier);
             bindings.SunColor?.SetValue(_sunColor);
             bindings.SunStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
+            bindings.RimStrength?.SetValue(ResolveRimStrength());
 
             int itemOptions = EffectiveItemLevel & 0x0F;
             if (HasExcellentGlow)

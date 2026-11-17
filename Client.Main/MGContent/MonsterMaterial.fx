@@ -23,6 +23,28 @@ UNIFORM_DEFAULT(float, FogStart, 2000.0);
 UNIFORM_DEFAULT(float, FogEnd, 2700.0);
 UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
 
+// Height fog: a ground-hugging layer below HeightFogBase (world Z near the player), thicker with distance.
+// HeightFogDensity 0 = off (uniform branch).
+UNIFORM_DEFAULT(float, HeightFogDensity, 0.0);
+UNIFORM_DEFAULT(float3, HeightFogColor, float3(0.5, 0.5, 0.5));
+UNIFORM_DEFAULT(float, HeightFogBase, 0.0);
+UNIFORM_DEFAULT(float, HeightFogFalloff, 0.008);
+UNIFORM_DEFAULT(float, HeightFogStart, 400.0);
+UNIFORM_DEFAULT(float, HeightFogRange, 2500.0);
+
+float HeightFogFactor(float3 worldPos)
+{
+    float f = 0.0;
+    [branch] if (HeightFogDensity > 0.0)
+    {
+        float dist = length(worldPos - FogCameraPosition);
+        float above = max(worldPos.z - HeightFogBase, 0.0);
+        f = saturate(HeightFogDensity * exp2(-above * HeightFogFalloff) *
+                     saturate((dist - HeightFogStart) / max(HeightFogRange, 1.0)));
+    }
+    return f;
+}
+
 float WorldFogFactor(float3 worldPos)
 {
     float f = 0.0;
@@ -33,7 +55,8 @@ float WorldFogFactor(float3 worldPos)
 
 float3 ApplyWorldFog(float3 color, float3 worldPos)
 {
-    return lerp(color, FogColor, WorldFogFactor(worldPos));
+    color = lerp(color, FogColor, WorldFogFactor(worldPos));
+    return lerp(color, HeightFogColor, HeightFogFactor(worldPos));
 }
 
 #if OPENGL

@@ -991,6 +991,10 @@ namespace Client.Main.Objects
             return Vector3.Clamp(result, Vector3.Zero, Vector3.One);
         }
 
+        /// <summary>Rim light strength for this draw: characters and monsters only.</summary>
+        private float ResolveRimStrength() =>
+            Constants.RIM_LIGHT_STRENGTH > 0f && HasWalkerAncestor() ? Constants.RIM_LIGHT_STRENGTH : 0f;
+
         private bool HasWalkerAncestor()
         {
             // Disable sun-lighting for objects that belong to player/NPC/monster hierarchies

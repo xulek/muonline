@@ -225,26 +225,52 @@ namespace Client.Main.Controls
                         Threshold = 0.72f,
                         Knee = 0.3f,
                         Intensity = 0.55f,
-                        Saturation = 1.06f,
-                        Contrast = 1.04f,
-                        Vignette = 0.22f,
+                        Sharpen = 0.25f,
                     };
-                    ConfigureWorldGlow(_worldGlow);
+                    ApplyWorldGrade(_worldGlow);
                 }
 
                 return _worldGlow;
             }
         }
 
+        /// <summary>Ground-hugging height fog of this world (<see cref="Graphics.HeightFogPreset.None"/> = off).</summary>
+        public virtual Graphics.HeightFogPreset HeightFog => Graphics.HeightFogPreset.None;
+
         /// <summary>Per-world tuning of the gameplay glow and colour grade.</summary>
         private protected virtual void ConfigureWorldGlow(Graphics.SceneBloom glow)
         {
+        }
+
+        private bool? _appliedMapGrade;
+
+        /// <summary>
+        /// Neutral gameplay grade, plus this world's colours when <see cref="Constants.ENABLE_MAP_COLOR_GRADE"/> is on.
+        /// Re-applied only when the option changes.
+        /// </summary>
+        private void ApplyWorldGrade(Graphics.SceneBloom glow)
+        {
+            bool mapGrade = Constants.ENABLE_MAP_COLOR_GRADE;
+            if (_appliedMapGrade == mapGrade)
+                return;
+            _appliedMapGrade = mapGrade;
+
+            glow.Tint = Vector3.One;
+            glow.Saturation = 1.06f;
+            glow.Contrast = 1.04f;
+            glow.Lift = Vector3.Zero;
+            glow.Vignette = 0.22f;
+            if (mapGrade)
+                ConfigureWorldGlow(glow);
         }
 
         private void BeginWorldGlow()
         {
             if (_worldGlowActive)
                 EndWorldGlow(); // previous frame never reached the end (render failure)
+
+            if (_worldGlow != null)
+                ApplyWorldGrade(_worldGlow);
 
             _worldGlowActive = Constants.ENABLE_WORLD_BLOOM && UsesWorldGlow &&
                                WorldGlow.Begin(GraphicsDevice, SceneClearColor);
@@ -971,6 +997,8 @@ namespace Client.Main.Controls
             // World / distance fog parameters for every world shader (terrain, objects, item and monster materials).
             var graphics = GraphicsManager.Instance;
             Vector3 fogCameraPosition = Camera.Instance.Position;
+            Graphics.WorldFog.Height = HeightFog;
+            Graphics.WorldFog.HeightBase = Camera.Instance.Target.Z - 40f;
             if (graphics.DynamicLightingEffect != null)
                 Graphics.WorldFog.Apply(graphics.DynamicLightingEffect, fogCameraPosition);
             if (graphics.ItemMaterialEffect != null)

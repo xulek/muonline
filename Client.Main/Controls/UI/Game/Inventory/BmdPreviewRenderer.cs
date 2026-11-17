@@ -1642,6 +1642,7 @@ namespace Client.Main.Controls.UI.Game.Inventory
                 // path used for ordinary items), so upgrades only add their chrome passes.
                 bindings.AmbientLight?.SetValue(Vector3.One);
                 bindings.SunStrength?.SetValue(0f);
+                bindings.Effect?.Parameters["RimStrength"]?.SetValue(0f);
                 bindings.ShadowStrength?.SetValue(0f);
                 bindings.ItemOptions?.SetValue(props.ItemOptions);
                 bindings.Time?.SetValue(shaderTime);

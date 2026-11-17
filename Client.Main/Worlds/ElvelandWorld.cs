@@ -11,6 +11,19 @@ namespace Client.Main.Worlds
     [WorldInfo(51, "Elbeland")]
     public class ElvelandWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(1.000f, 0.950f, 0.900f);
+            glow.Saturation = 1.1f;
+            glow.Contrast = 1.03f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.010f, 0.010f, 0.005f);
+            glow.Vignette = 0.18f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.600f, 0.600f, 0.550f), 0.28f);
+
         private ElbelandTornadoSystem _tornadoSystem;
         private ElbelandEagleSystem _eagleSystem;
         private ObjectAmbientSoundSystem _ambientSoundSystem;

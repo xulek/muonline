@@ -8,6 +8,19 @@ namespace Client.Main.Worlds
     [WorldInfo(8, "Tarkan")]
     public class TarkanWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(1.000f, 0.850f, 0.650f);
+            glow.Saturation = 1.02f;
+            glow.Contrast = 1.06f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.025f, 0.015f, 0.000f);
+            glow.Vignette = 0.24f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.600f, 0.450f, 0.300f), 0.45f);
+
         public TarkanWorld() : base(worldIndex: 9) // TARKAN
         {
             Name = "Tarkan";

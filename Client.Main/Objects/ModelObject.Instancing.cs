@@ -2002,6 +2002,7 @@ namespace Client.Main.Objects
             bindings.SunStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveSunStrength() : 0f);
             bindings.ShadowStrength?.SetValue(sunEnabled ? SunCycleManager.GetEffectiveShadowStrength() : 0f);
             bindings.AmbientLight?.SetValue(_ambientLightVector * SunCycleManager.AmbientMultiplier);
+            bindings.RimStrength?.SetValue(0f); // map placements: no character rim light
 
             GraphicsManager.Instance.ShadowMapRenderer?.ApplyShadowParameters(effect);
             int activeLightCount = UploadStaticMapInstancingDynamicLights(effect, world);

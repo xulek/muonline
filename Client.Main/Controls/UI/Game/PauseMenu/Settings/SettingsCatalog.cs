@@ -186,6 +186,30 @@ namespace Client.Main.Controls.UI.Game.PauseMenu.Settings
                     Get = () => Constants.ENABLE_WORLD_BLOOM,
                     Set = v => Constants.ENABLE_WORLD_BLOOM = v
                 },
+                new SettingToggle
+                {
+                    Label = "Map Colour Grading",
+                    Description = "Per-map colour mood (warm Lorencia, cold Devias, teal Atlans...). Needs World Glow.",
+                    Get = () => Constants.ENABLE_MAP_COLOR_GRADE,
+                    Set = v => Constants.ENABLE_MAP_COLOR_GRADE = v
+                },
+                new SettingToggle
+                {
+                    Label = "Height Fog",
+                    Description = "Low-lying mist in valleys and dungeons on maps that define it.",
+                    Get = () => Constants.ENABLE_HEIGHT_FOG,
+                    Set = v => Constants.ENABLE_HEIGHT_FOG = v
+                },
+                new SettingSlider
+                {
+                    Label = "Character Rim Light",
+                    Description = "Soft light on the edges of characters and monsters so they stand out from the background.",
+                    Min = 0f,
+                    Max = 100f,
+                    Step = 5f,
+                    Get = () => Constants.RIM_LIGHT_STRENGTH * 100f,
+                    Set = v => Constants.RIM_LIGHT_STRENGTH = v / 100f
+                },
                 new SettingHeader { Label = "Shadows" },
                 new SettingChoice
                 {

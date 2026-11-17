@@ -13,6 +13,19 @@ namespace Client.Main.Worlds
     [WorldInfo(2, "Devias")]
     public class DeviasWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.850f, 0.920f, 1.000f);
+            glow.Saturation = 0.98f;
+            glow.Contrast = 1.06f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.010f, 0.015f, 0.030f);
+            glow.Vignette = 0.22f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.750f, 0.800f, 0.880f), 0.4f);
+
         private DeviasSnowAmbientEffect _snowEffect;
         private bool _insideBuilding;
         private bool _churchMusic;

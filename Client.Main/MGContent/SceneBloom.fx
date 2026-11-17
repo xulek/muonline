@@ -15,6 +15,7 @@ float Saturation;     // 1 = unchanged
 float Contrast;       // 1 = unchanged
 float3 Lift;          // added to the shadows (colour of the darkest parts)
 float Vignette;       // 0 = off, 1 = strong darkening of the corners
+float Sharpen;        // 0 = off; unsharp mask against the 4 direct neighbours (TexelStep = 1 / scene size)
 
 #if SM4 || SM6
 Texture2D SceneTexture : register(t0);
@@ -58,6 +59,15 @@ PS_SIG(BlurPS)
 PS_SIG(CombinePS)
 {
     float3 scene = SAMPLE_SCENE(uv).rgb;
+    {
+        // Unsharp mask (taps are unconditional: ps_3_0 cannot branch around gradient samples; Sharpen 0 = no-op).
+        float3 n = (SAMPLE_SCENE(uv + float2(TexelStep.x, 0.0)).rgb + SAMPLE_SCENE(uv - float2(TexelStep.x, 0.0)).rgb +
+                    SAMPLE_SCENE(uv + float2(0.0, TexelStep.y)).rgb + SAMPLE_SCENE(uv - float2(0.0, TexelStep.y)).rgb) * 0.25;
+        // Clamp to the neighbourhood so edges get crisper without bright halos.
+        float3 lo = min(scene, n);
+        float3 hi = max(scene, n);
+        scene = clamp(scene + (scene - n) * Sharpen, lo * 0.85, hi * 1.15);
+    }
     float3 bloom = SAMPLE_BLOOM(uv).rgb * BloomTint * BloomIntensity;
     // Screen-like add: strong glow does not burn to flat white.
     float3 c = scene + bloom * (1.0 - saturate(scene) * 0.45);

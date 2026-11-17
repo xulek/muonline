@@ -23,6 +23,28 @@ UNIFORM_DEFAULT(float, FogStart, 2000.0);
 UNIFORM_DEFAULT(float, FogEnd, 2700.0);
 UNIFORM_DEFAULT(float3, FogCameraPosition, float3(0.0, 0.0, 0.0));
 
+// Height fog: a ground-hugging layer below HeightFogBase (world Z near the player), thicker with distance.
+// HeightFogDensity 0 = off (uniform branch).
+UNIFORM_DEFAULT(float, HeightFogDensity, 0.0);
+UNIFORM_DEFAULT(float3, HeightFogColor, float3(0.5, 0.5, 0.5));
+UNIFORM_DEFAULT(float, HeightFogBase, 0.0);
+UNIFORM_DEFAULT(float, HeightFogFalloff, 0.008);
+UNIFORM_DEFAULT(float, HeightFogStart, 400.0);
+UNIFORM_DEFAULT(float, HeightFogRange, 2500.0);
+
+float HeightFogFactor(float3 worldPos)
+{
+    float f = 0.0;
+    [branch] if (HeightFogDensity > 0.0)
+    {
+        float dist = length(worldPos - FogCameraPosition);
+        float above = max(worldPos.z - HeightFogBase, 0.0);
+        f = saturate(HeightFogDensity * exp2(-above * HeightFogFalloff) *
+                     saturate((dist - HeightFogStart) / max(HeightFogRange, 1.0)));
+    }
+    return f;
+}
+
 float WorldFogFactor(float3 worldPos)
 {
     float f = 0.0;
@@ -33,7 +55,8 @@ float WorldFogFactor(float3 worldPos)
 
 float3 ApplyWorldFog(float3 color, float3 worldPos)
 {
-    return lerp(color, FogColor, WorldFogFactor(worldPos));
+    color = lerp(color, FogColor, WorldFogFactor(worldPos));
+    return lerp(color, HeightFogColor, HeightFogFactor(worldPos));
 }
 
 #if OPENGL
@@ -429,6 +452,10 @@ float4 ShadeOverlay(float3 normal, float2 uv, float mode)
     return float4(rgb * ChromeOverlayColor * Alpha, ChromeOverlayAlpha);
 }
 
+// Rim light, same as DynamicLighting.fx (RimStrength 0 unless the item is worn by a character).
+UNIFORM_DEFAULT(float, RimStrength, 0.0);
+UNIFORM_DEFAULT(float3, RimColor, float3(0.6, 0.7, 0.85));
+
 // Same base lighting as DynamicLighting.fx so upgraded parts match the rest of the body.
 float3 ComputeItemLight(float3 worldPos, float3 normal)
 {
@@ -437,7 +464,13 @@ float3 ComputeItemLight(float3 worldPos, float3 normal)
     float shadowFactor = saturate(lerp(1.0 - ShadowStrength, 1.0, ndotl));
     float3 light = AmbientLight * shadowFactor + SunColor * (ndotl * SunStrength);
     float shadowTerm = SampleShadow(worldPos, normal);
-    return light * lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
+    light *= lerp(1.0 - ShadowStrength, 1.0, shadowTerm);
+    [branch] if (RimStrength > 0.0)
+    {
+        float rim = 1.0 - saturate(dot(normal, normalize(EyePosition - worldPos)));
+        light += RimColor * (rim * rim * rim * RimStrength);
+    }
+    return light;
 }
 
 // Item shading for an already sampled, alpha-tested diffuse colour. The parameters are uniforms for single

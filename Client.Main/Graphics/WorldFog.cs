@@ -9,6 +9,16 @@ namespace Client.Main.Graphics
     /// Disabled by default so existing worlds render unchanged; worlds like
     /// Valley of Loren opt in (source GMBattleCastle black GL_FOG 2000-2700).
     /// </summary>
+    /// <summary>
+    /// Height fog of one world. <see cref="Density"/> is the fog amount at full distance on the ground (0 = off),
+    /// <see cref="Falloff"/> halves it every 1/Falloff world units above the base, <see cref="Start"/> /
+    /// <see cref="Range"/> fade it in with distance from the camera so nearby ground stays clear.
+    /// </summary>
+    public readonly record struct HeightFogPreset(Vector3 Color, float Density, float Falloff = 1f / 140f, float Start = 450f, float Range = 2600f)
+    {
+        public static readonly HeightFogPreset None = default;
+    }
+
     public static class WorldFog
     {
         public static bool Enabled;
@@ -23,8 +33,25 @@ namespace Client.Main.Graphics
         public static bool DistanceFogEnabled;
         public static Vector3 DistanceColor = new(0f, 0f, 0f);
 
+        /// <summary>Ground-hugging height fog of the current world (Density 0 = off).</summary>
+        public static HeightFogPreset Height;
+        /// <summary>World Z the height fog is measured from (set each frame near the player's ground).</summary>
+        public static float HeightBase;
+
         public static void Apply(Effect effect, Vector3 cameraPosition)
         {
+            float heightDensity = Constants.ENABLE_HEIGHT_FOG ? Height.Density : 0f;
+            effect.Parameters["HeightFogDensity"]?.SetValue(heightDensity);
+            effect.Parameters["FogCameraPosition"]?.SetValue(cameraPosition);
+            if (heightDensity > 0f)
+            {
+                effect.Parameters["HeightFogColor"]?.SetValue(Height.Color);
+                effect.Parameters["HeightFogBase"]?.SetValue(HeightBase);
+                effect.Parameters["HeightFogFalloff"]?.SetValue(Height.Falloff);
+                effect.Parameters["HeightFogStart"]?.SetValue(Height.Start);
+                effect.Parameters["HeightFogRange"]?.SetValue(Height.Range);
+            }
+
             bool distanceFog = !Enabled && DistanceFogEnabled;
             effect.Parameters["FogEnabled"]?.SetValue(Enabled || distanceFog ? 1f : 0f);
             if (!Enabled && !distanceFog)
@@ -78,6 +105,9 @@ namespace Client.Main.Graphics
             graphics.DynamicLightingEffect?.Parameters["FogEnabled"]?.SetValue(0f);
             graphics.ItemMaterialEffect?.Parameters["FogEnabled"]?.SetValue(0f);
             graphics.MonsterMaterialEffect?.Parameters["FogEnabled"]?.SetValue(0f);
+            graphics.DynamicLightingEffect?.Parameters["HeightFogDensity"]?.SetValue(0f);
+            graphics.ItemMaterialEffect?.Parameters["HeightFogDensity"]?.SetValue(0f);
+            graphics.MonsterMaterialEffect?.Parameters["HeightFogDensity"]?.SetValue(0f);
             if (graphics.AlphaTestEffect3D != null) graphics.AlphaTestEffect3D.FogEnabled = false;
             if (graphics.BasicEffect3D != null) graphics.BasicEffect3D.FogEnabled = false;
         }

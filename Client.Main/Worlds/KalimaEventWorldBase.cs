@@ -13,6 +13,19 @@ namespace Client.Main.Worlds
     /// </summary>
     public abstract class KalimaEventWorldBase : S6EventWorldBase
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.850f, 1.000f, 0.950f);
+            glow.Saturation = 0.95f;
+            glow.Contrast = 1.06f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.010f, 0.010f);
+            glow.Vignette = 0.3f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.120f, 0.180f, 0.180f), 0.45f);
+
         private KalimaAmbientManager _ambientManager;
         private static double _lastAmbientSoundMs;
         private static double _lastStoneSoundMs;

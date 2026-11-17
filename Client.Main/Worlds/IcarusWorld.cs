@@ -11,6 +11,16 @@ namespace Client.Main.Worlds
     [WorldInfo(10, "Icarus")]
     public class IcarusWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.850f, 0.900f, 1.000f);
+            glow.Saturation = 1.05f;
+            glow.Contrast = 1.08f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.005f, 0.020f);
+            glow.Vignette = 0.22f;
+        }
+
         private static readonly Color CLEAR_COLOR = new Color(3f / 256f, 25f / 256f, 44f / 256f, 1f);
 
         public override Color SceneClearColor => CLEAR_COLOR;

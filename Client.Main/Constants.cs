@@ -127,6 +127,12 @@ namespace Client.Main
         public static bool ENABLE_MENU_SCENE_EFFECTS = true;
         /// <summary>Gameplay worlds: soft glow around bright light (fire, spells, lamps) plus a light colour grade and vignette.</summary>
         public static bool ENABLE_WORLD_BLOOM = true;
+        /// <summary>Per-map colour grade (tint, saturation, contrast, vignette) on top of the world glow.</summary>
+        public static bool ENABLE_MAP_COLOR_GRADE = true;
+        /// <summary>Ground-hugging height fog on worlds that define one.</summary>
+        public static bool ENABLE_HEIGHT_FOG = true;
+        /// <summary>Rim light on characters and monsters (0 = off).</summary>
+        public static float RIM_LIGHT_STRENGTH = 0.35f;
         /// <summary>Use remastered world textures bundled with the client (Assets/Remaster) instead of the Data files.</summary>
         public static bool REMASTERED_TEXTURES = true;
         /// <summary>Terrain textures are sampled twice (rotated, through a noise mask) to hide their repeating grid.</summary>

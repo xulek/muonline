@@ -29,6 +29,8 @@ namespace Client.Main.Graphics
         public float Contrast { get; set; } = 1.05f;
         public Vector3 Lift { get; set; } = Vector3.Zero;
         public float Vignette { get; set; } = 0.45f;
+        /// <summary>Unsharp-mask strength applied to the scene in the combine pass (0 = off).</summary>
+        public float Sharpen { get; set; }
 
         /// <summary>Redirects drawing into the private target (cleared to <paramref name="clearColor"/>).</summary>
         public bool Begin(GraphicsDevice device, Color clearColor)
@@ -95,6 +97,8 @@ namespace Client.Main.Graphics
             effect.Parameters["Contrast"]?.SetValue(Contrast);
             effect.Parameters["Lift"]?.SetValue(Lift);
             effect.Parameters["Vignette"]?.SetValue(Vignette);
+            effect.Parameters["Sharpen"]?.SetValue(Sharpen);
+            effect.Parameters["TexelStep"]?.SetValue(new Vector2(1f / _scene.Width, 1f / _scene.Height));
             device.Textures[1] = _quarterA;
             device.SamplerStates[1] = SamplerState.LinearClamp;
             sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, effect);

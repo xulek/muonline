@@ -12,6 +12,19 @@ namespace Client.Main.Worlds
     [WorldInfo(0, "Lorencia")]
     public class LorenciaWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(1.000f, 0.900f, 0.750f);
+            glow.Saturation = 1.08f;
+            glow.Contrast = 1.05f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.020f, 0.012f, 0.000f);
+            glow.Vignette = 0.22f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.550f, 0.500f, 0.420f), 0.3f);
+
         private BirdManager _birdManager;
         private LorenciaLeafAmbientEffect _leafEffect;
         private const string RainSoundPath = "Sound/aRain.wav";

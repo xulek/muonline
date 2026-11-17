@@ -14,6 +14,19 @@ namespace Client.Main.Worlds
     [WorldInfo(37, "Kanturu")]
     public class KanturuWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.850f, 0.950f, 1.000f);
+            glow.Saturation = 1f;
+            glow.Contrast = 1.06f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.008f, 0.015f);
+            glow.Vignette = 0.24f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.200f, 0.250f, 0.300f), 0.38f);
+
         private ObjectAmbientSoundSystem _ambientSoundSystem;
 
         public KanturuWorld() : base(worldIndex: 38) // KANTURU (RUINS)

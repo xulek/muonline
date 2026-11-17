@@ -13,6 +13,19 @@ namespace Client.Main.Worlds
     [WorldInfo(3, "Noria")]
     public class NoriaWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.900f, 1.000f, 0.850f);
+            glow.Saturation = 1.1f;
+            glow.Contrast = 1.04f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.015f, 0.005f);
+            glow.Vignette = 0.2f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.420f, 0.520f, 0.420f), 0.32f);
+
         private ButterflyManager _butterflyManager;
         private NoriaLeafAmbientEffect _leafEffect;
 

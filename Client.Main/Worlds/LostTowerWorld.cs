@@ -9,6 +9,19 @@ namespace Client.Main.Worlds
     [WorldInfo(4, "Lost Tower")]
     public class LostTowerWorld : WalkableWorldControl
     {
+        // Gameplay colour grade / atmosphere (World Glow, height fog).
+        private protected override void ConfigureWorldGlow(Client.Main.Graphics.SceneBloom glow)
+        {
+            glow.Tint = new Microsoft.Xna.Framework.Vector3(0.850f, 0.850f, 1.000f);
+            glow.Saturation = 0.95f;
+            glow.Contrast = 1.08f;
+            glow.Lift = new Microsoft.Xna.Framework.Vector3(0.000f, 0.000f, 0.020f);
+            glow.Vignette = 0.3f;
+        }
+
+        public override Client.Main.Graphics.HeightFogPreset HeightFog { get; } =
+            new(new Microsoft.Xna.Framework.Vector3(0.140f, 0.110f, 0.200f), 0.42f, Falloff: 1f / 110f);
+
         private AmbientFlockSystem _batFlock;
         public LostTowerWorld() : base(worldIndex: 5)
         {
