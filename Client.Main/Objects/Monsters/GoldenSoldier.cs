@@ -1,7 +1,6 @@
 using Client.Main.Content;
 using Client.Main.Core.Utilities;
 using Client.Main.Objects.Player;
-using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
@@ -15,13 +14,9 @@ namespace Client.Main.Objects.Monsters
         {
             // SourceMain5.2 CreateMonster(MONSTER_GOLDEN_SOLDIER): MODEL_SOLDIER,
             // Scale = 1.1f, Weapon[1] = Aquagold Crossbow (LinkBone 33, see
-            // SettingMonsterLinkBone MODEL_SOLDIER case). RenderCharacter: METAL|
-            // RENDER_BRIGHT pass with BITMAP_SHINY+1 (= Effect/Shiny02.jpg),
-            // tinted (1.0, 0.5, 0.0).
+            // SettingMonsterLinkBone MODEL_SOLDIER case).
             Scale = 1.1f;
-            BrightOverlay = 1f;
-            BrightOverlayTexturePath = "Effect/Shiny02.jpg";
-            BrightOverlayTint = new Vector3(1f, 0.5f, 0f);
+            ApplyGoldenOverlay(metalOnly: true);
 
             _leftHandWeapon = new WeaponObject
             {

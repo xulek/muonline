@@ -10,6 +10,7 @@ namespace Client.Main.Objects.Monsters
         public GoldenDragon()
         {
             Scale = 0.9f; // Set according to C++ Setting_Monster
+            ApplyGoldenOverlay();
         }
     }
 }

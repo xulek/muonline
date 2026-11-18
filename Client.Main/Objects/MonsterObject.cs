@@ -213,6 +213,10 @@ namespace Client.Main.Objects
         public override void DrawAfter(GameTime gameTime)
         {
             base.DrawAfter(gameTime);
+
+            if (Visible && BrightOverlay > 0f && Model?.Meshes != null && UsesGoldenMaterial)
+                DrawGoldenMaterial();
+
             DrawNameplate();
         }
 
@@ -593,20 +597,24 @@ namespace Client.Main.Objects
             return base.IsBlendMesh(mesh);
         }
 
-        // --- SourceMain5.2 bright/chrome body pass (RenderPartObjectBodyColor approximation) ---
+        // --- SourceMain5.2 bright/chrome body passes ---
+
+        private static readonly Vector3 GoldenBodyTint = new(1f, 0.52f, 0.15f);
+        private bool _hasGoldenOverlay;
+        private bool UsesGoldenMaterial => _hasGoldenOverlay && GraphicsManager.Instance.ItemMaterialEffect != null;
 
         /// <summary>
-        /// SourceMain5.2 RenderCharacter golden-monster block (MONSTER_GOLDEN_BUDGE_DRAGON, 78..83, 493..502):
-        /// RENDER_METAL | RENDER_BRIGHT (BITMAP_SHINY = Shiny01) followed by RENDER_CHROME | RENDER_BRIGHT
-        /// (BITMAP_CHROME), both tinted gold.
+        /// Golden monsters use a gold-tinted metal pass and an animated chrome pass.
+        /// Golden Titan and Golden Soldier use only the metal pass with Shiny02.
         /// </summary>
-        protected void ApplyGoldenOverlay()
+        protected void ApplyGoldenOverlay(bool metalOnly = false)
         {
+            _hasGoldenOverlay = true;
             BrightOverlay = 1f;
-            BrightOverlayTexturePath = "Effect/Shiny01.jpg";
+            BrightOverlayTexturePath = metalOnly ? "Effect/Shiny02.jpg" : "Effect/Shiny01.jpg";
             BrightOverlayTint = new Vector3(1f, 0.5f, 0f);
-            BrightOverlayTexturePath2 = "Effect/Chrome01.jpg";
-            BrightOverlayTint2 = new Vector3(1f, 0.5f, 0f);
+            BrightOverlayTexturePath2 = metalOnly ? null : "Effect/Chrome01.jpg";
+            BrightOverlayTint2 = BrightOverlayTint;
         }
 
         private Texture2D _brightOverlayTexture;
@@ -685,10 +693,65 @@ namespace Client.Main.Objects
         {
             base.Draw(gameTime);
 
-            // SourceMain5.2 renders the body first, then the RENDER_BRIGHT/CHROME
-            // overlay passes on top (ZzzCharacter.cpp RenderCharacter) — same order here.
-            if (BrightOverlay > 0f && !Hidden && Model?.Meshes != null)
+            if (BrightOverlay > 0f && !Hidden && Model?.Meshes != null && !UsesGoldenMaterial)
                 DrawBrightOverlayPass();
+        }
+
+        protected override Vector3 GetMeshBodyLight(int mesh)
+        {
+            Vector3 bodyLight = base.GetMeshBodyLight(mesh);
+            return _hasGoldenOverlay ? bodyLight * GoldenBodyTint : bodyLight;
+        }
+
+        public override void DrawModel(bool isAfterDraw)
+        {
+            // The lit shader uses MaterialTint in place of the CPU vertex color.
+            var tintParam = _hasGoldenOverlay
+                ? GraphicsManager.Instance.DynamicLightingEffect?.Parameters["MaterialTint"]
+                : null;
+            if (tintParam == null)
+            {
+                base.DrawModel(isAfterDraw);
+                return;
+            }
+
+            Vector3 previousTint = tintParam.GetValueVector3();
+            tintParam.SetValue(GoldenBodyTint);
+            try
+            {
+                base.DrawModel(isAfterDraw);
+            }
+            finally
+            {
+                tintParam.SetValue(previousTint);
+            }
+        }
+
+        private void DrawGoldenMaterial()
+        {
+            var previousBlendState = GraphicsDevice.BlendState;
+            var previousRasterizerState = GraphicsDevice.RasterizerState;
+            bool skipBlendMeshes = LowQuality && !RenderPolicy.PreserveBlendMeshesInLowQuality;
+
+            try
+            {
+                // DrawAfter submits the cutout and blend meshes before their gold reflections.
+                for (int meshIndex = 0; meshIndex < Model.Meshes.Length; meshIndex++)
+                {
+                    if (skipBlendMeshes && IsBlendMesh(meshIndex))
+                        continue;
+
+                    if (_brightOverlayTexture != null)
+                        DrawMeshItemOverlay(meshIndex, ItemOverlayMode.Metal, BrightOverlayTint, _brightOverlayTexture);
+                    if (_brightOverlayTexture2 != null)
+                        DrawMeshItemOverlay(meshIndex, ItemOverlayMode.Chrome, BrightOverlayTint2, _brightOverlayTexture2);
+                }
+            }
+            finally
+            {
+                GraphicsDevice.BlendState = previousBlendState;
+                GraphicsDevice.RasterizerState = previousRasterizerState;
+            }
         }
 
         private void DrawBrightOverlayPass()
