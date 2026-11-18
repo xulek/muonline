@@ -22,6 +22,8 @@ namespace Client.Main.Objects.Effects.Joints
     {
         private readonly string? _modelPath;
         private readonly Client.Data.BMD.BMD? _presetModel;
+        internal bool UseSceneLighting { get; init; } = true;
+        protected override bool AllowDynamicLightingShader => UseSceneLighting;
 
         public SourceModelRenderer(string modelPath, int blendMesh = -2, int hiddenMesh = -1, bool continuousAnimation = true)
         {

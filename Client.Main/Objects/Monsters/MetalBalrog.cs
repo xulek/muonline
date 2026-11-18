@@ -59,29 +59,15 @@ namespace Client.Main.Objects.Monsters
                 -((long)gameTime.TotalGameTime.TotalMilliseconds % 1000L) * 0.001f);
         }
 
-        public override void OnPerformAttack(int attackType = 1)        {
-            base.OnPerformAttack(attackType);
-
-            // Shared MONSTER_BALROG boss branch (Skill == AT_SKILL_BOSS,
-            // CheckAttackTime(1)): MODEL_CIRCLE + MODEL_CIRCLE_LIGHT and
-            // SOUND_HELLFIRE, followed by a MODEL_FIRE rain (+-512).
-            if (attackType != 2)
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (progress.SkillId != BossAttackSkill)
                 return;
 
-            if (World == null || !TryConsumeAttackEffectWindow())
-                return;
-
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/sHellFire.wav", Position, listenerPosition);
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/eMeteorite.wav", Position, listenerPosition);
-
-            var circle = new MonsterMagicCircleEffect(Position);
-            World.Objects.Add(circle);
-            _ = circle.Load();
-
-            var rain = new MonsterFireRainEffect(Position);
-            World.Objects.Add(rain);
-            _ = rain.Load();
+            if (progress.SkillStarted)
+                MonsterMagicCircleEffect.SpawnForAttack(this);
+            if (progress.CrossedTick(4) || progress.SkillStarted && progress.Tick >= 4)
+                MonsterFireRainEffect.SpawnForAttack(this);
         }
     }
 }

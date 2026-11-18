@@ -1362,9 +1362,9 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         monster.PlayAction((ushort)MonsterActionType.Appear);
                         monster.OnAppearAnimationStart();
                     }
-                    else if (IsNightmareTeleportSpawn(rawId, type, mapId))
+                    else if (obj is Nightmare nightmare && IsNightmareTeleportSpawn(rawId, type, mapId))
                     {
-                        SoundController.Instance.PlayBuffer("Sound/w39/nightmare_tele.wav");
+                        nightmare.PlayTeleport(arriving: true);
                     }
 
                     insertionCompletion.TrySetResult(true);
@@ -2554,39 +2554,29 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             MuGame.ScheduleOnMainThread(() =>
             {
                 if (MuGame.Instance?.ActiveScene?.World is not WalkableWorldControl world ||
-                    !world.TryGetWalkerById(sourceId, out var source) || source is not MonsterObject monster ||
-                    (world.Walker?.NetworkId != targetId && !world.TryGetWalkerById(targetId, out _)))
+                    !world.TryGetWalkerById(sourceId, out var source) || source is not MonsterObject monster)
                     return;
 
-                var action = world.MapId == 39
-                    ? ResolveKanturuMonsterSkill(monster, skill)
-                    : world.MapId is >= 69 and <= 72 ? ResolveImperialMonsterSkill(monster, skill) : null;
+                WalkerObject target = world.Walker;
+                if (target?.NetworkId != targetId && !world.TryGetWalkerById(targetId, out target))
+                    return;
+
+                var action = world.MapId switch
+                {
+                    33 => ResolveAidaMonsterSkill(monster, skill),
+                    34 => ResolveCrywolfMonsterSkill(monster, skill),
+                    37 or 38 => ResolveKanturuFieldMonsterSkill(monster, skill),
+                    39 => ResolveKanturuMonsterSkill(monster, skill),
+                    57 or 58 => ResolveRaklionMonsterSkill(monster, skill),
+                    >= 69 and <= 72 => ResolveImperialMonsterSkill(monster, skill),
+                    _ => null,
+                };
                 if (action is null)
                     return;
 
-                ApplyMonsterSkillAction(monster, action.Value, targetId);
+                monster.ApplyMonsterSkill(action.Value, skill, targetId, MuGame.Instance.GameTime.TotalGameTime.TotalSeconds, target);
             });
             return Task.CompletedTask;
-        }
-
-        private static void ApplyMonsterSkillAction(MonsterObject monster, MonsterActionType action, ushort targetId)
-        {
-            monster.PlayAction((ushort)action, fromServer: true);
-            // The animation controller refuses attacks while a death animation is active.
-            // Do not play attack audio or change the target when it rejected the action.
-            if (monster.CurrentAction != (int)action)
-                return;
-            monster.LastAttackTargetId = targetId;
-            if (action == MonsterActionType.Appear)
-                monster.OnAppearAnimationStart();
-            else
-                monster.OnPerformAttack(action switch
-                {
-                    MonsterActionType.Attack1 => 1,
-                    MonsterActionType.Attack3 => 3,
-                    MonsterActionType.Attack4 => 4,
-                    _ => 2,
-                });
         }
 
         private static (ushort Skill, ushort Source, ushort Target)? ParseMonsterSkill(Memory<byte> packet)
@@ -2614,6 +2604,39 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             _ => null,
         };
 
+        private static MonsterActionType? ResolveRaklionMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (IceWalker, 29) or (GiantMammoth and not DarkMammoth, 30) or (IceGiant and not DarkGiant, 31) or
+            (Coolutin and not DarkCoolutin, 32) or (IronKnight and not DarkIronKnight, 33) => MonsterActionType.Attack2,
+            (DarkMammoth, 75) or (DarkGiant, 76) or (DarkCoolutin, 77) or (DarkIronKnight, 32) => MonsterActionType.Attack2,
+            (SelupanBoss, 34) => MonsterActionType.Attack2,
+            (SelupanBoss, 35) => MonsterActionType.Attack1,
+            (SelupanBoss, 36) => MonsterActionType.Attack3,
+            (SelupanBoss, 37) => MonsterActionType.Appear,
+            (SelupanBoss, 38 or 39 or 40 or 42) => MonsterActionType.Attack4,
+            _ => null,
+        };
+
+        private static MonsterActionType? ResolveAidaMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (HellMaine, 2) => MonsterActionType.Attack1,
+            (HellMaine, 3) or (BloodyWitchQueen, 69) => MonsterActionType.Attack2,
+            _ => null,
+        };
+
+        private static MonsterActionType? ResolveKanturuFieldMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (Kentauros, 14) or (Persona, 15) or (TwinTail, 16) or (Dreadfear, 17) => MonsterActionType.Attack2,
+            _ => null,
+        };
+
+        private static MonsterActionType? ResolveCrywolfMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
+        {
+            (Balgass, 12) => MonsterActionType.Attack1,
+            (Balgass, 13) => MonsterActionType.Attack2,
+            _ => null,
+        };
+
         private static MonsterActionType? ResolveImperialMonsterSkill(MonsterObject monster, ushort skill) => (monster, skill) switch
         {
             (GaionKharein, 67) => MonsterActionType.Attack1,
@@ -2621,9 +2644,9 @@ namespace Client.Main.Networking.PacketHandling.Handlers
             (GaionKharein, 65) or (Jerint, 61) => MonsterActionType.Attack3,
             (GaionKharein, 66) => MonsterActionType.Attack4,
             (GaionKharein or Jerint, 59) => MonsterActionType.Appear,
-            (Raymond, 60) or (Erkanne, 62) or (Vermont, 60) or (Kato, 58) or (Gallia, 58) => MonsterActionType.Attack2,
-            (Raymond, 52) or (Erkanne, 63) or (Vermont, 61) or (Kato, 60) or (Gallia, 60) => MonsterActionType.Attack3,
-            (Raymond or Erkanne or Vermont or Kato or Gallia, 59) => MonsterActionType.Appear,
+            (Raymond, 60) or (Erkanne, 62) or (Destler, 57) or (Vermont, 60) or (Kato, 58) or (Gallia, 58) => MonsterActionType.Attack2,
+            (Raymond, 52) or (Erkanne, 63) or (Destler, 58) or (Vermont, 61) or (Kato, 60) or (Gallia, 60) => MonsterActionType.Attack3,
+            (Raymond or Erkanne or Destler or Vermont or Kato or Gallia, 59) => MonsterActionType.Appear,
             (CombatInstructor, 47) or (KnightCommander, 47) or (ShieldBearer, 45) or (MasterAssassin, 47) => MonsterActionType.Attack2,
             (GrandWizard, 51 or 52) => MonsterActionType.Attack2,
             (Forsaker, 46) => MonsterActionType.Attack2,
@@ -2666,58 +2689,43 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                     return;
                 }
 
-                PlayerAction clientActionToPlay;
-                string actionNameForLog;
-                MonsterActionType? monsterAction = null;
-
-                if (walker is PlayerObject playerToAnimate)
+                var clientDirection = MapServerDirection(serverDirection);
+                if (walker is MonsterObject monster)
                 {
-                    CharacterClassNumber playerClass = playerToAnimate.CharacterClass;
-                    clientActionToPlay = PlayerActionMapper.GetClientAction(serverActionId, playerClass);
-                    actionNameForLog = clientActionToPlay.ToString();
-
-                    if (serverActionId is >= 161 and <= 163)
+                    var action = (MonsterActionType)(serverActionId >> 5);
+                    if (action is MonsterActionType.Attack1 or MonsterActionType.Attack2)
                     {
-                        SoundController.Instance.PlayBuffer("Sound/xmasturn.wav");
+                        monster.ApplyNormalAttack(targetId, MuGame.Instance.GameTime.TotalGameTime.TotalSeconds, clientDirection);
                     }
-                    else if (serverActionId == (byte)ServerPlayerActionType.RageBuff1)
+                    else
                     {
-                        SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_1.wav");
+                        monster.Direction = clientDirection;
+                        monster.SnapFacingToDirection();
+                        monster.PlayAction((ushort)action, fromServer: true);
                     }
-                    else if (serverActionId == (byte)ServerPlayerActionType.RageBuff2)
-                    {
-                        SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_2.wav");
-                    }
+                    return;
                 }
-                else if (walker is MonsterObject monsterToAnimate)
-                {
-                    byte actionIdx = (byte)((serverActionId & 0xE0) >> 5);
-                    var action = (MonsterActionType)actionIdx;
 
-                    if (action is MonsterActionType.Attack1 or MonsterActionType.Attack2) // It was always attack1
-                    {
-                        action = MuGame.Random.Next(2) == 0
-                            ? MonsterActionType.Attack1
-                            : MonsterActionType.Attack2;
-                        actionIdx = (byte)action;
-                    }
-
-                    clientActionToPlay = (PlayerAction)action;
-                    actionNameForLog = action.ToString();
-                    monsterAction = action;
-
-                    if (monsterAction == MonsterActionType.Attack1 || monsterAction == MonsterActionType.Attack2)
-                    {
-                        monsterToAnimate.LastAttackTargetId = targetId;
-                    }
-                }
-                else
+                if (walker is not PlayerObject playerToAnimate)
                 {
                     _logger.LogWarning("HandleObjectAnimation: Walker {MaskedId} is not PlayerObject or MonsterObject. Type: {WalkerType}", maskedId, walker.GetType().Name);
                     return;
                 }
 
-                Client.Main.Models.Direction clientDirection = MapServerDirection(serverDirection);
+                var clientActionToPlay = PlayerActionMapper.GetClientAction(serverActionId, playerToAnimate.CharacterClass);
+                string actionNameForLog = clientActionToPlay.ToString();
+                if (serverActionId is >= 161 and <= 163)
+                {
+                    SoundController.Instance.PlayBuffer("Sound/xmasturn.wav");
+                }
+                else if (serverActionId == (byte)ServerPlayerActionType.RageBuff1)
+                {
+                    SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_1.wav");
+                }
+                else if (serverActionId == (byte)ServerPlayerActionType.RageBuff2)
+                {
+                    SoundController.Instance.PlayBuffer("Sound/Ragefighter/Rage_Buff_2.wav");
+                }
 
                 if (maskedId == _characterState.Id && walker is PlayerObject localPlayer)
                 {
@@ -2743,12 +2751,6 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                         ArrowProjectileEffect.IsBowAttackAction(clientActionToPlay))
                     {
                         ArrowProjectileSpawner.SpawnNormal(remoteArcher, targetId);
-                    }
-
-                    if (walker is MonsterObject monster && monsterAction.HasValue &&
-                        (monsterAction == MonsterActionType.Attack1 || monsterAction == MonsterActionType.Attack2))
-                    {
-                        monster.OnPerformAttack(monsterAction == MonsterActionType.Attack1 ? 1 : 2);
                     }
 
                     _logger.LogDebug("🎞️ Animation ({WalkerType} {Id:X4}): Action: {ActionName} ({ClientAction}), ServerActionID: {ServerActionId}, Dir: {Direction}",

@@ -66,6 +66,8 @@ namespace Client.Main.Objects.Effects
 
         private Vector3 _position;
         private float _modelAngle;
+        private readonly Vector3? _monsterReleasePosition;
+        private readonly float _monsterReleaseYaw;
         private float _modelLifeTime;
         private float _modelFrame;
         private float _stoneFrame;
@@ -78,6 +80,21 @@ namespace Client.Main.Objects.Effects
         public InfernoEffect(WalkerObject caster, float releaseDelaySeconds = ReleaseDelaySeconds)
             : base(caster, 5f, releaseDelaySeconds, 512)
         {
+            if (caster is MonsterObject)
+            {
+                _monsterReleasePosition = CasterPosition;
+                _monsterReleaseYaw = CasterYawDegrees;
+            }
+        }
+
+        internal static void SpawnMonsterAttack(MonsterObject caster)
+        {
+            if (caster.World is not { } world)
+                return;
+
+            var effect = new InfernoEffect(caster, releaseDelaySeconds: 0f);
+            world.Objects.Add(effect);
+            _ = effect.Load();
         }
 
         protected override async Task LoadEffectContent()
@@ -101,9 +118,12 @@ namespace Client.Main.Objects.Effects
 
         protected override void OnStart()
         {
-            _position = CasterPosition;
-            _modelAngle = CasterYawDegrees;
+            _position = _monsterReleasePosition ?? CasterPosition;
+            _modelAngle = _monsterReleasePosition.HasValue ? _monsterReleaseYaw : CasterYawDegrees;
             _modelLifeTime = 15f;
+
+            if (Caster is MonsterObject monster)
+                monster.PlayAttackSound(ExplosionSound, _position);
 
             for (int j = 0; j < 8; j++)
             {
@@ -134,7 +154,8 @@ namespace Client.Main.Objects.Effects
                 p.Position = position;
                 p.LifeTime = 20f;
                 p.Scale = 1f;
-                SoundController.Instance.PlayBuffer(ExplosionSound);
+                if (Caster is not MonsterObject)
+                    SoundController.Instance.PlayBuffer(ExplosionSound);
                 return;
             }
         }

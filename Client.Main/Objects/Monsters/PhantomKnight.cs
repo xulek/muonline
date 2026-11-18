@@ -70,7 +70,7 @@ namespace Client.Main.Objects.Monsters
             if (attackType != 2)
                 return;
 
-            if (World != null && TryConsumeAttackEffectWindow())
+            if (World != null)
             {
                 Vector3 origin = Position + Vector3.UnitZ * 100f;
                 for (int i = 0; i < 36; i++)

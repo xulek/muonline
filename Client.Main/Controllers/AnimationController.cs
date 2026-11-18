@@ -96,16 +96,21 @@ namespace Client.Main.Controllers
 
         public void PlayAnimation(ushort idx, bool fromServer = false)
         {
+            TryPlayAnimation(idx, fromServer);
+        }
+
+        internal bool TryPlayAnimation(ushort idx, bool fromServer)
+        {
             var kind = GetAnimationType(idx);
 
             if (_currentOneShot.HasValue &&
                 GetAnimationType(_currentOneShot.Value) == AnimationType.Death &&
                 kind != AnimationType.Death)
             {
-                return;
+                return false;
             }
 
-            if (!AllowWhenDead(kind)) return;
+            if (!AllowWhenDead(kind)) return false;
 
             ClearTimer();
             _oneShotEnded = false;
@@ -135,6 +140,8 @@ namespace Client.Main.Controllers
             {
                 _currentOneShot = null;
             }
+
+            return true;
         }
 
         public void PlayAnimation(ushort idx) => PlayAnimation(idx, false);

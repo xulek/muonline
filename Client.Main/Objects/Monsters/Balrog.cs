@@ -85,32 +85,21 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0
                 ? "Sound/mWizardAttack2.wav"
                 : "Sound/mGorgonAttack2.wav";
-            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+            PlayAttackSound(sound);
+        }
 
-            // SourceMain5.2 AttackEffect MONSTER_BALROG boss branch
-            // (Skill == AT_SKILL_BOSS, CheckAttackTime(1)): MODEL_CIRCLE +
-            // MODEL_CIRCLE_LIGHT under the caster and SOUND_HELLFIRE, followed by
-            // a MODEL_FIRE rain (random ground points +-512, SOUND_METEORITE01).
-            if (attackType != 2)
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (progress.SkillId != BossAttackSkill)
                 return;
 
-            if (World == null || !TryConsumeAttackEffectWindow())
-                return;
-
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/sHellFire.wav", Position, listenerPosition);
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/eMeteorite.wav", Position, listenerPosition);
-
-            var circle = new MonsterMagicCircleEffect(Position);
-            World.Objects.Add(circle);
-            _ = circle.Load();
-
-            var rain = new MonsterFireRainEffect(Position);
-            World.Objects.Add(rain);
-            _ = rain.Load();
+            if (progress.SkillStarted)
+                MonsterMagicCircleEffect.SpawnForAttack(this);
+            if (progress.CrossedTick(4) || progress.SkillStarted && progress.Tick >= 4)
+                MonsterFireRainEffect.SpawnForAttack(this);
         }
 
         public override void OnReceiveDamage()

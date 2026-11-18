@@ -63,8 +63,13 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/iron_attack1.wav", Position, listenerPosition); // Sound 144
+            PlayAttackSound("Sound/iron_attack1.wav"); // Sound 144
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (progress.CrossedTick(1))
+                ArrowProjectileSpawner.SpawnMonsterBomb(this, spread: true);
         }
 
         public override void OnReceiveDamage()

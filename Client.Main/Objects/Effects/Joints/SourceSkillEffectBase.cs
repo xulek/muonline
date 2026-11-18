@@ -147,7 +147,11 @@ namespace Client.Main.Objects.Effects.Joints
                 return null;
 
             var renderer = new SourceModelRenderer(path, blendMesh, hiddenMesh);
-            return await renderer.LoadInto(World) ? renderer : null;
+            if (await renderer.LoadInto(World))
+                return renderer;
+
+            renderer.Dispose();
+            return null;
         }
 
         /// <summary>

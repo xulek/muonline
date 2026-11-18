@@ -17,7 +17,6 @@ namespace Client.Main.Objects.Monsters
         private WeaponObject _leftHandWeapon;
         private SourceMonsterEyeEffect _eyeGlow;
         private readonly MonsterMegaCrustGlowEffect _weaponGlow;
-        private float _attackTime; // CHARACTER::AttackTime: 1 on attack (WSclient.cpp:3234), += factor per tick
 
         public MegaCrust()
         {
@@ -81,19 +80,6 @@ namespace Client.Main.Objects.Monsters
             _leftHandWeapon.BlendMesh = 1;
             _leftHandWeapon.SetBlendMeshTexCoordOffset(1, new Vector2(MuGame.Random.Next(10) * 0.1f, MuGame.Random.Next(10) * 0.1f));
 
-            // AttackEffect MODEL_CRUST attack branch: CheckAttackTime(5) -> inferno (ZzzCharacter.cpp:1539-1546).
-            if (_attackTime > 0f)
-            {
-                float previous = _attackTime;
-                _attackTime += FPSCounter.Instance.FPS_ANIMATION_FACTOR;
-                if (previous < 5f && _attackTime >= 5f)
-                {
-                    _attackTime = 0f;
-                    if (CurrentAction == (int)MonsterActionType.Attack1 || CurrentAction == (int)MonsterActionType.Attack2)
-                        SpawnInferno();
-                }
-            }
-
             TextureCoordinateOffset = new Vector2(                -((long)gameTime.TotalGameTime.TotalMilliseconds % 10000L) * 0.0004f,
                 0f);
         }
@@ -117,7 +103,6 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            _attackTime = 1f;
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mMegaCrustAttack1.wav", Position, listenerPosition); // Sound 181
         }
@@ -129,19 +114,10 @@ namespace Client.Main.Objects.Monsters
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mMegaCrustAttack1.wav", Position, listenerPosition);
         }
 
-        private void SpawnInferno()
+        protected override void OnAttackProgress(in AttackProgress progress)
         {
-            if (IsDead || World == null)
-                return;
-
-            // CreateInferno(o->Position) + CreateEffect(MODEL_SKILL_INFERNO, o->Position, o->Angle, o->Light), sub 0
-            // (ZzzCharacter.cpp:1543-1544): released at once, no skill release delay.
-            var inferno = new InfernoEffect(this, releaseDelaySeconds: 0f);
-            World.Objects.Add(inferno);
-            MuGame.TaskScheduler?.QueueTask(
-                async () => await inferno.Load(),
-                Client.Main.Controllers.TaskScheduler.Priority.High,
-                "MegaCrustInferno.Load");
+            if (progress.Action is MonsterActionType.Attack1 or MonsterActionType.Attack2 && progress.CrossedTick(5))
+                InfernoEffect.SpawnMonsterAttack(this);
         }
 
         public override void OnDeathAnimationStart()

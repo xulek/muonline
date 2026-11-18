@@ -140,6 +140,7 @@ namespace Client.Main.Objects.Effects
                     float frameFactor = dt * 25f;
                     p.Gravity += 0.2f * frameFactor;
                     p.Position.Z += p.Gravity * frameFactor;
+                    p.Position += p.Velocity * dt;
                     p.Scale += 0.05f * frameFactor;
                 }
             }
@@ -224,7 +225,7 @@ namespace Client.Main.Objects.Effects
                 float luminosity = MathHelper.Clamp(p.Life * 25f / 8f, 0f, 1f);
                 float distScale = MathHelper.Clamp(ReferenceDistance / clip.W, MinDistanceScale, 2.5f);
                 float scale = p.Scale * distScale * Constants.RENDER_SCALE;
-                Vector3 colorVector = BreathColor.ToVector3() * luminosity;
+                Vector3 colorVector = p.Tint * luminosity;
 
                 var color = new Color(
                     colorVector.X,
@@ -273,14 +274,31 @@ namespace Client.Main.Objects.Effects
             return Vector3.Transform(bonePosition, parentModel.WorldPosition);
         }
 
-        private void SpawnParticle(Vector3 origin)
+        internal void EmitBurst(Color color, int count, float speed)
+        {
+            if (Parent is not ModelObject parentModel || _texture == null)
+                return;
+
+            Vector3 origin = GetBoneWorldPosition(parentModel);
+            Vector3 tint = color.ToVector3();
+            for (int i = 0; i < count && _activeCount < MaxParticles; i++)
+            {
+                float yaw = parentModel.Angle.Z + RandomRange(-0.3f, 0.3f);
+                float velocity = speed * RandomRange(0.6f, 1.2f);
+                SpawnParticle(origin, new Vector3(MathF.Sin(yaw) * velocity, -MathF.Cos(yaw) * velocity,
+                    RandomRange(-25f, 55f)), tint);
+            }
+        }
+
+        private void SpawnParticle(Vector3 origin, Vector3 velocity = default, Vector3? tint = null)
         {
             if (_activeCount >= MaxParticles)
                 return;
 
             ref var p = ref _particles[_activeCount++];
             p.Position = origin;
-            p.Velocity = Vector3.Zero;
+            p.Velocity = velocity;
+            p.Tint = tint ?? BreathColor.ToVector3();
             p.Gravity = RandomRange(2f, 2.9f);
             p.MaxLife = ParticleLifetime;
             p.Life = p.MaxLife;
@@ -305,6 +323,7 @@ namespace Client.Main.Objects.Effects
         {
             public Vector3 Position;
             public Vector3 Velocity;
+            public Vector3 Tint;
             public float Life;
             public float MaxLife;
             public float Scale;

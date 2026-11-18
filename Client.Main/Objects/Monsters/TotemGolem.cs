@@ -24,6 +24,7 @@ namespace Client.Main.Objects.Monsters
 
         public TotemGolem()
         {
+            Scale = 0.17f * 0.95f; // GMNewTown: Monster134 is authored much larger than world scale.
         }
 
         public override async Task Load()

@@ -59,17 +59,14 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0 ? "Sound/mLizardKing1.wav" : "Sound/mLizardKing2.wav";
-            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+            PlayAttackSound(sound);
+        }
 
-            // SourceMain5.2 AttackEffect: MODEL_SOLDIER fires CreateArrows on attack.
-            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
-            {
-                var arrow = new Effects.MonsterArrowProjectileEffect(this, 33, LastAttackTargetId);
-                arrowWorld.Objects.Add(arrow);
-                _ = arrow.Load();
-            }
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (progress.CrossedTick(1))
+                Effects.ArrowProjectileSpawner.SpawnMonsterBomb(this);
         }
 
         public override void OnReceiveDamage()

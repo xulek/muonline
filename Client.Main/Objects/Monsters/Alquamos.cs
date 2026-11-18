@@ -52,12 +52,11 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mAlquamosAttack1.wav", Position, listenerPosition); // Sound 175
+            PlayAttackSound("Sound/mAlquamosAttack1.wav"); // Sound 175
 
             // NOTE: a plain Alquamos attack has no visual in SourceMain5.2 (AttackEffect case MONSTER_ALQUAMOS is empty,
             // ZzzCharacter.cpp:1518), so only the attack sound plays here. The flares come from AT_SKILL_ENERGYBALL
-            // (ZzzCharacter.cpp:1979-1990): OnEnergyBallCast / MonsterAlquamosFlareEffect.
+            // (ZzzCharacter.cpp:1979-1990): MonsterAlquamosFlareEffect.
         }
 
         public override void OnReceiveDamage()
@@ -67,10 +66,10 @@ namespace Client.Main.Objects.Monsters
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mAlquamosAttack1.wav", Position, listenerPosition);
         }
 
-        public override void OnEnergyBallCast(WalkerObject target, ushort targetId)
+        protected override void OnAttackProgress(in AttackProgress progress)
         {
-            base.OnEnergyBallCast(target, targetId);
-            if (IsDead || World is not WalkableWorldControl world)
+            if (!progress.SkillStarted || progress.SkillId != EnergyBallAttackSkill ||
+                World is not WalkableWorldControl world || !TryGetAttackTarget(out var target))
                 return;
 
             // AttackEffect MONSTER_ALQUAMOS, AT_SKILL_ENERGYBALL branch (ZzzCharacter.cpp:1979-1990).

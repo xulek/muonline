@@ -1071,6 +1071,8 @@ namespace Client.Main.Objects
             return BoundingUpdateInterval;
         }
 
+        protected virtual bool ShouldIncludeMeshInBounds(int meshIndex) => true;
+
         private void UpdateBoundings()
         {
             if (!RequiresPerFrameAnimation && _contentLoaded && _boundingComputed)
@@ -1104,6 +1106,9 @@ namespace Client.Main.Objects
             // Optimized: Only sample every 4th vertex for performance while maintaining accuracy
             for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
             {
+                if (!ShouldIncludeMeshInBounds(meshIndex))
+                    continue;
+
                 var mesh = meshes[meshIndex];
                 var vertices = mesh.Vertices;
                 if (vertices == null) continue;

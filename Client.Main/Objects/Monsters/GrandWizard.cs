@@ -1,4 +1,5 @@
 ﻿using Client.Main.Content;
+using Client.Main.Models;
 using Client.Main.Objects.Effects;
 using Microsoft.Xna.Framework;
 
@@ -7,6 +8,7 @@ namespace Client.Main.Objects.Monsters
     [NpcInfo(515, "Grand Wizard")]
     public class GrandWizard : SoundMonsterObject
     {
+        protected override bool VaryBasicAttack => World?.MapId != 70;
         protected override string MoveSoundPath => World?.MapId == 70 ? "Sound/w69w70w71w72/GaionKalein_move.wav" : null;
         protected override string DeathSoundPath => World?.MapId == 70 ? "Sound/w69w70w71w72/GrandWizard_death.wav" : null;
         private GlowingEyesEffect _eyeGlow;
@@ -19,21 +21,30 @@ namespace Client.Main.Objects.Monsters
             Children.Add(_eyeGlow);
         }
 
-        public override void OnPerformAttack(int attackType = 1)
+        protected override void OnAttackProgress(in AttackProgress progress)
         {
-            base.OnPerformAttack(attackType);
             if (World?.MapId != 70)
                 return;
 
-            if (attackType == 1)
+            if (progress.Action == MonsterActionType.Attack1 && progress.CrossedTick(1) &&
+                TryGetAttackTargetPosition(out Vector3 meteorTarget))
             {
-                PlayMonsterSound("Sound/eMeteorite.wav");
-                PlayMonsterSound("Sound/eExplosion.wav");
+                MonsterFireRainEffect.SpawnForAttack(this, meteorTarget, fireCount: 1);
+                PlayAttackSound("Sound/eExplosion.wav", meteorTarget);
             }
-            else if (attackType == 2)
-                PlayMonsterSound("Sound/w42/firepillar.wav");
-            else if (attackType == 3)
-                PlayMonsterSound("Sound/eExplosion.wav");
+            else if (progress.Action == MonsterActionType.Attack2 && progress.SkillStarted && progress.SkillId == 51 &&
+                     TryGetAttackTargetPosition(out Vector3 flameTarget))
+            {
+                PlayAttackSound("Sound/w42/firepillar.wav", flameTarget);
+                var flame = new FlameEffect(this, flameTarget, area: false);
+                flame.ReleaseImmediately();
+                World.Objects.Add(flame);
+                _ = flame.Load();
+            }
+            else if (progress.Action == MonsterActionType.Attack2 && progress.SkillStarted && progress.SkillId == 52)
+            {
+                MonsterFireRainEffect.SpawnForAttack(this, fireCount: 5);
+            }
         }
 
         public override async Task Load()

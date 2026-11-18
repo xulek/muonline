@@ -79,7 +79,7 @@ namespace Client.Main.Objects.Monsters
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mDrakanAttack1.wav", Position, listenerPosition); // Sound 166
 
-            if (World == null || !TryConsumeAttackEffectWindow())
+            if (World == null)
                 return;
 
             if (attackType == 1)
@@ -108,7 +108,7 @@ namespace Client.Main.Objects.Monsters
                 World.Objects.Add(bolt);
                 _ = bolt.Load();
 
-                SpawnMagicAttackEffect(new[] { 11 }, attackType);
+                SpawnMagicAttackEffect(new[] { 11 }, (MonsterActionType)CurrentAction);
             }
         }
 

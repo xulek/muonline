@@ -1,8 +1,6 @@
 ﻿using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using Client.Main.Objects.Effects;
+using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
@@ -28,6 +26,20 @@ namespace Client.Main.Objects.Monsters
         {
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster111.bmd");
             await base.Load();
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World?.MapId != 37 || !progress.CrossedTick(14))
+                return;
+
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || bones.Length <= 12)
+                return;
+
+            Vector3 origin = Vector3.Transform(new Vector3(140f, 0f, -30f), bones[12] * WorldPosition);
+            MonsterAttackModelEffect.Spawn(World, "Effect/bladetonedo.bmd", origin,
+                Angle, new Vector3(0.38f, 0.52f, 1f), 0.75f, 1f, speed: 420f, animated: true);
         }
     }
 }

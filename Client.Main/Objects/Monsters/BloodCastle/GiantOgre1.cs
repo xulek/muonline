@@ -48,8 +48,21 @@ namespace Client.Main.Objects.Monsters.BloodCastle
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mBlackSkullAttack.wav", Position, listenerPosition);
+            PlayAttackSound("Sound/mBlackSkullAttack.wav");
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (!progress.CrossedTick(13) || World == null)
+                return;
+
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || bones.Length <= 6)
+                return;
+
+            Vector3 origin = Vector3.Transform(new Vector3(60f, 30f, 0f), bones[6] * WorldPosition);
+            MonsterAttackModelEffect.Spawn(World, "Skill/Fire01.bmd", origin, Angle,
+                new Vector3(1f, 0.55f, 0.23f), 0.65f, 0.9f, speed: 225f, animated: true);
         }
 
         public override void OnReceiveDamage()

@@ -13,13 +13,17 @@ namespace Client.Main.Objects.Monsters
     [NpcInfo(49, "Hydra")]
     public class Hydra : MonsterObject
     {
+        private const int LaserMesh = 5;
+        private const int TextureReferenceMesh = 6; // Degenerate triangle that supplies the alternate body texture.
+
         public Hydra()
         {
             RenderShadow = true;
             Scale = 1.0f; // Set according to C++ Setting_Monster
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
-            BlendMesh = 5;
+            BlendMesh = LaserMesh;
             BlendMeshLight = 0.0f;
+            HiddenMesh = LaserMesh;
             Children.Add(new MonsterBoneSpriteEffect
             {
                 BoneIndices = new[] { 63 },
@@ -29,6 +33,11 @@ namespace Client.Main.Objects.Monsters
                 SecondaryScale = 4f
             });
         }
+
+        protected override bool ShouldRenderMesh(int mesh) => mesh != TextureReferenceMesh;
+
+        protected override bool ShouldIncludeMeshInBounds(int meshIndex) =>
+            meshIndex is not (LaserMesh or TextureReferenceMesh);
 
         public override async Task Load()
         {
@@ -56,39 +65,30 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mHydraAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 142
+            PlayAttackSound("Sound/mHydraAttack1.wav"); // Index 2 -> Sound 142
+        }
 
-            if (World == null || !TryConsumeAttackEffectWindow())
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World is not { } world)
                 return;
 
-            if (attackType == 1)
+            float yaw = MathHelper.ToDegrees(Angle.Z);
+            // The reference checks 1, 6 and 11 before its 15-tick attack limit.
+            for (int tick = 1; tick < 15; tick += 5)
             {
-                // SourceMain5.2 AttackEffect MONSTER_HYDRA normal branch
-                // (attackTime % 5 == 1): BITMAP_BOSS_LASER+1 (orange) fired from
-                // bone 63 along the facing direction.
-                Vector3 mouth = GetBoneWorldPosition(63);
-                var laser = Joints.SourceProjectileEffect.Create(
-                    Joints.SourceProjectileKind.BossLaserOrange,
-                    mouth,
-                    new Vector3(0f, 0f, MathHelper.ToDegrees(Angle.Z)));
-                World.Objects.Add(laser);
-                _ = laser.Load();
+                if (progress.CrossedTick(tick))
+                    Joints.SourceProjectileEffect.Spawn(world, Joints.SourceProjectileKind.BossLaserOrange,
+                        GetBoneWorldPosition(63), new Vector3(0f, 0f, yaw));
             }
-            else
+
+            // A confirmed boss skill gets its own ring marker, independent of the orange burst.
+            if (progress.SkillId == BossAttackSkill && progress.SkillStarted)
             {
-                // Boss branch (CheckAttackTime(1)): 9x BITMAP_BOSS_LASER (blue),
-                // yaw starting +20 deg stepping +40 deg, origin +50 Z.
+                Vector3 origin = Position + Vector3.UnitZ * 50f;
                 for (int i = 0; i < 9; i++)
-                {
-                    float yawDeg = MathHelper.ToDegrees(Angle.Z) + 20f + i * 40f;
-                    var laser = Joints.SourceProjectileEffect.Create(
-                        Joints.SourceProjectileKind.BossLaser,
-                        Position + Vector3.UnitZ * 50f,
-                        new Vector3(0f, 0f, yawDeg));
-                    World.Objects.Add(laser);
-                    _ = laser.Load();
-                }
+                    Joints.SourceProjectileEffect.Spawn(world, Joints.SourceProjectileKind.BossLaser,
+                        origin, new Vector3(0f, 0f, yaw + 20f + i * 40f));
             }
         }
 
@@ -114,13 +114,10 @@ namespace Client.Main.Objects.Monsters
             if (Status != GameControlStatus.Ready)
                 return;
 
+            bool attacking = !IsDead && (MonsterActionType)CurrentAction is MonsterActionType.Attack1 or MonsterActionType.Attack2;
+            HiddenMesh = attacking ? -1 : LaserMesh;
             float amount = (float)gameTime.ElapsedGameTime.TotalSeconds * 25f * 0.1f;
-            bool attacking = CurrentAction >= (int)MonsterActionType.Attack1 &&
-                CurrentAction <= (int)MonsterActionType.Attack2;
-            BlendMeshLight = MathHelper.Clamp(
-                BlendMeshLight + (attacking ? amount : -amount),
-                0f,
-                1f);
+            BlendMeshLight = attacking ? MathHelper.Clamp(BlendMeshLight + amount, 0f, 1f) : 0f;
         }
 
         public override void OnDeathAnimationStart()

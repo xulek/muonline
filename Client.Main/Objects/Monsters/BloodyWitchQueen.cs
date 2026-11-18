@@ -1,22 +1,15 @@
 ﻿using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class BloodyWitchQueen : MonsterObject
+    [NpcInfo(552, "Bloody Witch Queen")]
+    public class BloodyWitchQueen : WitchQueen
     {
+        protected override string ModelPath => "Monster/Monster197.bmd";
+
         public BloodyWitchQueen()
         {
-        }
-
-        public override async Task Load()
-        {
-            Model = await BMDLoader.Instance.Prepare($"Monster/Monster197.bmd");
-            await base.Load();
+            Scale = 1.75f;
         }
     }
 }

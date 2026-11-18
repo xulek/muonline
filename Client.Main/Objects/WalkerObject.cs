@@ -354,6 +354,14 @@ namespace Client.Main.Objects
         /// </summary>
         public void PlayAction(ushort actionIndex, bool fromServer = false)
         {
+            TryPlayAction(actionIndex, fromServer);
+        }
+
+        protected bool TryPlayAction(ushort actionIndex, bool fromServer)
+        {
+            if (!_animationController.TryPlayAnimation(actionIndex, fromServer))
+                return false;
+
             // If we re-trigger a one-shot while already in the same action, restart it.
             // This avoids "stuck" or jittery attacks/skills at low FPS / packet bursts.
             if (_priorActionIndex == actionIndex)
@@ -366,7 +374,7 @@ namespace Client.Main.Objects
             }
 
             _serverControlledAnimation = fromServer;
-            _animationController?.PlayAnimation(actionIndex, fromServer);
+            return true;
         }
 
         // Overload for backward compatibility

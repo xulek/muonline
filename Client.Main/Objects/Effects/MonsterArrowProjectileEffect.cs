@@ -20,7 +20,7 @@ namespace Client.Main.Objects.Effects
         private const float MinFlightSeconds = 0.15f;
         private const float MaxFlightSeconds = 0.6f;
 
-        private readonly ModelObject _shooter;
+        private readonly ModelObject? _shooter;
         private readonly int _sourceBone;
         private readonly ushort _targetId;
 
@@ -40,25 +40,46 @@ namespace Client.Main.Objects.Effects
         private float _elapsed;
         private bool _initialized;
 
-        public MonsterArrowProjectileEffect(ModelObject shooter, int sourceBone, ushort targetId)
+        private MonsterArrowProjectileEffect()
         {
-            _shooter = shooter ?? throw new ArgumentNullException(nameof(shooter));
-            _sourceBone = sourceBone;
-            _targetId = targetId;
-
             BoundingBoxLocal = new BoundingBox(
                 new Vector3(-2000f, -2000f, -500f),
                 new Vector3(2000f, 2000f, 800f));
         }
 
-        public override async Task Load()
+        public MonsterArrowProjectileEffect(ModelObject shooter, int sourceBone, ushort targetId) : this()
         {
-            await base.Load();
-            if (Status != GameControlStatus.Ready)
-                return;
+            _shooter = shooter ?? throw new ArgumentNullException(nameof(shooter));
+            _sourceBone = sourceBone;
+            _targetId = targetId;
+        }
+
+        internal MonsterArrowProjectileEffect(Vector3 start, Vector3 end, string modelPath, float scale) : this()
+        {
+            _start = start;
+            _end = end;
+            ProjectileModelPath = modelPath;
+            ProjectileScale = scale;
+        }
+
+        public override async Task LoadContent()
+        {
+            await base.LoadContent();
+
+            if (_shooter != null)
+            {
+                // Snapshot the release pose and target before loading the projectile content.
+                _start = GetBoneWorldPosition(_shooter, _sourceBone) + SourceOffset;
+                if (_shooter.World is WalkableWorldControl world && world.TryGetWalkerById(_targetId, out var target))
+                    _end = target.WorldPosition.Translation + Vector3.UnitZ * 60f;
+                else
+                    _end = _start - _shooter.WorldPosition.Forward * 300f + Vector3.UnitZ * 40f;
+            }
+
+            Position = _start;
 
             var arrowModel = await BMDLoader.Instance.Prepare(ProjectileModelPath);
-            if (arrowModel == null)
+            if (arrowModel == null || World == null)
                 return;
 
             var arrow = new ArrowPiece(arrowModel)
@@ -68,27 +89,24 @@ namespace Client.Main.Objects.Effects
             Children.Add(arrow);
             await arrow.Load();
 
-            // Start at the bow bone; end at the packet target chest height.
-            _start = GetBoneWorldPosition(_sourceBone) + SourceOffset;
-            if (_shooter.World is WalkableWorldControl world &&
-                world.TryGetWalkerById(_targetId, out var target))
-                _end = target.WorldPosition.Translation + Vector3.UnitZ * 60f;
-            else
-                _end = _start - _shooter.WorldPosition.Forward * 300f + Vector3.UnitZ * 40f;
-
             float distance = Vector3.Distance(_start, _end);
             _flightSeconds = MathHelper.Clamp(distance / FlightSpeed, MinFlightSeconds, MaxFlightSeconds);
-
-            Position = _start;
-            _initialized = true;
+            _initialized = arrow.Status == GameControlStatus.Ready;
         }
 
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
 
-            if (!_initialized)
+            if (Status != GameControlStatus.Ready)
                 return;
+
+            if (!_initialized)
+            {
+                World?.RemoveObject(this);
+                Dispose();
+                return;
+            }
 
             _elapsed += (float)gameTime.ElapsedGameTime.TotalSeconds;
             float progress = MathHelper.Clamp(_elapsed / _flightSeconds, 0f, 1f);
@@ -117,13 +135,13 @@ namespace Client.Main.Objects.Effects
                 MathF.Atan2(direction.Y, direction.X));
         }
 
-        private Vector3 GetBoneWorldPosition(int boneIndex)
+        private static Vector3 GetBoneWorldPosition(ModelObject shooter, int boneIndex)
         {
-            Matrix[] bones = _shooter.GetBoneTransforms();
+            Matrix[] bones = shooter.GetBoneTransforms();
             if (bones == null || boneIndex < 0 || boneIndex >= bones.Length)
-                return _shooter.WorldPosition.Translation;
+                return shooter.WorldPosition.Translation;
 
-            return (bones[boneIndex] * _shooter.WorldPosition).Translation;
+            return (bones[boneIndex] * shooter.WorldPosition).Translation;
         }
 
         private sealed class ArrowPiece : ModelObject

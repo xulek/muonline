@@ -69,17 +69,20 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mRainnerAttack1.wav", Position, listenerPosition); // Sound 172
+            PlayAttackSound("Sound/mRainnerAttack1.wav"); // Sound 172
+        }
 
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
             // SourceMain5.2 AttackEffect MONSTER_QUEEN_RAINER (CheckAttackTime(5)):
             // 20x BITMAP_BLIZZARD on the attack target.
-            if (World != null && TryConsumeAttackEffectWindow() &&
+            if (progress.CrossedTick(5) && World != null &&
                 TryGetAttackTargetPosition(out Vector3 targetPosition))
             {
                 var blizzard = new Effects.MonsterBlizzardStrikeEffect(targetPosition);
                 World.Objects.Add(blizzard);
                 _ = blizzard.Load();
+                PlayAttackSound("Sound/eMeteorite.wav", targetPosition);
             }
         }
 

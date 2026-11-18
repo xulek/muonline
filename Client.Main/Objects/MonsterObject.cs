@@ -14,7 +14,7 @@ using System.Linq;
 
 namespace Client.Main.Objects
 {
-    public abstract class MonsterObject : WalkerObject
+    public abstract partial class MonsterObject : WalkerObject
     {
         // --- Fields ---
         private int _lastActionForIdleSound = -1;
@@ -165,8 +165,10 @@ namespace Client.Main.Objects
                 }
             }
 
+            bool attackWasPlaying = _attackSource != AttackSource.None && CurrentAction == (int)_attackAction;
             base.Update(gameTime);
-
+            if (_attackSource != AttackSource.None)
+                UpdateAttackAfterAnimation(gameTime, attackWasPlaying);
 
             // If the monster just stopped moving
             if (wasMoving && !IsMoving && !IsOneShotPlaying)
@@ -258,35 +260,19 @@ namespace Client.Main.Objects
             // Override to play attack sound.
         }
 
-        private int _energyBallSwing;
-
-        /// <summary>
-        /// ReceiveMagic with AT_SKILL_ENERGYBALL from a monster caster (WSclient.cpp:3926-3943): a visible target is
-        /// faced (WSclient.cpp:3797), SetPlayerAttack picks MONSTER01_ATTACK1 when SwordCount % 3 == 0, else ATTACK2
-        /// (ZzzCharacter.cpp:1181-1188), AnimationFrame = 0 and AttackTime = 1.
-        /// </summary>
-        public virtual void OnEnergyBallCast(WalkerObject target, ushort targetId)
-        {
-            if (IsDead)
-                return;
-
-            if (target.Visible)
-                FaceTowardsObject(target, immediate: true);
-            LastAttackTargetId = targetId;
-            var action = _energyBallSwing % 3 == 0 ? MonsterActionType.Attack1 : MonsterActionType.Attack2;
-            _energyBallSwing++;
-            PlayAction((ushort)action, fromServer: true);
-        }
-
         /// <summary>
         /// Resolves the world position of the last attack target received from
         /// server animation packets; falls back to this monster's position.
         /// </summary>
         protected bool TryGetAttackTargetPosition(out Vector3 targetPosition)
         {
-            if (World is WalkableWorldControl world &&
-                LastAttackTargetId != 0 &&
-                world.TryGetWalkerById(LastAttackTargetId, out var target))
+            if (_attackPoint.HasValue)
+            {
+                targetPosition = _attackPoint.Value;
+                return true;
+            }
+
+            if (TryGetAttackTarget(out var target))
             {
                 targetPosition = target.WorldPosition.Translation;
                 return true;
@@ -296,22 +282,12 @@ namespace Client.Main.Objects
             return false;
         }
 
-        private double _lastAttackEffectSpawnTime = double.MinValue;
-
-        /// <summary>
-        /// Gates attack visuals to one spawn per interval. SourceMain5.2 fires attack
-        /// effects once per attack via CheckAttackTime(...); server animation packets
-        /// can repeat for the same swing, so the client throttles instead.
-        /// </summary>
-        protected bool TryConsumeAttackEffectWindow(float minIntervalSeconds = 0.5f)
+        protected bool TryGetAttackTarget(out WalkerObject target)
         {
-            var gameTime = MuGame.Instance?.GameTime;
-            double now = gameTime != null ? gameTime.TotalGameTime.TotalSeconds : 0.0;
-            if (now - _lastAttackEffectSpawnTime < minIntervalSeconds)
-                return false;
-
-            _lastAttackEffectSpawnTime = now;
-            return true;
+            target = null;
+            return LastAttackTargetId != 0 && World is WalkableWorldControl world &&
+                   world.TryGetWalkerById(LastAttackTargetId, out target) && target.Visible &&
+                   target is not (MonsterObject { IsDead: true } or PlayerObject { IsDead: true });
         }
 
         /// <summary>
@@ -320,21 +296,19 @@ namespace Client.Main.Objects
         /// </summary>
         protected void SpawnMagicAttackEffect(
             int[] sourceBones,
-            int attackType,
+            MonsterActionType action,
             Vector3 sourceOffset = default)
-        {            if (World is not WalkableWorldControl world ||
+        {
+            if (World is not WalkableWorldControl world ||
                 Status != GameControlStatus.Ready ||
                 Model == null)
                 return;
 
-            int requiredAction = attackType == 2
-                ? (int)MonsterActionType.Attack2
-                : (int)MonsterActionType.Attack1;
             var effect = new Effects.MonsterMagicAttackEffect(
                 this,
                 sourceBones,
                 LastAttackTargetId,
-                requiredAction,
+                (int)action,
                 sourceOffset);
             world.Objects.Add(effect);
             _ = effect.Load();

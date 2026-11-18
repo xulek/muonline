@@ -1,8 +1,7 @@
 ﻿using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using Client.Main.Models;
+using Client.Main.Objects.Effects;
+using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
@@ -30,6 +29,23 @@ namespace Client.Main.Objects.Monsters
         {
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster106.bmd");
             await base.Load();
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World?.MapId != 33 || !progress.CrossedTick(10))
+                return;
+
+            if (progress.Action == MonsterActionType.Attack1)
+                MonsterAttackModelEffect.Spawn(World, "Skill/Storm01.bmd", Position, Angle,
+                    new Vector3(1f, 0.4f, 0.25f), 1f, 1.2f, speed: 310f, animated: true);
+            else if (progress.SkillId == 3 && TryGetAttackTargetPosition(out Vector3 target))
+            {
+                var flame = new FlameEffect(this, target, area: false);
+                flame.ReleaseImmediately();
+                World.Objects.Add(flame);
+                _ = flame.Load();
+            }
         }
     }
 }

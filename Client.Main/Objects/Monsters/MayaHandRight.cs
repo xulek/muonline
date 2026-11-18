@@ -5,14 +5,11 @@ using Microsoft.Xna.Framework;
 namespace Client.Main.Objects.Monsters
 {
     [NpcInfo(363, "Maya Hand Right")]
-    public class MayaHandRight : SoundMonsterObject
+    public class MayaHandRight : MayaHand
     {
         private GlowingEyesEffect _eyeGlow;
 
-        protected override string AttackSoundPath => "Sound/w39/maya_hand_attack-01.wav";
-
-        protected override string GetAttackSoundPath(int attackType) =>
-            attackType == 2 ? "Sound/w39/maya_hand_attack-02.wav" : AttackSoundPath;
+        protected override Vector3 AttackTint => new(1f, 0.56f, 0.32f);
 
         public MayaHandRight()
         {

@@ -6,5 +6,6 @@ namespace Client.Main.Objects.Monsters
     /// </summary>
     public abstract class RaklionMonsterObject : SoundMonsterObject
     {
+        protected override bool VaryBasicAttack => World?.MapId is not (57 or 58);
     }
 }

@@ -519,7 +519,9 @@ namespace Client.Main.Objects
 
         private bool CanUseSharedAnimationPalette(int actionIdx)
         {
+            // Background spawns build their initial pose while the game thread is using this cache.
             if (!Constants.ENABLE_SHARED_ANIMATION_PALETTES ||
+                !MuGame.IsMainThread ||
                 this is not MonsterObject ||
                 Model == null ||
                 _isBlending ||

@@ -34,6 +34,7 @@ using Client.Main.Controls.UI.Game.Hud;
 using MUnique.OpenMU.Network.Packets;
 using Client.Main.Controllers;
 using Client.Main.Helpers;
+using Client.Main.Content;
 
 namespace Client.Main.Scenes
 {
@@ -1139,6 +1140,15 @@ namespace Client.Main.Scenes
                 MonsterHitEffect.PreloadAsync(),
                 MonsterHitSparkEffect.PreloadAsync(),
                 BloodStainEffect.PreloadAsync(),
+                ArrowProjectileEffect.PreloadMonsterBombAsync(),
+                BMDLoader.Instance.Prepare("Skill/Blizzard.bmd"),
+                BMDLoader.Instance.Prepare("Skill/Circle01.bmd"),
+                TextureLoader.Instance.PrepareAndGetTexture(MonsterFireRainEffect.FireTexturePath),
+                SoundController.Instance.PreloadSoundAsync("Sound/eExplosion.wav"),
+                SoundController.Instance.PreloadSoundAsync("Sound/eMeteorite.wav"),
+                SoundController.Instance.PreloadSoundAsync("Sound/iron_attack1.wav"),
+                SoundController.Instance.PreloadSoundAsync("Sound/mGoblinAttack1.wav"),
+                SoundController.Instance.PreloadSoundAsync("Sound/mGoblinAttack2.wav"),
                 SoundController.Instance.PreloadSoundAsync("Sound/pDropItem.wav"),
                 SoundController.Instance.PreloadSoundAsync("Sound/pDropMoney.wav"),
                 SoundController.Instance.PreloadSoundAsync("Sound/eGem.wav"),

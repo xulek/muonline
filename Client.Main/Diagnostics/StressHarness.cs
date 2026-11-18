@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Controls.UI.Game.Inventory;
@@ -291,6 +292,12 @@ namespace Client.Main.Diagnostics
                 case Phase.Settle:
                     if (elapsed >= 3)
                     {
+                        if (MonsterAttacksEnabled && game.ActiveScene is GameScene { Hero: { } attackHero })
+                        {
+                            // Some offline worlds apply their default spawn when scene setup finishes.
+                            attackHero.Location = new Vector2(HeroX, HeroY);
+                            attackHero.SnapToTerrainHeight();
+                        }
                         AddStressLights(game);
                         if (LoadingShots)
                         {
@@ -471,6 +478,9 @@ namespace Client.Main.Diagnostics
                     break;
 
                 case Phase.Spawn:
+                    _nextMonsterAttack = game.GameTime.TotalGameTime.TotalSeconds + 0.5;
+                    _monsterAttackStep = 0;
+                    _monsterAttackShotAt = double.PositiveInfinity;
                     if (_typeIndex >= 0 && _count > 0)
                         Inject(BuildSpawnPacket(Types[_typeIndex], _count));
                     if (_typeIndex >= 0)
@@ -482,6 +492,7 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Warmup:
                     Wander(game);
+                    ReplayMonsterAttacks(game);
                     SwitchPresetOnce(elapsed);
                     if (elapsed >= _warmupSeconds) Next(Phase.Measure);
                     break;
@@ -490,6 +501,7 @@ namespace Client.Main.Diagnostics
                     Accumulate(game, frame);
                     Trace(elapsed, frame);
                     Wander(game);
+                    ReplayMonsterAttacks(game);
                     if (elapsed >= _measureSeconds)
                     {
                         WriteRow(game, elapsed);
@@ -499,7 +511,7 @@ namespace Client.Main.Diagnostics
 
                 case Phase.Despawn:
                     if (_typeIndex >= 0 && _count > 0)
-                        Inject(BuildDespawnPacket(_count));
+                        Inject(BuildDespawnPacket(_count, StressMonsterId(Types[_typeIndex], 0)));
                     if (_typeIndex >= 0 && PlayerCount > 0)
                         Inject(BuildDespawnPacket(PlayerCount, FirstPlayerId));
                     _typeIndex++;
@@ -1729,10 +1741,15 @@ namespace Client.Main.Diagnostics
             int side = (int)Math.Ceiling(Math.Sqrt(count));
             for (int i = 0; i < count; i++)
             {
-                ushort id = (ushort)(FirstMonsterId + i);
+                ushort id = StressMonsterId(type, i);
                 // Grid around the hero, two tiles apart, in front of the camera.
                 byte x = (byte)(HeroX - side + (i % side) * 2);
                 byte y = (byte)(HeroY - side + (i / side) * 2);
+                if (MonsterAttacksEnabled && count == 1)
+                {
+                    x = ParsePair("MU_STRESS_ATTACK_ORIGIN", 0, x);
+                    y = ParsePair("MU_STRESS_ATTACK_ORIGIN", 1, y);
+                }
                 int o = 5 + i * entry;
                 data[o] = (byte)(id >> 8); data[o + 1] = (byte)id;
                 data[o + 2] = (byte)(type >> 8); data[o + 3] = (byte)type;
@@ -1741,6 +1758,180 @@ namespace Client.Main.Diagnostics
                 data[o + 9] = 0;
             }
             return data;
+        }
+
+        // MU_STRESS_ATTACKS=1 replays the normal 0x18 attack and its optional 0x19 skill
+        // companion through the same router the live client uses.
+        private static readonly bool MonsterAttacksEnabled = Environment.GetEnvironmentVariable("MU_STRESS_ATTACKS") == "1";
+        private static ushort StressMonsterId(ushort type, int index) =>
+            (ushort)((FirstMonsterId + index) | (MonsterAttacksEnabled && StressMap == 39 && type == 361 ? 0x4000 : 0));
+        private static double _nextMonsterAttack;
+        private static double _monsterAttackShotAt = double.PositiveInfinity;
+        private static ushort _monsterAttackShotSkill;
+        private static int _monsterAttackStep;
+        private static readonly bool CaptureVeparSequence = Environment.GetEnvironmentVariable("MU_STRESS_VEPAR_SEQUENCE") == "1";
+        private static readonly int[] VeparSequenceMs = { 0, 82, 164, 246, 360, 490, 620, 800, 1050, 1700 };
+        private static readonly List<(int Ms, int Width, int Height, Color[] Pixels)> VeparShots = new();
+        private static int _veparShot;
+        private static double _veparAttackAt = double.PositiveInfinity;
+
+        private static void ReplayMonsterAttacks(MuGame game)
+        {
+            if (!MonsterAttacksEnabled || _typeIndex < 0 ||
+                game.ActiveScene?.World is not WalkableWorldControl { Walker: { } hero } world)
+                return;
+
+            double now = game.GameTime.TotalGameTime.TotalSeconds;
+            ushort type = Types[_typeIndex];
+            if (CaptureVeparSequence && type == 46 && _monsterAttackStep > 0)
+            {
+                if (_veparShot < VeparSequenceMs.Length && now >= _veparAttackAt + VeparSequenceMs[_veparShot] * 0.001)
+                {
+                    int ms = VeparSequenceMs[_veparShot++];
+                    var gd = game.GraphicsDevice;
+                    int width = gd.PresentationParameters.BackBufferWidth;
+                    int height = gd.PresentationParameters.BackBufferHeight;
+                    var pixels = new Color[width * height];
+                    gd.GetBackBufferData(pixels);
+                    VeparShots.Add((ms, width, height, pixels));
+                    var effect = world.Objects.GetSnapshotArray().OfType<Objects.Effects.VeparAttackEffect>().FirstOrDefault();
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var effectType = typeof(Objects.Effects.VeparAttackEffect);
+                    object update = effect is null ? "-" : effectType.GetField("_update", flags).GetValue(effect);
+                    object ribbons = effect is null ? "-" : effectType.GetField("_hasRibbons", flags).GetValue(effect);
+                    object impacts = effect is null ? "-" : effectType.GetField("_hasImpacts", flags).GetValue(effect);
+                    Console.WriteLine($"[stress] Vepar sample {ms}ms, effects={effect is not null}, update={update}, ribbons={ribbons}, impacts={impacts}");
+                    if (_veparShot == VeparSequenceMs.Length)
+                    {
+                        string dir = Environment.GetEnvironmentVariable("MU_STRESS_SHOTS");
+                        Directory.CreateDirectory(dir);
+                        foreach (var shot in VeparShots)
+                        {
+                            using var tex = new Texture2D(gd, shot.Width, shot.Height);
+                            tex.SetData(shot.Pixels);
+                            using var output = File.Create(Path.Combine(dir, $"{_label}_{shot.Ms:D4}.png"));
+                            tex.SaveAsPng(output, shot.Width, shot.Height);
+                        }
+                        VeparShots.Clear();
+                    }
+                }
+                return;
+            }
+            if (now >= _monsterAttackShotAt)
+            {
+                _monsterAttackShotAt = double.PositiveInfinity;
+                SaveScreenshot(game, $"{_label}_{type}_attack_{_monsterAttackShotSkill}");
+            }
+            if (now < _nextMonsterAttack)
+                return;
+
+            int step = _monsterAttackStep;
+            ushort mapSkill = (world.MapId, type) switch
+            {
+                (33, 309) => (ushort)(2 + step % 2),
+                (33, 552) => 69,
+                (34, 349) => (ushort)(12 + step % 2),
+                (37, 355) => 14,
+                (38, 358 or 359 or 360) => (ushort)(type - 343),
+                (39, 361) when step % 3 < 2 => (ushort)(20 + step % 3),
+                (39, 362 or 363) => (ushort)(23 + step % 2),
+                (57, 454) when step % 2 == 0 => 0, // Use the live OpenMU 0x18 + Ice (0x19) sequence as well.
+                (57 or 58, >= 454 and <= 458) => (ushort)(type - 425),
+                (57, 562 or 563 or 564) => (ushort)(type - 487),
+                (57, 565) => 32,
+                (58, 459) => (ushort)(34 + step % 8 + (step % 8 == 7 ? 1 : 0)),
+                (72, 504) => (ushort)((step % 5) switch { 0 => 67, 1 => 64, 2 => 65, 3 => 66, _ => 59 }),
+                (72, 505) => (ushort)((step % 3) switch { 0 => 55, 1 => 61, _ => 59 }),
+                (70, 515) => (ushort)(51 + step % 2),
+                _ => 0,
+            };
+            byte opcode = mapSkill != 0 ? (byte)0x69 : (byte)0x18;
+            ushort skill = mapSkill != 0 ? mapSkill : (ushort)(type switch
+            {
+                34 or 46 or 69 => 17,
+                38 or 42 or 49 or 63 or 67 => 50,
+                52 or 454 => 7,
+                _ => 0,
+            });
+            if (world.MapId == 39 && type == 361 && mapSkill == 0)
+            {
+                opcode = 0x19;
+                skill = 6;
+            }
+            else if (world.MapId == 2 && type == 70 && step % 2 != 0)
+            {
+                opcode = 0x1E;
+                skill = 7;
+            }
+            int started = 0;
+            var directions = MuGame.Network.GetDirectionMap();
+            for (int i = 0; i < _count; i++)
+            {
+                ushort id = StressMonsterId(type, i);
+                if (!world.TryGetWalkerById(id, out var walker) || walker is not MonsterObject { Visible: true } monster)
+                    continue;
+
+                var delta = hero.Location - monster.Location;
+                if (step == 0 && started == 0)
+                    Console.WriteLine($"[stress] attack positions type={type}, attacker={monster.Position}, listener={hero.Position}");
+                byte facing = (byte)Models.DirectionExtensions.GetDirectionFromMovementDelta((int)delta.X, (int)delta.Y);
+                byte direction = directions != null && directions.TryGetValue(facing, out byte encoded) ? encoded : facing;
+                _ = ReplayMonsterAttackAsync(id, hero.NetworkId, direction, facing, skill, opcode);
+                started++;
+            }
+
+            _nextMonsterAttack = now + (started > 0 ? (opcode == 0x69 ? 1.8 : 1.25) : 0.1);
+            if (started > 0)
+            {
+                _veparAttackAt = now;
+                if (_monsterAttackStep == 0 || _monsterAttackShotSkill != skill)
+                {
+                    _monsterAttackShotSkill = skill;
+                    double releaseShotDelay = (type, skill) switch
+                    {
+                        (46, 17) => 0.26,
+                        (54 or 57 or 151, _) => 0.15,
+                        (459, 34 or 36) or (349, 13) => 1.35,
+                        (505, 55 or 61) => 1.65,
+                        _ => 0.8,
+                    };
+                    _monsterAttackShotAt = now + releaseShotDelay;
+                }
+                _monsterAttackStep++;
+                string codes = opcode == 0x18 && skill != 0 ? "18+19" : $"{opcode:X2}";
+                Console.WriteLine($"[stress] monster attacks type={type}, count={started}, code={codes}, skill={skill}, target={hero.NetworkId}");
+            }
+        }
+
+        private static async Task ReplayMonsterAttackAsync(ushort id, ushort target, byte direction, byte facing,
+            ushort skill, byte opcode)
+        {
+            if (opcode == 0x69)
+            {
+                await MuGame.Network.InjectPacketForDiagnosticsAsync(
+                    [0xC1, 10, 0x69, (byte)(skill >> 8), (byte)skill, 0, (byte)id, (byte)(id >> 8),
+                        (byte)target, (byte)((target >> 8) | 0x80)]);
+                return;
+            }
+            if (opcode == 0x1E)
+            {
+                await MuGame.Network.InjectPacketForDiagnosticsAsync(
+                    [0xC3, 10, 0x1E, (byte)(skill >> 8), (byte)skill, (byte)(id >> 8), (byte)id,
+                        (byte)Math.Min(255, HeroX + 2), HeroY, (byte)(facing * 32)]);
+                return;
+            }
+
+            if (opcode == 0x18)
+            {
+                await MuGame.Network.InjectPacketForDiagnosticsAsync(
+                    [0xC1, 9, 0x18, (byte)(id >> 8), (byte)id, direction, 120, (byte)(target >> 8), (byte)target]);
+            }
+            if (skill != 0)
+            {
+                await MuGame.Network.InjectPacketForDiagnosticsAsync(
+                    [0xC3, 9, 0x19, (byte)(skill >> 8), (byte)skill, (byte)(id >> 8), (byte)id,
+                        (byte)((target >> 8) | 0x80), (byte)target]);
+            }
         }
 
         // MU_STRESS_WALK=1: like the server's monster AI, every few seconds half of the monsters walk a short

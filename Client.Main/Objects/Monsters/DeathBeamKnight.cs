@@ -74,34 +74,26 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             // SourceMain5.2 OpenMonsterModel: SOUND_MONSTER_DEATH_ATTACK1 = death_attack1.wav
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/death_attack1.wav", Position, listenerPosition);
+            PlayAttackSound("Sound/death_attack1.wav");
+        }
 
-            if (World == null || !TryConsumeAttackEffectWindow())
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World is not { } world)
                 return;
 
-            // SourceMain5.2 AttackEffect MONSTER_DEATH_BEAM_KNIGHT (CheckAttackTime(1)):
-            // CreateInferno + MODEL_SKILL_INFERNO at self on every attack.
-            var inferno = new ScrollOfInfernoEffect(this, Position);
-            World.Objects.Add(inferno);
-            _ = inferno.Load();
+            if (progress.CrossedTick(1))
+                InfernoEffect.SpawnMonsterAttack(this);
 
-            if (attackType == 2)
-            {
-                // Boss branch (CheckAttackTime(14)): 18x MODEL_STAFF_OF_DESTRUCTION,
-                // yaw fanned in 20 degree steps from the caster.
-                for (int i = 0; i < 18; i++)
-                {
-                    float yawDeg = MathHelper.ToDegrees(Angle.Z) + i * 20f;
-                    var orb = Joints.SourceProjectileEffect.Create(
-                        Joints.SourceProjectileKind.StaffOfDestruction,
-                        Position,
-                        new Vector3(0f, 0f, yawDeg));
-                    World.Objects.Add(orb);
-                    _ = orb.Load();
-                }
-            }
+            if (progress.SkillId != BossAttackSkill ||
+                !(progress.CrossedTick(14) || progress.SkillStarted && progress.Tick >= 14))
+                return;
+
+            float yaw = MathHelper.ToDegrees(Angle.Z);
+            for (int i = 0; i < 18; i++)
+                Joints.SourceProjectileEffect.Spawn(world, Joints.SourceProjectileKind.StaffOfDestruction,
+                    Position, new Vector3(0f, 0f, yaw + i * 20f));
         }
     }
 }

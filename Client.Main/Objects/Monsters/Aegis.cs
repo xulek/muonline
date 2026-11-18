@@ -93,12 +93,21 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
+            PlayAttackSound();
+        }
+
+        public override void OnReceiveDamage()
+        {
+            base.OnReceiveDamage();
+            PlayAttackSound();
+        }
+
+        private void PlayAttackSound()
+        {
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0 ? "Sound/mEsisAttack1.wav" : "Sound/mEsisAttack2.wav";
             SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
         }
-
-        public override void OnReceiveDamage() => OnPerformAttack(1);
 
         public override void OnDeathAnimationStart()
         {

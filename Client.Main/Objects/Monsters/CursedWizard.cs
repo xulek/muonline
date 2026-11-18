@@ -67,42 +67,11 @@ namespace Client.Main.Objects.Monsters
         // c->Weapon[0 / 1].LinkBone: staff in the right hand, shield in the left (AttackEffect MONSTER_CURSED_WIZARD).
         private static readonly int[] HandBones = { 33, 42 };
 
-        public override void OnPerformAttack(int attackType = 1)
+        protected override void OnAttackProgress(in AttackProgress progress)
         {
-            base.OnPerformAttack(attackType);
-
-            // AttackEffect (ZzzCharacter.cpp:2154): BITMAP_JOINT_THUNDER from both weapon bones to the target, the
-            // same lightning the Devil uses.
-            if (World is not WalkableWorldControl world)
-                return;
-
-            ushort targetId = LastAttackTargetId;
-            if (targetId == 0 || !world.TryGetWalkerById(targetId, out _))
-                return;
-
-            for (int i = 0; i < HandBones.Length; i++)
-            {
-                int boneIndex = HandBones[i];
-
-                Vector3 SourceProvider()
-                {
-                    var bones = GetBoneTransforms();
-                    if (bones != null && boneIndex < bones.Length)
-                        return (bones[boneIndex] * WorldPosition).Translation;
-                    return WorldPosition.Translation + Vector3.UnitZ * 100f;
-                }
-
-                Vector3 TargetProvider()
-                {
-                    if (world.TryGetWalkerById(targetId, out var target))
-                        return target.WorldPosition.Translation + Vector3.UnitZ * 80f;
-                    return WorldPosition.Translation + Vector3.UnitZ * 80f;
-                }
-
-                var effect = new ScrollOfLightningEffect(SourceProvider, TargetProvider);
-                world.Objects.Add(effect);
-                _ = effect.Load();
-            }
+            // Energy Ball uses thunder and energy particles linked to both weapon bones.
+            if (progress.SkillStarted && progress.SkillId == EnergyBallAttackSkill && TryGetAttackTarget(out _))
+                SpawnMagicAttackEffect(HandBones, progress.Action);
         }
 
         private static async Task<BMD> LoadModelAsync()

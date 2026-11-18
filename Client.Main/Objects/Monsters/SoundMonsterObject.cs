@@ -89,7 +89,7 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            PlayMonsterSound(GetAttackSoundPath(attackType));
+            PlayAttackSound(GetAttackSoundPath(attackType));
         }
 
         public override void OnReceiveDamage()

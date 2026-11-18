@@ -193,13 +193,39 @@ Check(ParseMonsterSkill(C1(0x69, 0x01, 0x3F, 0xAA, 0x34, 0x12, 0x78, 0xD6)) is V
 Check(ParseMonsterSkill(C1(0x69, 0)) == null, "69 truncated fields are rejected");
 var resolveMonsterSkill = typeof(ScopeHandler).GetMethod("ResolveImperialMonsterSkill", BindingFlags.Static | BindingFlags.NonPublic)!;
 var resolveKanturuSkill = typeof(ScopeHandler).GetMethod("ResolveKanturuMonsterSkill", BindingFlags.Static | BindingFlags.NonPublic)!;
+var resolveRaklionSkill = typeof(ScopeHandler).GetMethod("ResolveRaklionMonsterSkill", BindingFlags.Static | BindingFlags.NonPublic);
+var selupan = new SelupanBoss();
+Check(NpcDatabase.TryGetNpcType(459, out var selupanType) && selupanType == typeof(SelupanBoss),
+      "Selupan is instantiated by normal monster scope registration");
+var selupanActions = new[]
+{
+    MonsterActionType.Attack2, MonsterActionType.Attack1, MonsterActionType.Attack3,
+    MonsterActionType.Appear, MonsterActionType.Attack4, MonsterActionType.Attack4,
+    MonsterActionType.Attack4, (MonsterActionType?)null, MonsterActionType.Attack4,
+};
+Check(resolveRaklionSkill != null && selupanActions.Select((action, i) =>
+        (MonsterActionType?)resolveRaklionSkill.Invoke(null, [selupan, (ushort)(34 + i)]) == action).All(x => x)
+      && resolveRaklionSkill.Invoke(null, [new Nightmare(), (ushort)35]) == null,
+      "69 Raklion skills select Selupan phases, including appearance and the unused slot");
+Check(resolveRaklionSkill != null && new (MonsterObject Actor, ushort Skill)[]
+      {
+          (new IceWalker(), 29), (new GiantMammoth(), 30), (new IceGiant(), 31),
+          (new Coolutin(), 32), (new IronKnight(), 33),
+      }.All(s => (MonsterActionType?)resolveRaklionSkill.Invoke(null, [s.Actor, s.Skill]) == MonsterActionType.Attack2),
+      "69 selects the Raklion field skill animations by monster and skill");
+var resolveCrywolfSkill = typeof(ScopeHandler).GetMethod("ResolveCrywolfMonsterSkill", BindingFlags.Static | BindingFlags.NonPublic);
+Check(resolveCrywolfSkill != null &&
+      (MonsterActionType?)resolveCrywolfSkill.Invoke(null, [new Balgass(), (ushort)12]) == MonsterActionType.Attack1 &&
+      (MonsterActionType?)resolveCrywolfSkill.Invoke(null, [new Balgass(), (ushort)13]) == MonsterActionType.Attack2 &&
+      resolveCrywolfSkill.Invoke(null, [new Balgass(), (ushort)14]) == null,
+      "69 uses the supplied Balgass slots without borrowing the Kanturu skill 14");
 Check((MonsterActionType?)resolveKanturuSkill.Invoke(null, [new Nightmare(), (ushort)18]) == MonsterActionType.Attack1
       && (MonsterActionType?)resolveKanturuSkill.Invoke(null, [new Nightmare(), (ushort)19]) == MonsterActionType.Attack2
       && (MonsterActionType?)resolveKanturuSkill.Invoke(null, [new Nightmare(), (ushort)20]) == MonsterActionType.Attack3
       && (MonsterActionType?)resolveKanturuSkill.Invoke(null, [new Nightmare(), (ushort)21]) == MonsterActionType.Attack4
       && resolveKanturuSkill.Invoke(null, [new Nightmare(), (ushort)22]) == null,
       "69 Nightmare skill slots select attacks one through four");
-var applyMonsterSkill = typeof(ScopeHandler).GetMethod("ApplyMonsterSkillAction", BindingFlags.Static | BindingFlags.NonPublic)!;
+var applyMonsterSkill = typeof(MonsterObject).GetMethod("ApplyMonsterSkill", BindingFlags.Instance | BindingFlags.NonPublic)!;
 var recordingMonster = new RecordingSkillMonster();
 bool callbacksMatch = true;
 foreach (var (action, expectedAttack) in new[]
@@ -208,19 +234,175 @@ foreach (var (action, expectedAttack) in new[]
     (MonsterActionType.Attack3, 3), (MonsterActionType.Attack4, 4),
 })
 {
-    applyMonsterSkill.Invoke(null, [recordingMonster, action, (ushort)0x1234]);
-    callbacksMatch &= recordingMonster.LastAttack == expectedAttack && recordingMonster.CurrentAction == (int)action
+    callbacksMatch &= applyMonsterSkill.Invoke(recordingMonster, [action, (ushort)(17 + expectedAttack), (ushort)0x1234, 1.0, null]) is true
+        && recordingMonster.LastAttack == expectedAttack && recordingMonster.CurrentAction == (int)action
         && recordingMonster.LastAttackTargetId == 0x1234;
 }
-applyMonsterSkill.Invoke(null, [recordingMonster, MonsterActionType.Appear, (ushort)0x4321]);
+applyMonsterSkill.Invoke(recordingMonster, [MonsterActionType.Appear, (ushort)59, (ushort)0x4321, 1.5, null]);
 Check(callbacksMatch && recordingMonster.AppearCount == 1 && recordingMonster.LastAttack == 4
       && recordingMonster.CurrentAction == (int)MonsterActionType.Appear && recordingMonster.LastAttackTargetId == 0x4321,
       "69 applies attack variants and appearance through the actual monster callbacks");
 recordingMonster.PlayAction((ushort)MonsterActionType.Die, fromServer: true);
-applyMonsterSkill.Invoke(null, [recordingMonster, MonsterActionType.Attack2, (ushort)0x5678]);
+applyMonsterSkill.Invoke(recordingMonster, [MonsterActionType.Attack2, (ushort)19, (ushort)0x5678, 1.7, null]);
 Check(recordingMonster.CurrentAction == (int)MonsterActionType.Die && recordingMonster.LastAttack == 4
       && recordingMonster.LastAttackTargetId == 0x4321,
       "69 rejected during death does not trigger attack callback or replace target");
+
+var applyNormalMonsterAttack = typeof(MonsterObject).GetMethod("ApplyNormalAttack", BindingFlags.Instance | BindingFlags.NonPublic);
+var applyTargetedMonsterAttack = typeof(MonsterObject).GetMethod("ApplyTargetedAttack", BindingFlags.Instance | BindingFlags.NonPublic);
+bool NormalAttack(RecordingSkillMonster monster, double time, ushort target = 0x8042) =>
+    applyNormalMonsterAttack?.Invoke(monster, [target, time, Client.Main.Models.Direction.South]) is true;
+bool TargetedAttack(RecordingSkillMonster monster, double time, ushort target = 0x8042) =>
+    applyTargetedMonsterAttack?.Invoke(monster, [(ushort)17, target, time, null]) is true;
+
+var ordinaryAttacker = new RecordingSkillMonster();
+Check(NormalAttack(ordinaryAttacker, 1.0) && ordinaryAttacker.LastAttack == 1
+      && NormalAttack(ordinaryAttacker, 1.05) && ordinaryAttacker.LastAttack == 2
+      && NormalAttack(ordinaryAttacker, 1.10) && ordinaryAttacker.LastAttack == 2
+      && NormalAttack(ordinaryAttacker, 1.15) && ordinaryAttacker.LastAttack == 1
+      && ordinaryAttacker.AttackCount == 4 && ordinaryAttacker.LastAttackTargetId == 0x42,
+      "18 varies basic attacks deterministically and keeps distinct rapid attacks and the masked target");
+
+var spellAttacker = new RecordingSkillMonster();
+Check(NormalAttack(spellAttacker, 2.0) && TargetedAttack(spellAttacker, 2.04)
+      && spellAttacker.AttackCount == 1 && spellAttacker.LastAttack == 1
+      && NormalAttack(spellAttacker, 2.10) && TargetedAttack(spellAttacker, 2.11)
+      && spellAttacker.AttackCount == 2 && spellAttacker.LastAttack == 2,
+      "18 followed by 19 enriches each spell attack without replaying animation or attack audio");
+
+var reverseOrderCaster = new RecordingSkillMonster();
+Check(TargetedAttack(reverseOrderCaster, 3.0) && NormalAttack(reverseOrderCaster, 3.04)
+      && reverseOrderCaster.AttackCount == 1 && NormalAttack(reverseOrderCaster, 3.09)
+      && reverseOrderCaster.AttackCount == 2 && TargetedAttack(reverseOrderCaster, 3.10, 0x8043)
+      && reverseOrderCaster.AttackCount == 3 && reverseOrderCaster.LastAttackTargetId == 0x43,
+      "reverse packet order uses one companion and a different spell target starts an independent attack");
+
+var interruptedAttacker = new RecordingSkillMonster();
+Check(NormalAttack(interruptedAttacker, 4.0)
+      && NormalAttack(interruptedAttacker, 4.25)
+      && TargetedAttack(interruptedAttacker, 4.65) && interruptedAttacker.AttackCount == 3,
+      "a late spell does not attach to the previous basic attack");
+interruptedAttacker.PlayAction((ushort)MonsterActionType.Die, fromServer: true);
+Check(!NormalAttack(interruptedAttacker, 4.70, 0x8043) && !TargetedAttack(interruptedAttacker, 4.71, 0x8043)
+      && interruptedAttacker.AttackCount == 3 && interruptedAttacker.LastAttackTargetId == 0x42,
+      "18 and 19 during death cannot set a new target or trigger attack audio");
+
+var advanceMonsterAttack = typeof(MonsterObject).GetMethod("AdvanceAttack", BindingFlags.Instance | BindingFlags.NonPublic)!;
+void AdvanceAttack(RecordingSkillMonster monster, double time, double frame = 0, bool completed = false) =>
+    advanceMonsterAttack.Invoke(monster, [time, frame, completed]);
+
+bool equalMarkersAtEachRate = true;
+foreach (var fps in new[] { 30, 60, 144 })
+{
+    var attacker = new RecordingSkillMonster();
+    NormalAttack(attacker, 10.0);
+    for (int frame = 0; frame <= fps / 2; frame++)
+        AdvanceAttack(attacker, 10.0 + frame / (double)fps);
+    equalMarkersAtEachRate &= attacker.Markers.SequenceEqual(new[] { 1, 5, 9 });
+}
+Check(equalMarkersAtEachRate, "single attack markers are independent of 30, 60 and 144 FPS");
+
+var slowFrameAttacker = new RecordingSkillMonster();
+NormalAttack(slowFrameAttacker, 12.0);
+AdvanceAttack(slowFrameAttacker, 12.32, frame: 5);
+AdvanceAttack(slowFrameAttacker, 12.32, frame: 5);
+Check(slowFrameAttacker.Markers.SequenceEqual(new[] { 1, 5, 9, 100 }) && slowFrameAttacker.FrameMarkerCount == 1,
+      "a skipped time or animation window emits crossed markers in order once");
+
+var lateSkillAttacker = new RecordingSkillMonster();
+NormalAttack(lateSkillAttacker, 13.0);
+AdvanceAttack(lateSkillAttacker, 13.0);
+TargetedAttack(lateSkillAttacker, 13.04);
+AdvanceAttack(lateSkillAttacker, 13.08);
+AdvanceAttack(lateSkillAttacker, 13.10);
+Check(lateSkillAttacker.AttackCount == 1 && lateSkillAttacker.SkillStarts.SequenceEqual(new ushort[] { 17 }),
+      "a companion spell received after the first update releases its skill marker once");
+
+var iceCaster = new RecordingSkillMonster();
+bool iceStartsAction = applyTargetedMonsterAttack?.Invoke(iceCaster, [(ushort)7, (ushort)0x8042, 13.5d, null]) is true;
+bool animationCompletesIcePair = NormalAttack(iceCaster, 13.55);
+AdvanceAttack(iceCaster, 13.6);
+Check(iceStartsAction && animationCompletesIcePair && iceCaster.AttackCount == 1 &&
+      iceCaster.SkillStarts.SequenceEqual(new ushort[] { 7 }),
+      "Ice 7 starts a monster attack and the companion animation does not start a second one");
+
+var cancelledAttack = new RecordingSkillMonster();
+NormalAttack(cancelledAttack, 14.0);
+AdvanceAttack(cancelledAttack, 14.0);
+cancelledAttack.PlayAction((ushort)MonsterActionType.Shock, fromServer: true);
+AdvanceAttack(cancelledAttack, 14.40, frame: 7);
+Check(cancelledAttack.Markers.SequenceEqual(new[] { 1 }), "shock cancels markers from the interrupted attack");
+
+var hydraModel = new Client.Data.BMD.BMD
+{
+    Bones = [Client.Data.BMD.BMDTextureBone.Dummy],
+    Actions = Enumerable.Range(0, 7).Select(_ => new Client.Data.BMD.BMDTextureAction { NumAnimationKeys = 2 }).ToArray(),
+    Meshes = Enumerable.Range(0, 7).Select(_ => new Client.Data.BMD.BMDTextureMesh()).ToArray(),
+};
+hydraModel.Meshes[0].Vertices = [new() { Position = new(-20f, -50f, 0f) }, new() { Position = new(20f, 50f, 80f) }];
+hydraModel.Meshes[5].Vertices = [new() { Position = new(0f, -1500f, 0f) }];
+hydraModel.Meshes[6].Vertices = [new() { Position = new(0f, 1500f, 0f) }];
+var setStaticPose = typeof(ModelObject).GetMethod("SetStaticAnimationPose", BindingFlags.Instance | BindingFlags.NonPublic)!;
+var hydraBounds = new BoundingBox(new Vector3(-20f, -50f, 0f), new Vector3(20f, 50f, 80f));
+using var idleHydra = new HydraAnimationProbe { Model = hydraModel };
+using var attackingHydra = new HydraAnimationProbe { Model = hydraModel };
+setStaticPose.Invoke(idleHydra, [(int)MonsterActionType.Stop1, 0]);
+setStaticPose.Invoke(attackingHydra, [(int)MonsterActionType.Attack2, 0]);
+Check(idleHydra.BoundingBoxLocal == hydraBounds && attackingHydra.BoundingBoxLocal == hydraBounds,
+      "Hydra uses its body bounds for picking and culling even while the laser is visible");
+var hydraFrame = new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.1));
+attackingHydra.Update(hydraFrame);
+bool hydraShowsLaser = attackingHydra.HiddenMesh != 5 && attackingHydra.BlendMeshLight > 0f;
+setStaticPose.Invoke(attackingHydra, [(int)MonsterActionType.Shock, 0]);
+attackingHydra.Update(hydraFrame);
+Check(idleHydra.HiddenMesh == 5 && hydraShowsLaser && attackingHydra.HiddenMesh == 5 && attackingHydra.BlendMeshLight == 0f,
+      "Hydra shows its laser mesh during attack and hides it as soon as the attack is interrupted");
+
+using var totem = new TotemGolem();
+Check(NpcDatabase.TryGetNpcType(423, out var totemType) && totemType == typeof(TotemGolem) &&
+      MathF.Abs(totem.Scale - 0.1615f) < 0.0001f,
+      "Elbeland spawn 423 uses the authored world scale for the oversized Totem Golem model");
+
+var unavailableAction = new RecordingSkillMonster
+{
+    Model = new Client.Data.BMD.BMD
+    {
+        Actions = new Client.Data.BMD.BMDTextureAction[5]
+    }
+};
+unavailableAction.Model.Actions[(int)MonsterActionType.Attack1] = new Client.Data.BMD.BMDTextureAction { NumAnimationKeys = 2 };
+Check(NormalAttack(unavailableAction, 15.0) && NormalAttack(unavailableAction, 15.1) && unavailableAction.LastAttack == 1,
+      "a one-attack BMD keeps using its available animation on later basic attacks");
+
+var applyAreaMonsterAttack = typeof(MonsterObject).GetMethod("ApplyAreaAttack", BindingFlags.Instance | BindingFlags.NonPublic);
+var resolveAttackPosition = typeof(MonsterObject).GetMethod("TryGetAttackTargetPosition", BindingFlags.Instance | BindingFlags.NonPublic)!;
+var areaAttacker = new RecordingSkillMonster();
+Vector3 attackPoint = new(350f, 650f, 45f);
+object[] attackPosition = [Vector3.Zero];
+Check(applyAreaMonsterAttack?.Invoke(areaAttacker, [(ushort)50, attackPoint, 16.0, 90f]) is true
+      && areaAttacker.LastAttackTargetId == 0 && resolveAttackPosition.Invoke(areaAttacker, attackPosition) is true
+      && (Vector3)attackPosition[0] == attackPoint && NormalAttack(areaAttacker, 17.0)
+      && resolveAttackPosition.Invoke(areaAttacker, attackPosition) is false,
+      "1E monster casts keep the packet's terrain point and the next attack clears it");
+
+var switchedWorldAttacker = new RecordingSkillMonster();
+NormalAttack(switchedWorldAttacker, 18.0);
+AdvanceAttack(switchedWorldAttacker, 18.0);
+var worldChanged = typeof(MonsterObject).GetMethod("OnWorldChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+worldChanged.Invoke(switchedWorldAttacker, [null, null]);
+AdvanceAttack(switchedWorldAttacker, 18.4, frame: 5);
+Check(switchedWorldAttacker.Markers.SequenceEqual(new[] { 1 }),
+      "map change cancels markers from the old monster action");
+
+var throttleCombat = typeof(SoundController).GetMethod("ShouldThrottleCombatSound", BindingFlags.Instance | BindingFlags.NonPublic);
+bool CombatSoundLimited(string sample, double timeMs) =>
+    throttleCombat?.Invoke(SoundController.Instance, [sample, timeMs]) is true;
+Check(throttleCombat != null && !CombatSoundLimited("combined-attack.wav", 0d) &&
+      !CombatSoundLimited("combined-attack.wav", 1d) && !CombatSoundLimited("combined-attack.wav", 2d) &&
+      CombatSoundLimited("combined-attack.wav", 3d) && !CombatSoundLimited("other-attack.wav", 3d) &&
+      !CombatSoundLimited("combined-attack.wav", 120d),
+      "nearby attacks sharing a WAV can overlap, with a bounded burst that opens again after the interval");
+
 using (var monsterAnimation = new AnimationController(new Nightmare()))
 {
     monsterAnimation.PlayAnimation((ushort)MonsterActionType.Attack3, fromServer: true);
@@ -443,6 +625,7 @@ var imperialModels = new (string File, MonsterActionType[] Actions)[]
     ("Monster166.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
     ("Monster167.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
     ("Monster168.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
+    ("Monster169.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
     ("Monster170.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
     ("Monster171.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
     ("Monster172.bmd", [MonsterActionType.Attack2, MonsterActionType.Attack3, MonsterActionType.Appear]),
@@ -618,7 +801,36 @@ return failures == 0 ? 0 : 1;
 sealed class RecordingSkillMonster : MonsterObject
 {
     public int LastAttack { get; private set; }
+    public int AttackCount { get; private set; }
     public int AppearCount { get; private set; }
-    public override void OnPerformAttack(int attackType = 1) => LastAttack = attackType;
+    public List<int> Markers { get; } = new();
+    public int FrameMarkerCount { get; private set; }
+    public List<ushort> SkillStarts { get; } = new();
+    public override void OnPerformAttack(int attackType = 1)
+    {
+        LastAttack = attackType;
+        AttackCount++;
+    }
+
+    protected override void OnAttackProgress(in AttackProgress progress)
+    {
+        if (progress.CrossedTick(1)) Markers.Add(1);
+        if (progress.CrossedTick(5)) Markers.Add(5);
+        if (progress.CrossedTick(9)) Markers.Add(9);
+        if (progress.CrossedFrame(3.7))
+        {
+            FrameMarkerCount++;
+            Markers.Add(100);
+        }
+        if (progress.SkillStarted)
+            SkillStarts.Add(progress.SkillId);
+    }
     public override void OnAppearAnimationStart() => AppearCount++;
+}
+
+sealed class HydraAnimationProbe : Hydra
+{
+    public HydraAnimationProbe() => Status = GameControlStatus.Ready;
+
+    protected override void OnIdle() { }
 }

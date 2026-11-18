@@ -4,9 +4,17 @@ using Microsoft.Xna.Framework;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class Destler : MonsterObject
+    [NpcInfo(508, "Destler")]
+    public class Destler : SoundMonsterObject
     {
         private GlowingEyesEffect _eyeGlow;
+
+        protected override string GetAttackSoundPath(int attackType) => attackType switch
+        {
+            2 => "Sound/w69w70w71w72/1Deasuler_attack2.wav",
+            3 => "Sound/w69w70w71w72/1Deasuler_attack3.wav",
+            _ => null,
+        };
 
         public Destler()
         {

@@ -1,5 +1,7 @@
 #nullable enable
 using Client.Main.Content;
+using Client.Main.Controllers;
+using Client.Main.Controls;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
@@ -35,13 +37,24 @@ namespace Client.Main.Objects.Effects
                 new Vector3(350f, 350f, 200f));
         }
 
+        internal static void SpawnForAttack(MonsterObject caster)
+        {
+            if (caster.World is not WalkableWorldControl world)
+                return;
+
+            var circle = new MonsterMagicCircleEffect(caster.Position);
+            world.Objects.Add(circle);
+            _ = circle.Load();
+            caster.PlayAttackSound("Sound/sHellFire.wav");
+        }
+
         public override async Task Load()
         {
             await base.Load();
             if (Status != GameControlStatus.Ready)
                 return;
 
-            var circleModel = await BMDLoader.Instance.Prepare("Skill/Circle.bmd");
+            var circleModel = await BMDLoader.Instance.Prepare("Skill/Circle01.bmd");
             if (circleModel == null)
                 return;
 

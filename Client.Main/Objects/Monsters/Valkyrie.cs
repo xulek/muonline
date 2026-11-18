@@ -2,6 +2,7 @@ using Client.Main.Content;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Models;
+using Client.Main.Objects.Effects;
 using Client.Main.Objects.Player;
 using Client.Main.Core.Utilities;
 using Microsoft.Xna.Framework;
@@ -12,6 +13,8 @@ namespace Client.Main.Objects.Monsters
     [NpcInfo(47, "Valkyrie")]
     public class Valkyrie : MonsterObject
     {
+        private const int CrossbowBone = 30;
+        private const double ReleaseFrame = 5.0;
         private WeaponObject _rightHandWeapon;
 
         public Valkyrie()
@@ -31,7 +34,7 @@ namespace Client.Main.Objects.Monsters
             _rightHandWeapon = new WeaponObject
             {
                 LinkParentAnimation = false,
-                ParentBoneLink = 30
+                ParentBoneLink = CrossbowBone
             };
             Children.Add(_rightHandWeapon);
         }
@@ -62,18 +65,23 @@ namespace Client.Main.Objects.Monsters
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mValkyrie1.wav", Position, listenerPosition);
         }
 
-        public override void OnPerformAttack(int attackType = 1)
+        protected override void OnAttackProgress(in AttackProgress progress)
         {
-            base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mBaliAttack2.wav", Position, listenerPosition);
+            if (!progress.CrossedFrame(ReleaseFrame))
+                return;
 
-            // SourceMain5.2 AttackEffect: MODEL_VALKYRIE fires CreateArrows on attack.
-            if (World is WalkableWorldControl arrowWorld && LastAttackTargetId != 0)
+            Vector3 release = TryComputeBoneAt((int)progress.Action, ReleaseFrame, CrossbowBone, out Matrix pose)
+                ? (pose * WorldPosition).Translation
+                : WorldPosition.Translation + Vector3.UnitZ * 135f;
+            ArrowProjectileSpawner.SpawnMonsterWing(this, release);
+            PlayAttackSound("Sound/mBaliAttack2.wav", release);
+
+            if (progress.SkillId == IceAttackSkill && TryGetAttackTarget(out var target))
             {
-                var arrow = new Effects.MonsterArrowProjectileEffect(this, 30, LastAttackTargetId);
-                arrowWorld.Objects.Add(arrow);
-                _ = arrow.Load();
+                var ice = new IceEffect(this, target);
+                ice.ReleaseImmediately();
+                World.Objects.Add(ice);
+                _ = ice.Load();
             }
         }
 

@@ -6,16 +6,20 @@ namespace Client.Main.Objects.Effects.Joints
     // ZzzEffectBlurSpark.cpp:19-25, 207-225, 227-350: one OBJECT_BLUR record.
     internal sealed class SourceObjectBlur
     {
-        private const int Capacity = 600;
-        private const int MaxCount = Capacity - 1;
         private const int InitialLife = 30;
-        private readonly Vector3[] _first = new Vector3[Capacity];
-        private readonly Vector3[] _second = new Vector3[Capacity];
+        private readonly Vector3[] _first;
+        private readonly Vector3[] _second;
         private int _head;
         private int _count;
         private int _life;
 
         public bool IsLive => _life > 0;
+
+        public SourceObjectBlur(int capacity = 600)
+        {
+            _first = new Vector3[capacity];
+            _second = new Vector3[capacity];
+        }
 
         public void Add(Vector3 first, Vector3 second)
         {
@@ -25,10 +29,11 @@ namespace Client.Main.Objects.Effects.Joints
                 _count = 0;
                 _life = InitialLife;
             }
-            _head = (_head + Capacity - 1) % Capacity;
+            int capacity = _first.Length;
+            _head = (_head + capacity - 1) % capacity;
             _first[_head] = first;
             _second[_head] = second;
-            if (_count < MaxCount)
+            if (_count < capacity - 1)
                 _count++;
         }
 
@@ -47,7 +52,7 @@ namespace Client.Main.Objects.Effects.Joints
             if (_count > 0)
             {
                 int previousHead = _head;
-                _head = (_head + Capacity - 1) % Capacity;
+                _head = (_head + _first.Length - 1) % _first.Length;
                 _first[_head] = _first[previousHead];
                 _second[_head] = _second[previousHead];
             }
@@ -61,8 +66,8 @@ namespace Client.Main.Objects.Effects.Joints
         {
             for (int j = 0; j < _count - 1; j++)
             {
-                int current = (_head + j) % Capacity;
-                int next = (_head + j + 1) % Capacity;
+                int current = (_head + j) % _first.Length;
+                int next = (_head + j + 1) % _first.Length;
                 float u0 = j / (float)_count;
                 float u1 = (j + 1) / (float)_count;
                 float light0 = (_count - j) / (float)_count;

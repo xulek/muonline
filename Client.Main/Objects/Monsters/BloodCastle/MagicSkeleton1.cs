@@ -13,6 +13,7 @@ namespace Client.Main.Objects.Monsters.BloodCastle
     public class MagicSkeleton1 : MonsterObject
     {
         private readonly WeaponObject _staff;
+        private static readonly int[] StaffBones = { 33 };
 
         public MagicSkeleton1()
         {
@@ -43,6 +44,23 @@ namespace Client.Main.Objects.Monsters.BloodCastle
             base.OnIdle();
             Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mMagicSkull.wav", Position, listenerPosition);
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (!progress.CrossedTick(14) || World == null ||
+                !TryGetAttackTargetPosition(out Vector3 target))
+                return;
+
+            SpawnMagicAttackEffect(StaffBones, progress.Action);
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || bones.Length <= 33)
+                return;
+
+            var meteor = new Effects.MonsterArrowProjectileEffect((bones[33] * WorldPosition).Translation,
+                target + Vector3.UnitZ * 55f, "Skill/Piercing.bmd", 0.75f);
+            World.Objects.Add(meteor);
+            _ = meteor.Load();
         }
 
         public override void OnDeathAnimationStart()

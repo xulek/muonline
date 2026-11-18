@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using Client.Main.Controls;
 
 namespace Client.Main.Controllers
 {
@@ -65,6 +66,10 @@ namespace Client.Main.Controllers
         private readonly object _recentOneShotsLock = new object();
         private const double OneShotMinIntervalMs = 120.0; // prevent identical bursts stacking on the same frame
         private const float OneShotVolumeSlack = 0.05f;   // allow slightly louder instances to break through the throttle
+        private const int CombatVoicesPerSample = 3;
+        private const double MaxCombatSoundDelayMs = 220.0;
+        private readonly Dictionary<string, (double StartMs, int Voices)> _recentCombatSounds = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly bool TraceCombatSound = Environment.GetEnvironmentVariable("MU_STRESS_ATTACK_AUDIO") == "1";
 
         private SoundController()
         {
@@ -394,6 +399,16 @@ namespace Client.Main.Controllers
             PlayOneShot(fullPath, 1f, throttle: false);
         }
 
+        internal void PlayCombatSound(string relativePath, WorldControl world, Vector3 source, Vector3 listener)
+        {
+            if (!Constants.SOUND_EFFECTS || string.IsNullOrEmpty(relativePath))
+                return;
+
+            float attenuation = MathHelper.Clamp(1f - Vector3.Distance(source, listener) / 1000f, 0f, 1f);
+            if (attenuation * Constants.SOUND_EFFECTS_VOLUME / 100f > 0.01f)
+                PlayOneShot(Path.Combine(Constants.DataPath, relativePath), attenuation, throttle: false, combatWorld: world);
+        }
+
         /// <summary>
         /// PlayBuffer on a sound loaded with one channel (LoadWaveFile(..., 1)): DirectSound Play() on a buffer that
         /// is still playing does nothing, so repeated calls while it plays are ignored instead of stacking.
@@ -456,21 +471,23 @@ namespace Client.Main.Controllers
             }
         }
 
-        private void PlayOneShot(string fullPath, float attenuation, bool throttle)
+        private void PlayOneShot(string fullPath, float attenuation, bool throttle, WorldControl combatWorld = null)
         {
             if (_disposed || Constants.SOUND_EFFECTS_VOLUME <= 0) return;
+            double requestedMs = combatWorld != null ? _playStopwatch.Elapsed.TotalMilliseconds : 0d;
             SoundEffect cached = GetCachedSoundEffect(fullPath.ToLowerInvariant());
             if (cached != null)
             {
-                PlayLoadedOneShot(cached, fullPath, attenuation, throttle);
+                PlayLoadedOneShot(cached, fullPath, attenuation, throttle, combatWorld, requestedMs);
                 return;
             }
 
             // A cache miss must retain the play request, not just warm the next cast.
-            _ = PlayOneShotAfterLoadAsync(fullPath, attenuation, throttle, Volatile.Read(ref _cacheGeneration));
+            _ = PlayOneShotAfterLoadAsync(fullPath, attenuation, throttle, Volatile.Read(ref _cacheGeneration), combatWorld, requestedMs);
         }
 
-        private async Task PlayOneShotAfterLoadAsync(string fullPath, float attenuation, bool throttle, int generation)
+        private async Task PlayOneShotAfterLoadAsync(string fullPath, float attenuation, bool throttle,
+            int generation, WorldControl combatWorld, double requestedMs)
         {
             try
             {
@@ -479,7 +496,7 @@ namespace Client.Main.Controllers
                 MuGame.ScheduleOnMainThread(() =>
                 {
                     if (!_disposed && generation == Volatile.Read(ref _cacheGeneration))
-                        PlayLoadedOneShot(sound, fullPath, attenuation, throttle);
+                        PlayLoadedOneShot(sound, fullPath, attenuation, throttle, combatWorld, requestedMs);
                 }, MainThreadDispatcher.WorkPriority.High, "SoundController.PlayLoadedOneShot");
             }
             catch (Exception ex)
@@ -488,14 +505,35 @@ namespace Client.Main.Controllers
             }
         }
 
-        private void PlayLoadedOneShot(SoundEffect sound, string fullPath, float attenuation, bool throttle)
+        private void PlayLoadedOneShot(SoundEffect sound, string fullPath, float attenuation, bool throttle,
+            WorldControl combatWorld, double requestedMs)
         {
             if (_disposed || !Constants.SOUND_EFFECTS || sound.IsDisposed) return;
             float volume = MathHelper.Clamp(attenuation * Constants.SOUND_EFFECTS_VOLUME / 100f, 0f, 1f);
             if (volume <= 0f || (throttle && ShouldThrottleOneShot(fullPath, volume))) return;
+            double delay = 0d;
+            if (combatWorld != null)
+            {
+                double now = _playStopwatch.Elapsed.TotalMilliseconds;
+                delay = now - requestedMs;
+                if (!ReferenceEquals(MuGame.Instance?.ActiveScene?.World, combatWorld) || delay > MaxCombatSoundDelayMs)
+                {
+                    if (TraceCombatSound)
+                        Console.WriteLine($"[attack-audio] stale {Path.GetFileName(fullPath)} waitMs={delay:F1}");
+                    return;
+                }
+                if (ShouldThrottleCombatSound(fullPath, now))
+                {
+                    if (TraceCombatSound)
+                        Console.WriteLine($"[attack-audio] limited {Path.GetFileName(fullPath)} waitMs={delay:F1}");
+                    return;
+                }
+            }
             try
             {
-                sound.Play(volume, 0f, 0f);
+                bool played = sound.Play(volume, 0f, 0f);
+                if (TraceCombatSound && combatWorld != null)
+                    Console.WriteLine($"[attack-audio] played={played} {Path.GetFileName(fullPath)} volume={volume:F2} waitMs={delay:F1}");
             }
             catch (Exception ex)
             {
@@ -819,7 +857,10 @@ namespace Client.Main.Controllers
             _singleChannelInstances.Clear();
             _singleChannelLoads.Clear();
             lock (_recentOneShotsLock)
+            {
                 _recentOneShots.Clear();
+                _recentCombatSounds.Clear();
+            }
 
             _logger?.LogDebug("SoundController: SoundEffect cache and managed looping instances cleared.");
         }
@@ -1046,6 +1087,20 @@ namespace Client.Main.Controllers
             }
 
             return false;
+        }
+
+        private bool ShouldThrottleCombatSound(string cacheKey, double nowMs)
+        {
+            lock (_recentOneShotsLock)
+            {
+                if (!_recentCombatSounds.TryGetValue(cacheKey, out var window) || nowMs - window.StartMs >= OneShotMinIntervalMs)
+                    window = (nowMs, 0);
+                if (window.Voices >= CombatVoicesPerSample)
+                    return true;
+
+                _recentCombatSounds[cacheKey] = (window.StartMs, window.Voices + 1);
+                return false;
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ using System;
 using System.Threading.Tasks;
 using Client.Main.Content;
 using Client.Main.Controllers;
+using Client.Main.Controls;
 using Client.Main.Graphics;
 using Client.Main.Helpers;
 using Client.Main.Models;
@@ -35,6 +36,7 @@ namespace Client.Main.Objects.Effects.Joints
 
         private Texture2D? _trailTexture;
         private readonly SourceProjectileKind _kind;
+        private bool IsBossLaser => _kind is SourceProjectileKind.BossLaser or SourceProjectileKind.BossLaserOrange;
 
         public Vector3 Direction { get; set; }
         public float ScaleValue { get; set; }
@@ -72,6 +74,13 @@ namespace Client.Main.Objects.Effects.Joints
             BoundingBoxLocal = new BoundingBox(
                 new Vector3(-3000f, -3000f, -2000f),
                 new Vector3(3000f, 3000f, 4000f));
+        }
+
+        internal static void Spawn(WorldControl world, SourceProjectileKind kind, Vector3 position, Vector3 angleDeg)
+        {
+            var projectile = Create(kind, position, angleDeg);
+            world.Objects.Add(projectile);
+            _ = projectile.Load();
         }
 
         public static SourceProjectileEffect Create(SourceProjectileKind kind, Vector3 position, Vector3 angleDeg)
@@ -171,10 +180,12 @@ namespace Client.Main.Objects.Effects.Joints
                 return;
             }
 
-            // Generic flyer motion (MoveEffect): rotate Direction by Angle each frame;
-            // Direction is per-frame units, damped 0.9^factor.
-            Position += SourceJointMath.Rotate(Direction, _angle) * f;
-            Direction *= MathF.Pow(0.9f, f);
+            // Boss lasers stay at their launch point and already carry a world-space direction.
+            if (!IsBossLaser)
+            {
+                Position += SourceJointMath.Rotate(Direction, _angle) * f;
+                Direction *= MathF.Pow(0.9f, f);
+            }
 
             if (_kind == SourceProjectileKind.StaffOfDestruction)
             {
@@ -301,7 +312,8 @@ namespace Client.Main.Objects.Effects.Joints
                 return;
 
             // RenderEffect BOSS_LASER family: 20 sprites marching along Direction.
-            Vector3 step = Direction;
+            bool isLaser = IsBossLaser;
+            Vector3 step = Direction * (isLaser ? 1f : 0.35f);
             Vector3 trailPos = Position;
 
             Color tint = new Color(_light.X, _light.Y, _light.Z, 1f);
@@ -325,10 +337,10 @@ namespace Client.Main.Objects.Effects.Joints
                         new Vector2(_trailTexture.Width * 0.5f, _trailTexture.Height * 0.5f),
                         screenScale,
                         SpriteEffects.None,
-                        0.45f);
+                        isLaser ? p.Z : 0.45f);
                 }
 
-                trailPos += step * 0.35f; // compressed spacing keeps the bolt readable
+                trailPos += step;
             }
         }
     }

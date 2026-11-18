@@ -12,5 +12,8 @@ namespace Client.Main.Objects.Monsters
         {
             ApplyGoldenOverlay();
         }
+
+        // The Energy Ball effects in ZzzCharacter.cpp are keyed by monster ID 46.
+        protected override void OnAttackProgress(in AttackProgress progress) { }
     }
 }

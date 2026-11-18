@@ -70,7 +70,10 @@ namespace Client.Main.Objects.Effects
             _flamePosition = new Vector3(_targetPosition.X, _targetPosition.Y, TerrainHeight(_targetPosition));
             _flameAngle = CasterYawDegrees;
             _flameLifeTime = _area ? 40f : 20f;
-            PlayUnmappedSound(SkillId, SoundPath);
+            if (Caster is MonsterObject monster)
+                monster.PlayAttackSound(SoundPath, _flamePosition);
+            else
+                PlayUnmappedSound(SkillId, SoundPath);
         }
 
         protected override void OnTick(float factor)

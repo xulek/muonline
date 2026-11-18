@@ -1,5 +1,6 @@
 using Client.Main.Controls;
 using Client.Main.Models;
+using Client.Main.Objects.Player;
 using Microsoft.Xna.Framework;
 using System;
 
@@ -15,9 +16,9 @@ namespace Client.Main.Objects.Effects
 
         private readonly ModelObject _sourceModel;
         private readonly ushort _targetId;
-        private readonly int _requiredAction;
         private readonly EffectLights _lights;
         private float _elapsed;
+        private Vector3 _targetPosition;
 
         public MonsterMagicAttackEffect(
             ModelObject sourceModel,
@@ -28,7 +29,6 @@ namespace Client.Main.Objects.Effects
         {
             _sourceModel = sourceModel;
             _targetId = targetId;
-            _requiredAction = requiredAction;
             _lights = new EffectLights(this, 1);
 
             int[] bones = sourceBones == null || sourceBones.Length == 0
@@ -76,22 +76,28 @@ namespace Client.Main.Objects.Effects
 
         public override void Update(GameTime gameTime)
         {
-            base.Update(gameTime);
-
             if (Status != GameControlStatus.Ready)
+            {
+                base.Update(gameTime);
                 return;
+            }
 
             _elapsed += (float)gameTime.ElapsedGameTime.TotalSeconds;
-            if (_elapsed >= LifetimeSeconds)
+            if (_elapsed >= LifetimeSeconds || World is not WalkableWorldControl world ||
+                _sourceModel.World != world || !world.TryGetWalkerById(_targetId, out var target) ||
+                !target.Visible || target is MonsterObject { IsDead: true } or PlayerObject { IsDead: true })
             {
                 RemoveSelf();
                 return;
             }
 
+            _targetPosition = target.WorldPosition.Translation;
+            base.Update(gameTime);
+
             // Cool-white lightning glow at the struck target, flickering with the arcs.
             float glow = 0.85f * EffectLights.Envelope(_elapsed, LifetimeSeconds, 0.05f, 0.35f) *
                 EffectLights.Flicker(_elapsed, 1.7f, 0.4f);
-            _lights.Set(0, GetTargetPosition() + Vector3.UnitZ * 60f, new Vector3(0.75f, 0.85f, 1f), 260f, glow);
+            _lights.Set(0, _targetPosition + Vector3.UnitZ * 60f, new Vector3(0.75f, 0.85f, 1f), 260f, glow);
         }
 
         public override void Dispose()
@@ -100,14 +106,7 @@ namespace Client.Main.Objects.Effects
             base.Dispose();
         }
 
-        private Vector3 GetTargetPosition()
-        {
-            if (_targetId != 0 && _sourceModel.World is WalkableWorldControl world &&
-                world.TryGetWalkerById(_targetId, out var target))
-                return target.WorldPosition.Translation;
-
-            return _sourceModel.WorldPosition.Translation + Vector3.UnitZ * 80f;
-        }
+        private Vector3 GetTargetPosition() => _targetPosition;
 
         private void RemoveSelf()
         {

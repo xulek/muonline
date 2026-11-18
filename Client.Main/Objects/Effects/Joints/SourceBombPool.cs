@@ -26,10 +26,12 @@ namespace Client.Main.Objects.Effects.Joints
 
         private readonly SourceSparkPool _sparks;
         private readonly Explosion[] _explosions;
+        private readonly int _sparksPerBomb;
 
-        public SourceBombPool(int maxBombs)
+        public SourceBombPool(int maxBombs, int sparksPerBomb = 20)
         {
-            _sparks = new SourceSparkPool(1, maxBombs * 20);
+            _sparksPerBomb = sparksPerBomb;
+            _sparks = new SourceSparkPool(1, maxBombs * sparksPerBomb);
             _explosions = new Explosion[maxBombs];
         }
 
@@ -43,10 +45,10 @@ namespace Client.Main.Objects.Effects.Joints
             }
         }
 
-        public void Spawn(Vector3 position)
+        public void Spawn(Vector3 position, bool playSound = true)
         {
             position.Z += 80f;
-            for (int j = 0; j < 20; j++)
+            for (int j = 0; j < _sparksPerBomb; j++)
                 _sparks.SpawnSpark(position, new Vector3(MuGame.Random.Next(60) + 60 + 90, 0f, MuGame.Random.Next(30)), 2);
 
             for (int i = 0; i < _explosions.Length; i++)
@@ -55,7 +57,8 @@ namespace Client.Main.Objects.Effects.Joints
                 if (e.Live)
                     continue;
                 e = new Explosion { Live = true, Position = position, LifeTime = 20f };
-                SoundController.Instance.PlayBuffer(ExplosionSound);
+                if (playSound)
+                    SoundController.Instance.PlayBuffer(ExplosionSound);
                 return;
             }
         }

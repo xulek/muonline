@@ -12,5 +12,8 @@ namespace Client.Main.Objects.Monsters
         {
             ApplyGoldenOverlay();
         }
+
+        // The attack in ZzzCharacter.cpp is specific to MONSTER_IRON_WHEEL (57).
+        protected override void OnAttackProgress(in AttackProgress progress) { }
     }
 }

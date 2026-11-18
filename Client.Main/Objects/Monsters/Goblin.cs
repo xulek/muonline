@@ -59,11 +59,10 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0
                 ? "Sound/mGoblinAttack1.wav"
                 : "Sound/mGoblinAttack2.wav";
-            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+            PlayAttackSound(sound);
         }
 
         public override void OnReceiveDamage()

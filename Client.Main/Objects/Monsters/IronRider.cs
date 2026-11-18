@@ -1,8 +1,6 @@
 ﻿using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using Client.Main.Objects.Effects;
+using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
@@ -28,6 +26,22 @@ namespace Client.Main.Objects.Monsters
         {
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster109.bmd");
             await base.Load();
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World?.MapId != 37 || !progress.CrossedTick(10) ||
+                !TryGetAttackTargetPosition(out Vector3 target))
+                return;
+
+            Matrix[] bones = GetBoneTransforms();
+            if (bones == null || bones.Length <= 42)
+                return;
+
+            var arrow = new MonsterArrowProjectileEffect((bones[42] * WorldPosition).Translation,
+                target + Vector3.UnitZ * 60f, "Effect/ironobj.bmd", 1f);
+            World.Objects.Add(arrow);
+            _ = arrow.Load();
         }
     }
 }

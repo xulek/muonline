@@ -46,7 +46,6 @@ namespace Client.Main.Objects.Effects
     internal sealed class ArrowProjectileEffect : SourceSkillEffectBase
     {
         private const int MaxArrows = 8;
-        private const int MaxJoints = MaxArrows * 5;
         private const int MaxWaves = 96;
         private const int MaxFeathers = 64;
         private const float GateFrame = 5f;
@@ -65,6 +64,7 @@ namespace Client.Main.Objects.Effects
         private const string FireTexture = "Effect/Fire01.jpg";           // BITMAP_FIRE
         private const string SmokeTexture = "Effect/smoke01.jpg";         // BITMAP_SMOKE
         private const string BubbleTexture = "Object8/drop01.jpg";        // BITMAP_BUBBLE (MapManager.cpp:48)
+        private const string BombModel = "Skill/ArrowBomb01.bmd";
         private const string PiercingModel = "Skill/Piercing.bmd";        // MODEL_PIERCING
         private const string WavesModel = "Skill/m_waves.bmd";            // MODEL_WAVES
         private const string FeatherModel = "Skill/darkwing_hetachi.bmd"; // MODEL_FEATHER
@@ -80,7 +80,7 @@ namespace Client.Main.Objects.Effects
         private static readonly float[] QuadSpread = { 5f, 15f, -5f, -15f };
         private static readonly float[] MultiShotYaw = { 7f, 21f, 35f, -7f, -21f, -35f };
 
-        private enum ProjectileStyle : byte
+        internal enum ProjectileStyle : byte
         {
             Basic, Steel, Saw, Laser, Thunder, V, Nature, Holy, Lace, Wing, Bomb, Double, BestCrossbow, Drill,
             Spark, Ring, DarkStinger, Gamble, Impact
@@ -154,13 +154,16 @@ namespace Client.Main.Objects.Effects
         // Trails are rented: a volley at a high frame rate needs MaxTails / F tails per joint.
         private static readonly Stack<SourceTrail> TrailPool = new();
 
-        private readonly PlayerObject _shooter;
+        private readonly WalkerObject _shooter;
         private readonly WalkableWorldControl _walkableWorld;
         private readonly ushort _targetId;
         private readonly ArrowVolleyKind _volleyKind;
         private readonly ProjectileStyle _style;
-        private readonly Arrow[] _arrows = new Arrow[MaxArrows];
-        private readonly Joint[] _joints = new Joint[MaxJoints];
+        private readonly Arrow[] _arrows;
+        private readonly Joint[] _joints;
+        private readonly int _monsterShotCount;
+        private readonly Vector3 _monsterShotPosition;
+        private readonly float _monsterShotYaw;
         private readonly int[] _passCounts = new int[PassCount];
         private readonly int[] _kindCounts = new int[(int)ParticleKind.KindCount];
         private readonly SourceBombPool? _bombs;
@@ -202,17 +205,44 @@ namespace Client.Main.Objects.Effects
             ushort targetId,
             Vector3? targetPosition,
             ArrowVolleyKind volleyKind)
-            : base(shooter, volleyKind == ArrowVolleyKind.MultiShot ? 0f : GateFrame, GateTimeoutSeconds, 256)
+            : this(shooter, world, targetId, volleyKind,
+                volleyKind == ArrowVolleyKind.DeepImpact ? ProjectileStyle.Impact : ResolveEquippedProjectileStyle(shooter))
         {
             _ = targetPosition;
+        }
+
+        internal ArrowProjectileEffect(MonsterObject shooter, WalkableWorldControl world, ProjectileStyle style,
+            int shotCount, Vector3? releasePosition)
+            : this(shooter, world, shooter.LastAttackTargetId, ArrowVolleyKind.Normal, style, shotCount)
+        {
+            _monsterShotPosition = releasePosition ?? CasterPosition;
+            _monsterShotYaw = CasterYawDegrees;
+            if (world.TryGetWalkerById(_targetId, out var target) && target.Visible)
+            {
+                Vector3 point = target.WorldPosition.Translation;
+                var delta = new Vector2(point.X - _monsterShotPosition.X, point.Y - _monsterShotPosition.Y);
+                if (delta.LengthSquared() > 1f)
+                    _monsterShotYaw = SourceJointMath.CreateAngle2D(_monsterShotPosition, point);
+            }
+        }
+
+        private ArrowProjectileEffect(WalkerObject shooter, WalkableWorldControl world, ushort targetId,
+            ArrowVolleyKind volleyKind, ProjectileStyle style, int monsterShotCount = 0)
+            : base(shooter, monsterShotCount > 0 || volleyKind == ArrowVolleyKind.MultiShot ? 0f : GateFrame,
+                GateTimeoutSeconds, monsterShotCount > 0 ? 64 : 256)
+        {
             _shooter = shooter;
             _walkableWorld = world ?? throw new ArgumentNullException(nameof(world));
             _targetId = (ushort)(targetId & 0x7FFF);
             _volleyKind = volleyKind;
-            _style = volleyKind == ArrowVolleyKind.DeepImpact ? ProjectileStyle.Impact : ResolveEquippedProjectileStyle(shooter);
+            _style = style;
+            _monsterShotCount = monsterShotCount;
+            int arrowCapacity = monsterShotCount > 0 ? monsterShotCount : MaxArrows;
+            _arrows = new Arrow[arrowCapacity];
+            _joints = monsterShotCount > 0 ? Array.Empty<Joint>() : new Joint[arrowCapacity * 5];
 
             if (_style is ProjectileStyle.Bomb or ProjectileStyle.Drill or ProjectileStyle.Holy)
-                _bombs = new SourceBombPool(MaxArrows);
+                _bombs = new SourceBombPool(arrowCapacity, monsterShotCount > 0 ? 6 : 20);
             if (volleyKind == ArrowVolleyKind.MultiShot)
                 _rings = new SourceMultiShotPool(1);
             if (_style == ProjectileStyle.Drill)
@@ -230,15 +260,15 @@ namespace Client.Main.Objects.Effects
                 _ => Vector3.Zero
             };
             if (_terrainLightColor != Vector3.Zero)
-                _terrainLights = new SourceTerrainLights(this, MaxArrows);
+                _terrainLights = new SourceTerrainLights(this, monsterShotCount > 0 ? 1 : arrowCapacity);
 
             // Upper bounds: spawns per tick x LifeTime x arrows of one volley.
             _particleCapacity = _style switch
             {
                 ProjectileStyle.Basic => 24 * MaxArrows,
                 ProjectileStyle.Nature => 100 * 6,
-                ProjectileStyle.Wing => 128 * 5,
-                ProjectileStyle.Bomb => 128 * 5,
+                ProjectileStyle.Wing => monsterShotCount > 0 ? 64 : 128 * 5,
+                ProjectileStyle.Bomb => monsterShotCount > 0 ? 20 * monsterShotCount : 128 * 5,
                 ProjectileStyle.Lace => 64 * 6,
                 ProjectileStyle.Spark => 96 * 6,
                 ProjectileStyle.Ring => 60 * 6,
@@ -247,6 +277,13 @@ namespace Client.Main.Objects.Effects
                 _ => 0
             };
         }
+
+        internal static Task PreloadMonsterBombAsync() => Task.WhenAll(
+            Content.BMDLoader.Instance.Prepare(BombModel),
+            LoadTexture(LightTexture),
+            LoadOptionalTexture(BubbleTexture),
+            LoadTexture(SourceSparkPool.ParticleTexturePath),
+            LoadTexture(SourceBombPool.ExplosionTexturePath));
 
         protected override async Task LoadEffectContent()
         {
@@ -260,7 +297,7 @@ namespace Client.Main.Objects.Effects
                 case ProjectileStyle.Saw: _model = await LoadArrowModel("Skill/ArrowSaw01.bmd", -1); break;
                 case ProjectileStyle.Nature: _model = await LoadArrowModel("Skill/ArrowNature01.bmd", -2); break;
                 case ProjectileStyle.Wing: _model = await LoadArrowModel("Skill/ArrowWing01.bmd", 0); break;
-                case ProjectileStyle.Bomb: _model = await LoadArrowModel("Skill/ArrowBomb01.bmd", 0); break;
+                case ProjectileStyle.Bomb: _model = await LoadArrowModel(BombModel, 0); break;
                 case ProjectileStyle.Lace: _model = await LoadArrowModel("Skill/LaceArrow.bmd", 1); break;
                 case ProjectileStyle.Spark: _model = await LoadArrowModel("Skill/Arrow_Spark.bmd", -2); break; // RENDER_BRIGHT
                 case ProjectileStyle.Ring: _model = await LoadArrowModel("Skill/CW_Bow_Skill.bmd", 0); break;
@@ -411,6 +448,17 @@ namespace Client.Main.Objects.Effects
             if (_style == ProjectileStyle.DarkStinger)
                 _feathers = new Feather[MaxFeathers];
 
+            if (_monsterShotCount > 0)
+            {
+                CreateArrow(0f, 0);
+                if (_monsterShotCount == 3)
+                {
+                    CreateArrow(20f, 0);
+                    CreateArrow(-20f, 0);
+                }
+                return;
+            }
+
             bool hasTarget = ResolveTarget() != null;
             switch (_volleyKind)
             {
@@ -460,7 +508,7 @@ namespace Client.Main.Objects.Effects
 
             // CreateArrows tail (ZzzEffectMagicSkill.cpp:296): Great Reign Crossbow sparks at Weapon[0] bone 33 (0, 10, -130).
             if (_sparks != null && _volleyKind is ArrowVolleyKind.Normal or ArrowVolleyKind.TripleShot &&
-                _shooter.TryGetBoneWorldMatrix(33, out Matrix hand))
+                _shooter is PlayerObject playerShooter && playerShooter.TryGetBoneWorldMatrix(33, out Matrix hand))
             {
                 Vector3 sparkPosition = Vector3.Transform(new Vector3(0f, 10f, -130f), hand);
                 for (int i = 0; i < 15; i++)
@@ -485,16 +533,17 @@ namespace Client.Main.Objects.Effects
         private void CreateArrow(float yawOffset, int subType)
         {
             int slot = -1;
-            for (int i = 0; i < MaxArrows; i++)
+            for (int i = 0; i < _arrows.Length; i++)
             {
                 if (!_arrows[i].Live && !_arrows[i].PierceLive) { slot = i; break; }
             }
             if (slot < 0)
                 return;
 
-            Vector3 angle = new(0f, 0f, CasterYawDegrees + yawOffset);
-            Vector3 position = CasterPosition;
-            if (IsFenrirArrowAction(_shooter.CurrentAction))
+            bool monsterShot = _monsterShotCount > 0;
+            Vector3 angle = new(0f, 0f, (monsterShot ? _monsterShotYaw : CasterYawDegrees) + yawOffset);
+            Vector3 position = monsterShot ? _monsterShotPosition : CasterPosition;
+            if (!monsterShot && IsFenrirArrowAction((PlayerAction)_shooter.CurrentAction))
                 position.Z += 30f;
 
             ref Arrow a = ref _arrows[slot];
@@ -568,7 +617,10 @@ namespace Client.Main.Objects.Effects
                     break;
 
                 default:
-                    a.Position = position + SourceJointMath.Rotate(new Vector3(-10f, -60f, 135f), angle);
+                    Vector3 launchOffset = monsterShot && _style == ProjectileStyle.Wing
+                        ? new Vector3(0f, -35f, 0f)
+                        : new Vector3(-10f, -60f, 135f);
+                    a.Position = position + SourceJointMath.Rotate(launchOffset, angle);
                     a.Direction = new Vector3(0f, -70f, 0f);
                     switch (_style)
                     {
@@ -641,7 +693,7 @@ namespace Client.Main.Objects.Effects
         private int SpawnJoint(JointKind kind, int subType, int arrow, Vector3 position, Vector3 angle, float scale,
             float lifeTime, int maxTails, Vector3 light, byte pass)
         {
-            for (int i = 0; i < MaxJoints; i++)
+            for (int i = 0; i < _joints.Length; i++)
             {
                 ref Joint j = ref _joints[i];
                 if (j.Live)
@@ -713,14 +765,14 @@ namespace Client.Main.Objects.Effects
         {
             TickBlade(factor);
 
-            for (int i = 0; i < MaxArrows; i++)
+            for (int i = 0; i < _arrows.Length; i++)
             {
                 if (_arrows[i].Live)
                     TickArrow(ref _arrows[i], i, factor);
             }
 
             // MODEL_PIERCING (MoveEffect 11662), created after its arrow and therefore moved after it.
-            for (int i = 0; i < MaxArrows; i++)
+            for (int i = 0; i < _arrows.Length; i++)
             {
                 ref Arrow a = ref _arrows[i];
                 if (!a.PierceLive)
@@ -749,10 +801,19 @@ namespace Client.Main.Objects.Effects
             if (_liveFeathers > 0)
                 TickFeathers(factor);
 
-            if (_terrainLights != null)
+            if (_terrainLights != null && _monsterShotCount > 0)
+            {
+                // Keep the volley readable with one light following its middle arrow.
+                ref Arrow center = ref _arrows[0];
+                if (center.Live)
+                    _terrainLights.Set(0, World?.Terrain, center.Position, _terrainLightColor, 2);
+                else
+                    _terrainLights.Clear(0);
+            }
+            else if (_terrainLights != null)
             {
                 var terrain = World?.Terrain;
-                for (int i = 0; i < MaxArrows; i++)
+                for (int i = 0; i < _arrows.Length; i++)
                 {
                     ref Arrow a = ref _arrows[i];
                     if (!a.Live)
@@ -880,7 +941,8 @@ namespace Client.Main.Objects.Effects
                     break;
 
                 case ProjectileStyle.Wing:
-                    for (int j = 0; j < 4; j++)
+                    int wingBubbles = _monsterShotCount > 0 ? 1 : 4;
+                    for (int j = 0; j < wingBubbles; j++)
                     {
                         if (FpsCheck(1, factor))
                             SpawnParticle(ParticleKind.Bubble, a.Position + RandomOffset(16, 16, 16), a.Light, 1f, ref a);
@@ -904,7 +966,8 @@ namespace Client.Main.Objects.Effects
                     break;
 
                 case ProjectileStyle.Bomb:
-                    for (int j = 0; j < 4; j++)
+                    int bubbles = _monsterShotCount > 0 ? 1 : 4;
+                    for (int j = 0; j < bubbles; j++)
                     {
                         if (FpsCheck(1, factor))
                             SpawnParticle(ParticleKind.Bubble, a.Position + RandomOffset(16, 16, 16), a.Light, 1f, ref a);
@@ -921,10 +984,10 @@ namespace Client.Main.Objects.Effects
                         a.Direction.Y *= 0.4f;
                     }
 
-                    if ((int)a.LifeTime == 1 && !a.BombDone)
+                    if (_monsterShotCount == 0 && (int)a.LifeTime == 1 && !a.BombDone)
                     {
                         a.BombDone = true;
-                        _bombs?.Spawn(a.Position);
+                        SpawnBomb(a.Position);
                     }
                     CheckClientArrow(ref a);
                     break;
@@ -959,7 +1022,7 @@ namespace Client.Main.Objects.Effects
                     if ((int)a.LifeTime == 1 && !a.BombDone)
                     {
                         a.BombDone = true;
-                        _bombs?.Spawn(a.Position);
+                        SpawnBomb(a.Position);
                     }
                     a.EyeLeft = a.Position + SourceJointMath.Rotate(a.Direction, a.Angle);
                     // ZzzObject.cpp:2631: CreateParticleFpsChecked(BITMAP_SPARK, bone 1, ...) per render
@@ -1008,7 +1071,11 @@ namespace Client.Main.Objects.Effects
             UpdateBasis(ref a);
             a.LifeTime -= factor;
             if (a.LifeTime <= 0f)
+            {
                 KillArrow(ref a);
+                if (_monsterShotCount > 0 && _style == ProjectileStyle.Bomb)
+                    SpawnBomb(a.Position);
+            }
         }
 
         private void TickDarkStinger(ref Arrow a, int slot, float factor)
@@ -1056,13 +1123,35 @@ namespace Client.Main.Objects.Effects
 
             KillArrow(ref a);
             if (_style == ProjectileStyle.Bomb || (_style == ProjectileStyle.Holy && a.SubType != 1))
-                _bombs?.Spawn(a.Position);
+                SpawnBomb(a.Position);
+        }
+
+        private void SpawnBomb(Vector3 position)
+        {
+            if (_bombs == null)
+                return;
+
+            var monster = _shooter as MonsterObject;
+            _bombs.Spawn(position, playSound: monster == null);
+            monster?.PlayAttackSound("Sound/eExplosion.wav", position);
         }
 
         /// <summary>CheckCharacterRange(o, 100): live characters except the owner and the hero.</summary>
         private bool CharacterInRange(Vector3 position)
         {
             WalkerObject? hero = _walkableWorld.Walker;
+            if (_monsterShotCount > 0)
+            {
+                WalkerObject? target = ResolveTarget();
+                if (target == null && hero?.NetworkId == _targetId)
+                    target = hero;
+                if (target?.Status != GameControlStatus.Ready || target is MonsterObject { IsDead: true } or PlayerObject { IsDead: true })
+                    return false;
+
+                Vector3 delta = position - target.WorldPosition.Translation;
+                return delta.X * delta.X + delta.Y * delta.Y <= 100f * 100f;
+            }
+
             foreach (var pair in _walkableWorld.WalkerObjectsById)
             {
                 WalkerObject walker = pair.Value;
@@ -1096,7 +1185,7 @@ namespace Client.Main.Objects.Effects
 
         private void TickJoints(float factor)
         {
-            for (int i = 0; i < MaxJoints; i++)
+            for (int i = 0; i < _joints.Length; i++)
             {
                 ref Joint j = ref _joints[i];
                 if (!j.Live)
@@ -1599,7 +1688,7 @@ namespace Client.Main.Objects.Effects
                 if (texture == null || !Batch.Begin(texture, blend, DepthStencilState.DepthRead, sampler))
                     continue;
 
-                for (int i = 0; i < MaxJoints; i++)
+                for (int i = 0; i < _joints.Length; i++)
                 {
                     ref Joint j = ref _joints[i];
                     if (!j.Live || j.Pass != pass)
@@ -1619,7 +1708,7 @@ namespace Client.Main.Objects.Effects
             if (_model != null && _liveArrows > 0)
             {
                 bool updated = false;
-                for (int i = 0; i < MaxArrows; i++)
+                for (int i = 0; i < _arrows.Length; i++)
                 {
                     ref Arrow a = ref _arrows[i];
                     if (!a.Live)
@@ -1654,7 +1743,7 @@ namespace Client.Main.Objects.Effects
             if (_piercing != null)
             {
                 bool updated = false;
-                for (int i = 0; i < MaxArrows; i++)
+                for (int i = 0; i < _arrows.Length; i++)
                 {
                     ref Arrow a = ref _arrows[i];
                     if (!a.PierceLive || !a.PierceVisible)
@@ -1727,7 +1816,7 @@ namespace Client.Main.Objects.Effects
                 case ProjectileStyle.Wing:
                     if (_liveArrows > 0 && BeginSprites(_lightningTex))
                     {
-                        for (int i = 0; i < MaxArrows; i++)
+                        for (int i = 0; i < _arrows.Length; i++)
                         {
                             ref Arrow a = ref _arrows[i];
                             if (!a.Live) continue;
@@ -1742,7 +1831,7 @@ namespace Client.Main.Objects.Effects
                     if (_liveArrows > 0 && BeginSprites(_lightTex))
                     {
                         var light = new Vector3(1f, 0.6f, 0.4f);
-                        for (int i = 0; i < MaxArrows; i++)
+                        for (int i = 0; i < _arrows.Length; i++)
                         {
                             ref Arrow a = ref _arrows[i];
                             if (!a.Live) continue;
@@ -1757,7 +1846,7 @@ namespace Client.Main.Objects.Effects
                     if (_liveArrows > 0 && BeginSprites(_lightTex))
                     {
                         var light = new Vector3(0.6f, 0.7f, 0.9f);
-                        for (int i = 0; i < MaxArrows; i++)
+                        for (int i = 0; i < _arrows.Length; i++)
                         {
                             ref Arrow a = ref _arrows[i];
                             if (!a.Live) continue;
@@ -1776,7 +1865,7 @@ namespace Client.Main.Objects.Effects
                         float scale = (float)Math.Sin(FPSCounter.Instance.WorldTime * 0.002) * 0.3f + 1.3f;
                         if (BeginSprites(_shiny1Tex))
                         {
-                            for (int i = 0; i < MaxArrows; i++)
+                            for (int i = 0; i < _arrows.Length; i++)
                             {
                                 ref Arrow a = ref _arrows[i];
                                 if (!a.Live) continue;
@@ -1788,7 +1877,7 @@ namespace Client.Main.Objects.Effects
                         }
                         if (BeginSprites(_lightTex))
                         {
-                            for (int i = 0; i < MaxArrows; i++)
+                            for (int i = 0; i < _arrows.Length; i++)
                             {
                                 ref Arrow a = ref _arrows[i];
                                 if (!a.Live) continue;
@@ -1802,7 +1891,7 @@ namespace Client.Main.Objects.Effects
                 case ProjectileStyle.Spark:
                     if (_liveJoints > 0 && BeginSprites(_spark1Tex))
                     {
-                        for (int i = 0; i < MaxJoints; i++)
+                        for (int i = 0; i < _joints.Length; i++)
                         {
                             ref Joint j = ref _joints[i];
                             if (j.Live && j.Kind == JointKind.Trail && j.SubType == 14)
@@ -1818,7 +1907,7 @@ namespace Client.Main.Objects.Effects
                         var light = new Vector3(0.3f, 0.3f, 0.5f);
                         if (BeginSprites(_shiny1Tex))
                         {
-                            for (int i = 0; i < MaxJoints; i++)
+                            for (int i = 0; i < _joints.Length; i++)
                             {
                                 ref Joint j = ref _joints[i];
                                 if (j.Live && j.Kind == JointKind.Holy)
@@ -1828,7 +1917,7 @@ namespace Client.Main.Objects.Effects
                         }
                         if (BeginSprites(_lightTex))
                         {
-                            for (int i = 0; i < MaxJoints; i++)
+                            for (int i = 0; i < _joints.Length; i++)
                             {
                                 ref Joint j = ref _joints[i];
                                 if (!j.Live || j.Kind != JointKind.Holy) continue;
@@ -1844,7 +1933,7 @@ namespace Client.Main.Objects.Effects
                     if (_liveJoints > 0 && BeginSprites(_shiny2Tex))
                     {
                         var light = new Vector3(0f, 1f, 1f);
-                        for (int i = 0; i < MaxJoints; i++)
+                        for (int i = 0; i < _joints.Length; i++)
                         {
                             ref Joint j = ref _joints[i];
                             if (j.Live && j.Kind == JointKind.FlashStrike)
@@ -1932,7 +2021,7 @@ namespace Client.Main.Objects.Effects
 
         protected override void DisposeEffect()
         {
-            for (int i = 0; i < MaxJoints; i++)
+            for (int i = 0; i < _joints.Length; i++)
                 KillJoint(ref _joints[i]);
 
             if (_particles != null)
@@ -2181,6 +2270,23 @@ namespace Client.Main.Objects.Effects
 
     public static class ArrowProjectileSpawner
     {
+        internal static void SpawnMonsterBomb(MonsterObject shooter, bool spread = false)
+            => SpawnMonster(shooter, ArrowProjectileEffect.ProjectileStyle.Bomb, spread ? 3 : 1);
+
+        internal static void SpawnMonsterWing(MonsterObject shooter, Vector3 releasePosition)
+            => SpawnMonster(shooter, ArrowProjectileEffect.ProjectileStyle.Wing, 1, releasePosition);
+
+        private static void SpawnMonster(MonsterObject shooter, ArrowProjectileEffect.ProjectileStyle style,
+            int shotCount, Vector3? releasePosition = null)
+        {
+            if (shooter.World is not WalkableWorldControl world)
+                return;
+
+            var effect = new ArrowProjectileEffect(shooter, world, style, shotCount, releasePosition);
+            world.Objects.Add(effect);
+            QueueLoad(effect);
+        }
+
         public static bool SpawnNormal(PlayerObject shooter, ushort targetId)
         {
             if (shooter?.World is not WalkableWorldControl world)

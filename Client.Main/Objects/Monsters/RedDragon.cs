@@ -75,23 +75,28 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mBullAttack1.wav", Position, listenerPosition); // Index 2 -> Sound 124
+            PlayAttackSound("Sound/mBullAttack1.wav"); // Index 2 -> Sound 124
+        }
 
-            // SourceMain5.2 AttackEffect MONSTER_RED_DRAGON is fully gated on
-            // Skill == AT_SKILL_BOSS (the MODEL_FIRE rain below it too, which has
-            // no port equivalent yet).
-            if (attackType != 2)
+        protected virtual bool HasBossBreath => true;
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (!HasBossBreath || progress.SkillId != BossAttackSkill ||
+                World is not WalkableWorldControl world)
                 return;
 
-            if (World == null || !TryConsumeAttackEffectWindow())
-                return;
+            if (progress.SkillStarted)
+                SpawnFireBreath(world);
+            if (progress.CrossedTick(4) || progress.SkillStarted && progress.Tick >= 4)
+                MonsterFireRainEffect.SpawnForAttack(this);
+        }
 
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/eMeteorite.wav", Position, listenerPosition);
-
-            // Boss branch (CheckAttackTime(1)): three MODEL_FIRE sub2 from bone 11
-            // with pitch/yaw offsets (-20,-30), (-30,0), (-20,+30) degrees.
+        private void SpawnFireBreath(WorldControl world)
+        {
             Vector3 mouth = GetBoneWorldPosition(11);
+            PlayAttackSound("Sound/eMeteorite.wav", mouth);
+            float yaw = MathHelper.ToDegrees(Angle.Z);
             Span<(float pitch, float yaw)> shots = stackalloc (float, float)[]
             {
                 (-20f, -30f),
@@ -99,14 +104,8 @@ namespace Client.Main.Objects.Monsters
                 (-20f, 30f)
             };
             for (int i = 0; i < shots.Length; i++)
-            {
-                var fire = Joints.SourceProjectileEffect.Create(
-                    Joints.SourceProjectileKind.FireCone,
-                    mouth,
-                    new Vector3(shots[i].pitch, 0f, MathHelper.ToDegrees(Angle.Z) + shots[i].yaw));
-                World.Objects.Add(fire);
-                _ = fire.Load();
-            }
+                Joints.SourceProjectileEffect.Spawn(world, Joints.SourceProjectileKind.FireCone,
+                    mouth, new Vector3(shots[i].pitch, 0f, yaw + shots[i].yaw));
         }
 
         private Vector3 GetBoneWorldPosition(int boneIndex)

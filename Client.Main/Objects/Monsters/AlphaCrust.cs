@@ -81,6 +81,12 @@ namespace Client.Main.Objects.Monsters
             SoundController.Instance.PlayBufferWithAttenuation("Sound/mMegaCrustAttack1.wav", Position, listenerPosition);
         }
 
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (progress.Action is MonsterActionType.Attack1 or MonsterActionType.Attack2 && progress.CrossedTick(5))
+                InfernoEffect.SpawnMonsterAttack(this);
+        }
+
         public override void OnReceiveDamage()
         {
             base.OnReceiveDamage();

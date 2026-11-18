@@ -7,20 +7,9 @@ using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
 {
-    public class DarkCoolutin : RaklionMonsterObject
+    [NpcInfo(564, "Dark Coolutin")]
+    public class DarkCoolutin : Coolutin
     {
-        protected override string AttackSoundPath => "Sound/w58w59/Coolertin_attack.wav";
-        protected override string MoveSoundPath => "Sound/w58w59/Coolertin_move.wav";
-        protected override string DeathSoundPath => "Sound/mHellSpiderDie.wav";
-
-        public DarkCoolutin()
-        {
-        }
-
-        public override async Task Load()
-        {
-            Model = await BMDLoader.Instance.Prepare($"Monster/Monster208.bmd");
-            await base.Load();
-        }
+        protected override string ModelPath => "Monster/Monster208.bmd";
     }
 }

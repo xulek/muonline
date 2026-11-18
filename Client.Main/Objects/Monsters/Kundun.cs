@@ -1,8 +1,4 @@
 using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Client.Main.Controllers;
 using Client.Main.Controls;
@@ -104,53 +100,52 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
             string sound = MuGame.Random.Next(2) == 0 ? "Sound/mKundunAttack1.wav" : "Sound/mKundunAttack2.wav";
-            SoundController.Instance.PlayBufferWithAttenuation(sound, Position, listenerPosition);
+            PlayAttackSound(sound);
+        }
 
-            if (World == null || !TryConsumeAttackEffectWindow())
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World == null)
                 return;
 
-            if (attackType == 1)
+            if (progress.Action == MonsterActionType.Attack1 && progress.CrossedFrame(3.0))
             {
-                // SourceMain5.2 RenderHellasMonsterVisual MODEL_ILLUSION_OF_KUNDUN
-                // ATTACK1 (GMHellas.cpp:1684-1698): MODEL_CUNDUN_SKILL sub0 spawned
-                // from bone 49. No CUNDUN model exists in the port, so the inferno
-                // burst approximates the ground slam visual.
-                var inferno = new Effects.ScrollOfInfernoEffect(this, Position);
-                World.Objects.Add(inferno);
-                _ = inferno.Load();
-
-                SpawnMagicAttackEffect(new[] { 49 }, attackType);
+                var origin = Position;
+                origin.Z = GetStaffPosition(progress.Action, 3.0).Z;
+                MonsterAttackModelEffect.Spawn(World, "Skill/phoenix.bmd", origin,
+                    Angle, new Vector3(1f, 0.62f, 0.32f), 0.82f, 0.7f,
+                    speed: 700f, rays: 7, yawStep: MathHelper.ToRadians(12f), animated: true);
             }
-            else
+            else if (progress.Action == MonsterActionType.Attack2)
             {
-                // ATTACK2 (GMHellas.cpp:1700-1731): MODEL_CUNDUN_SKILL sub1 above
-                // bone 49 (Z forced to 400) + 24x JOINT_SPIRIT2 sub14, scale 100,
-                // yaw stepped by 30 degrees. sub14 joints are stationary
-                // (Velocity 0); SpiritBurst reproduces the radial fan.
-                Vector3 origin = GetBoneWorldPosition(49);
-                for (int i = 0; i < 24; i++)
+                if (progress.CrossedFrame(5.0))
                 {
-                    var spirit = Joints.SourceJointEffect.SpiritBurst(
-                        origin,
-                        i * 30f,
-                        20f,
-                        scale: 100f);
-                    World.Objects.Add(spirit);
-                    _ = spirit.Load();
+                    Vector3 origin = GetStaffPosition(progress.Action, 5.0);
+                    origin.Z = Position.Z + 400f;
+                    MonsterAttackModelEffect.Spawn(World, "Skill/dragonhead.bmd", origin,
+                        Angle, new Vector3(0.62f, 0.72f, 1f), 1.1f, 1f, endScale: 1.35f, animated: true);
+                }
+
+                if (progress.CrossedFrame(6.0))
+                {
+                    Vector3 origin = GetStaffPosition(progress.Action, 6.0);
+                    origin.Z = Position.Z + 400f;
+                    // The reference makes two passes over the same twelve angles.
+                    for (int i = 0; i < 12; i++)
+                    {
+                        var spirit = Joints.SourceJointEffect.SpiritBurst(origin, i * 30f, 20f, scale: 100f);
+                        World.Objects.Add(spirit);
+                        _ = spirit.Load();
+                    }
                 }
             }
         }
 
-        private Vector3 GetBoneWorldPosition(int boneIndex)
-        {
-            Matrix[] bones = GetBoneTransforms();
-            if (bones == null || boneIndex < 0 || boneIndex >= bones.Length)
-                return WorldPosition.Translation;
-
-            return (bones[boneIndex] * WorldPosition).Translation;
-        }
+        private Vector3 GetStaffPosition(MonsterActionType action, double frame) =>
+            TryComputeBoneAt((int)action, frame, 49, out Matrix pose)
+                ? (pose * WorldPosition).Translation
+                : Position + Vector3.UnitZ * 130f;
 
         public override void OnReceiveDamage()
         {

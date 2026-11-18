@@ -11,6 +11,8 @@ namespace Client.Main.Objects.Monsters
     [NpcInfo(46, "Vepar")]
     public class Vepar : MonsterObject
     {
+        private static readonly int[] HandBones = { 30, 39 };
+
         public Vepar()
         {
             RenderShadow = true;
@@ -18,7 +20,7 @@ namespace Client.Main.Objects.Monsters
             MoveSpeed = 250f; // SourceMain5.2: default monster MoveSpeed (10 * 25 FPS)
             Children.Add(new MonsterBoneSpriteEffect
             {
-                BoneIndices = new[] { 30, 39 },
+                BoneIndices = HandBones,
                 PrimaryTexturePath = "Effect/lightning2.jpg",
                 PrimaryScale = 0.5f,
                 SecondaryTexturePath = "Effect/Spark02.jpg",
@@ -58,8 +60,19 @@ namespace Client.Main.Objects.Monsters
         public override void OnPerformAttack(int attackType = 1)
         {
             base.OnPerformAttack(attackType);
-            Vector3 listenerPosition = ((WalkableWorldControl)World).Walker.Position;
-            SoundController.Instance.PlayBufferWithAttenuation("Sound/mGolemDie.wav", Position, listenerPosition);
+            PlayAttackSound("Sound/mGolemDie.wav");
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (!progress.SkillStarted || progress.SkillId != EnergyBallAttackSkill ||
+                World is not { } world || !TryGetAttackTarget(out var target))
+                return;
+
+            PlayAttackSound("Sound/sEvil.wav");
+            var effect = new VeparAttackEffect(this, target, HandBones, progress.Action);
+            world.Objects.Add(effect);
+            _ = effect.Load();
         }
 
         public override void OnReceiveDamage()

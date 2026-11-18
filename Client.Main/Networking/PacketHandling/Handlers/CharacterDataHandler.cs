@@ -11,6 +11,7 @@ using Client.Main.Controls;
 using Client.Main.Models;
 using Client.Main.Objects;
 using Client.Main.Objects.Effects;
+using Client.Main.Objects.Monsters;
 using Client.Main.Objects.Player;
 using Client.Main.Scenes;
 using Client.Main;
@@ -1474,16 +1475,6 @@ namespace Client.Main.Networking.PacketHandling.Handlers
 
                         if (activeScene.World is WalkableWorldControl remoteWorld)
                         {
-                            // ReceiveMagic AT_SKILL_ENERGYBALL with a monster caster (WSclient.cpp:3926): attack state + AttackEffect flares.
-                            // SpawnRemoteSkillVisual only accepts player casters.
-                            if (skillId == 17 &&
-                                remoteWorld.TryGetWalkerById((ushort)(playerId & 0x7FFF), out var monsterCaster) &&
-                                monsterCaster is MonsterObject energyCaster &&
-                                remoteWorld.TryGetWalkerById((ushort)(targetId & 0x7FFF), out var energyTarget))
-                            {
-                                energyCaster.OnEnergyBallCast(energyTarget, (ushort)(targetId & 0x7FFF));
-                            }
-
                             SpawnRemoteSkillVisual(remoteWorld, playerId, targetId, skillId, targetPosition: null);
                         }
 
@@ -1699,12 +1690,27 @@ namespace Client.Main.Networking.PacketHandling.Handlers
         {
             ushort playerId = (ushort)(rawPlayerId & 0x7FFF);
             ushort targetId = (ushort)(rawTargetId & 0x7FFF);
-            if (!world.TryGetWalkerById(playerId, out WalkerObject caster) || caster is not PlayerObject remotePlayer)
+            if (!world.TryGetWalkerById(playerId, out WalkerObject caster))
                 return;
 
             WalkerObject target = null;
             if (targetId != 0 && targetId != playerId)
                 world.TryGetWalkerById(targetId, out target);
+
+            if (caster is MonsterObject monster)
+            {
+                double now = MuGame.Instance.GameTime.TotalGameTime.TotalSeconds;
+                if (monster is Nightmare nightmare && skillId == 6 && world.MapId == 39 && !rotation.HasValue)
+                    nightmare.PlayTeleport(arriving: false);
+                else if (rotation.HasValue && targetPosition.HasValue)
+                    monster.ApplyAreaAttack(skillId, targetPosition.Value, now, rotation.Value / 255f * 360f);
+                else
+                    monster.ApplyTargetedAttack(skillId, targetId, now, target);
+                return;
+            }
+
+            if (caster is not PlayerObject remotePlayer)
+                return;
 
             if (rotation.HasValue)
             {

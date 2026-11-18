@@ -120,7 +120,10 @@ namespace Client.Main.Objects.Effects
                 s.Gravity = MuGame.Random.Next(16) + 8;
             }
 
-            PlayUnmappedSound(SkillId, SoundPath);
+            if (Caster is MonsterObject monster)
+                monster.PlayAttackSound(SoundPath, position);
+            else
+                PlayUnmappedSound(SkillId, SoundPath);
         }
 
         protected override void OnTick(float factor)

@@ -8,6 +8,8 @@ namespace Client.Main.Objects.Monsters
     [NpcInfo(79, "Golden Derkon")]
     public class GoldenDerkon : RedDragon
     {
+        protected override bool HasBossBreath => false;
+
         public GoldenDerkon()
         {
             Scale = 0.9f;

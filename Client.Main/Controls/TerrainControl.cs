@@ -4,6 +4,7 @@ using Client.Main.Controls.Terrain;
 using Client.Main.Configuration;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
+using Client.Main.Models;
 using Client.Main.Objects;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -479,9 +480,43 @@ namespace Client.Main.Controls
         }
 
         // --- Light Management (Facade) ---
-        public void AddDynamicLight(DynamicLight light) => _lightManager?.AddDynamicLight(light);
-        public void RemoveDynamicLight(DynamicLight light) => _lightManager?.RemoveDynamicLight(light);
-        public void RemoveDynamicLightsByOwner(WorldObject owner) => _lightManager?.RemoveDynamicLightsByOwner(owner);
+        public void AddDynamicLight(DynamicLight light)
+        {
+            if (!MuGame.IsMainThread && MuGame.Instance != null)
+            {
+                // Map models finish loading on worker threads. The light registry is also
+                // read by the renderer, so every mutation belongs on the game thread.
+                MuGame.ScheduleOnMainThread(static request =>
+                {
+                    var (terrain, pending) = request;
+                    if (terrain.Status != GameControlStatus.Disposed &&
+                        (pending?.Owner is not { } owner ||
+                         owner.Status != GameControlStatus.Disposed && owner.World?.Terrain == terrain))
+                        terrain._lightManager?.AddDynamicLight(pending);
+                }, (this, light), name: "Terrain.AddDynamicLight");
+                return;
+            }
+
+            _lightManager?.AddDynamicLight(light);
+        }
+
+        public void RemoveDynamicLight(DynamicLight light)
+        {
+            if (!MuGame.IsMainThread && MuGame.Instance != null)
+                MuGame.ScheduleOnMainThread(static request => request.Item1._lightManager?.RemoveDynamicLight(request.Item2),
+                    (this, light), name: "Terrain.RemoveDynamicLight");
+            else
+                _lightManager?.RemoveDynamicLight(light);
+        }
+
+        public void RemoveDynamicLightsByOwner(WorldObject owner)
+        {
+            if (!MuGame.IsMainThread && MuGame.Instance != null)
+                MuGame.ScheduleOnMainThread(static request => request.Item1._lightManager?.RemoveDynamicLightsByOwner(request.Item2),
+                    (this, owner), name: "Terrain.RemoveDynamicLightsByOwner");
+            else
+                _lightManager?.RemoveDynamicLightsByOwner(owner);
+        }
 
         public override void Dispose()
         {

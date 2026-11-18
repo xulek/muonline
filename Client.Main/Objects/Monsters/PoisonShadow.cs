@@ -20,7 +20,7 @@ namespace Client.Main.Objects.Monsters
             base.OnPerformAttack(attackType);
             SpawnMagicAttackEffect(
                 new[] { 33 },
-                attackType,
+                (MonsterActionType)CurrentAction,
                 new Vector3(0f, -130f, 0f));
         }
 

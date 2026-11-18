@@ -1,8 +1,7 @@
 ﻿using Client.Main.Content;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using Client.Main.Models;
+using Client.Main.Objects.Effects;
+using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 
 namespace Client.Main.Objects.Monsters
@@ -26,6 +25,13 @@ namespace Client.Main.Objects.Monsters
         {
             Model = await BMDLoader.Instance.Prepare($"Monster/Monster105.bmd");
             await base.Load();
+        }
+
+        protected override void OnAttackProgress(in AttackProgress progress)
+        {
+            if (World?.MapId == 33 && progress.Action == MonsterActionType.Attack2 && progress.CrossedTick(10))
+                MonsterAttackModelEffect.Spawn(World, "Object34/tree_eff.bmd", Position,
+                    Angle, new Vector3(0.55f, 0.9f, 0.48f), 0.9f, Scale, speed: 270f, animated: true);
         }
     }
 }

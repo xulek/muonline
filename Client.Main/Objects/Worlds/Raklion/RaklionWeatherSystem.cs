@@ -220,23 +220,15 @@ namespace Client.Main.Objects.Worlds.Raklion
                 }
             }
 
-            if (!SpriteBatchScope.BatchIsBegun)
-            {
-                using (new SpriteBatchScope(
-                    spriteBatch,
-                    SpriteSortMode.Deferred,
-                    BlendState.NonPremultiplied,
-                    SamplerState.LinearClamp,
-                    DepthStencilState.DepthRead,
-                    RasterizerState.CullNone))
-                {
-                    draw();
-                }
-            }
-            else
-            {
-                draw();
-            }
+            // leaf01.OZJ has a black background and the original snow pass adds its RGB to the scene.
+            using var scope = new SpriteBatchScope(
+                spriteBatch,
+                SpriteSortMode.Deferred,
+                Blendings.OneOneAdditive,
+                SamplerState.LinearClamp,
+                DepthStencilState.DepthRead,
+                RasterizerState.CullNone);
+            draw();
         }
 
         public override void DrawAfter(GameTime gameTime)
