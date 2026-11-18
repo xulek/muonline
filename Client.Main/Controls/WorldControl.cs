@@ -692,19 +692,23 @@ namespace Client.Main.Controls
             if (_objectsToInitialize.Count > 0)
             {
                 int availableSlots = Math.Max(0, MaxConcurrentObjectInitializations - Volatile.Read(ref _activeObjectInitializations));
-                int initCount = Math.Min(
-                    Math.Min(MaxObjectInitializationsPerFrame, _objectsToInitialize.Count),
-                    availableSlots);
-                for (int i = 0; i < initCount; i++)
+                int remainingInitializations = Math.Min(MaxObjectInitializationsPerFrame, availableSlots);
+                while (remainingInitializations > 0 && _objectsToInitialize.Count > 0)
                 {
                     var obj = _objectsToInitialize.Dequeue();
                     _queuedForInitialization.Remove(obj);
 
-                    if (!IsRegisteredRootObject(obj) || obj.Status != GameControlStatus.NonInitialized)
+                    // Map placements may have finished loading since they were queued.
+                    if (obj.Status != GameControlStatus.NonInitialized || !IsRegisteredRootObject(obj))
                         continue;
 
                     if (!QueueObjectInitialization(obj))
+                    {
                         EnqueueObjectInitialization(obj);
+                        break;
+                    }
+
+                    remainingInitializations--;
                 }
             }
             UpdatePassProfiler.AddWorldInitialization(initializationStarted);

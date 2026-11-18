@@ -16,43 +16,45 @@ namespace Client.Main.Objects.Worlds.Lorencia
     {
         private Random _random = new Random();
         private float _timer;
-        private float _baseSpeed;
-        private float _directionChangeTimer;
-
-        // 3D VELOCITY SYSTEM
-        private Vector3 _currentVelocity;
-        private Vector3 _desiredDirection;
-        private float _currentSpeed;
-        private float _targetSpeed;
-        private float _targetHeight;
-
-        // AI STATE SYSTEM
+        private Vector3 _direction = Vector3.UnitX;
+        private float _currentSpeed = FlightSpeed;
+        private float _verticalSpeed;
+        private float _verticalVelocity;
+        private float _heightJitterTimer;
+        private float _heightJitterSpeed;
         private BirdAIState _aiState;
-        private float _stateTimer; // Time spent in current state
 
-        private const float DirectionChangeInterval = 1.0f; // Change direction frequently for chaotic flight
-        private const float SteeringSpeed = 2.5f; // Fast steering for erratic movement
-        private const float RotationSpeed = 4.0f;
-        private const float MinSpeedMultiplier = 1.0f;
-        private const float MaxSpeedMultiplier = 1.3f;
-        private const float MinFlightHeight = 350f; // Birds fly high (original: 200-600)
-        private const float MaxFlightHeight = 450f;
-        private const float LandCheckDistance = 200f; // Start checking for landing at 200 units
-        private const float LandCheckMaxDistance = 400f; // Stop checking at 400 units
-        private const float VerticalLerpSpeed = 0.3f; // Moderate vertical movement
-        private const float DescendSpeed = 300f; // Units per second while landing
+        // MoveBird and MoveBoidGroup express movement in units per frame at 25 FPS.
+        internal const float ReferenceTicksPerSecond = 25f;
+        private const float ReferenceTick = 1f / ReferenceTicksPerSecond;
+        private const float FlightSpeed = 25f * ReferenceTicksPerSecond;
+        private const float TurnSpeed = 13f * (MathHelper.Pi / 180f) * ReferenceTicksPerSecond;
+        private const float FlockTurnSpeed = MathHelper.Pi;
+        private const float WanderTurnSpeed = 0.25f;
+        private const float FadeInSeconds = 0.75f;
+        private const float FlightVerticalSpeed = 10f * ReferenceTicksPerSecond;
+        private const float DiveAndAscentSpeed = 20f * ReferenceTicksPerSecond;
+        private const float TakeoffDeceleration = 0.005f * FlightSpeed * ReferenceTicksPerSecond;
+        private const float MinFlightHeight = 200f;
+        private const float MaxFlightHeight = 600f;
+        private const float LandCheckDistance = 200f;
+        private const float LandCheckMaxDistance = 400f;
 
         // OBSTACLE AVOIDANCE (BirdObstacleMap): climb over what is ahead, turn away from what is too tall to climb
-        private const float ClimbSpeed = 500f;
+        private const float ClimbSpeed = 280f;
+        private const float VerticalAcceleration = 520f;
+        private const float ClearanceResponse = 1.8f;
         private const float ObstacleClearance = 80f; // Margin above an obstacle's top
         private const float MaxClimbAltitude = 700f; // Above terrain; taller obstacles are flown around
         private const float MinLookAhead = 300f;
-        private const float LookAheadSeconds = 0.9f;
-        private const float LookAheadStep = 100f;
-        private const float TurnLookAheadFactor = 1.5f;
+        private const float LookAheadSeconds = 1.85f;
+        private const float LandingLookAheadSeconds = 0.9f;
+        private const float LookAheadStep = Constants.TERRAIN_SCALE / 2f;
+        private const float TurnLookAheadSeconds = 1.35f;
         private static readonly float[] TurnAngles = { 0.7f, 1.4f, 2.1f, MathF.PI };
 
         private float _requiredZ = BirdObstacleMap.None; // Altitude needed to clear what is ahead this frame
+        private Vector2 _avoidDirection;
         private float _avoidTimer; // While > 0 the bird keeps the heading it turned to
         private float _footHeight; // Origin height above the lowest point of the mesh (the feet)
 
@@ -67,8 +69,12 @@ namespace Client.Main.Objects.Worlds.Lorencia
         // Legacy properties
         public Vector3 Direction
         {
-            get => _desiredDirection;
-            set => _desiredDirection = value.LengthSquared() > 0.001f ? Vector3.Normalize(value) : value;
+            get => _direction;
+            set
+            {
+                var heading = new Vector3(value.X, value.Y, 0f);
+                _direction = heading.LengthSquared() > 0.001f ? Vector3.Normalize(heading) : Vector3.UnitX;
+            }
         }
         public float Velocity { get; set; }
         public float Timer
@@ -79,6 +85,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
         public int SubType { get; set; }
         public BirdAIState AIState => _aiState;
+        internal Vector2 FlightVelocity => new Vector2(_direction.X, _direction.Y) * _currentSpeed;
 
         /// <summary>Solid map objects to avoid; set by <see cref="BirdManager"/>.</summary>
         internal BirdObstacleMap Obstacles { get; set; }
@@ -92,26 +99,16 @@ namespace Client.Main.Objects.Worlds.Lorencia
         public BirdObject()
         {
             _timer = (float)(_random.NextDouble() * MathF.PI * 2);
-            _baseSpeed = 600f + (float)_random.NextDouble() * 50f; // 100-150 units/sec (much faster!)
-            _currentSpeed = _baseSpeed;
-            _targetSpeed = _baseSpeed;
             // Scale is set by BirdManager during spawn
-            Alpha = 1f;
+            Alpha = 0f;
             LightEnabled = true; // Enable lighting for shadows
             BlendState = BlendState.AlphaBlend;
             IsTransparent = true;
             RenderShadow = true;
+            ShadowOpacity = 0f;
             DepthState = DepthStencilState.Default; // Use default depth state for proper rendering
-            _directionChangeTimer = 0f;
 
-            // Initialize velocity system
-            _currentVelocity = Vector3.Zero;
-            _desiredDirection = Vector3.Zero;
-            _targetHeight = MinFlightHeight + (float)_random.NextDouble() * (MaxFlightHeight - MinFlightHeight);
-
-            // Start in flying state
             _aiState = BirdAIState.Flying;
-            _stateTimer = 0f;
 
             SubType = 0;
         }
@@ -131,11 +128,6 @@ namespace Client.Main.Objects.Worlds.Lorencia
             }
 
             await base.Load();
-
-            // Initialize velocity to match initial angle
-            float angleRad = Angle.Z;
-            _desiredDirection = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
-            _currentVelocity = _desiredDirection * _currentSpeed;
         }
 
         public override void Update(GameTime gameTime)
@@ -153,173 +145,66 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
             float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
-            // Fade in alpha
             if (Alpha < 1f)
             {
-                Alpha += deltaTime * 2f;
-                if (Alpha > 1f) Alpha = 1f;
+                Alpha = MathF.Min(1f, Alpha + deltaTime / FadeInSeconds);
+                ShadowOpacity = Alpha;
             }
         }
 
         /// <summary>
-        /// Updates bird behavior based on AI state and hero position.
-        /// Birds periodically land when hero is at distance 200-400.
+        /// Updates the flight state before steering and moving the bird.
         /// </summary>
         public void UpdateMovement(GameTime gameTime, Vector3 heroPosition)
         {
             float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
             _timer += deltaTime;
-            _stateTimer += deltaTime;
-            _directionChangeTimer += deltaTime;
             Age += deltaTime;
             if (_avoidTimer > 0f)
                 _avoidTimer -= deltaTime;
 
-            float distanceFromHero = Vector2.Distance(
-                new Vector2(Position.X, Position.Y),
-                new Vector2(heroPosition.X, heroPosition.Y));
-
-            // STATE MACHINE
             switch (_aiState)
             {
                 case BirdAIState.Flying:
-                    UpdateFlyingState(deltaTime, distanceFromHero);
-                    break;
+                    if (gameTime.TotalGameTime.TotalMilliseconds % 8192 < 2048)
+                    {
+                        float distanceFromHero = GetDistanceFromHero(heroPosition);
+                        if (distanceFromHero >= LandCheckDistance && distanceFromHero <= LandCheckMaxDistance)
+                            _aiState = BirdAIState.Descending;
+                    }
 
-                case BirdAIState.Descending:
-                    UpdateDescendingState(deltaTime);
+                    if (_random.NextDouble() < deltaTime * 0.05f)
+                        PlayBirdSound();
                     break;
 
                 case BirdAIState.OnGround:
-                    UpdateGroundState(deltaTime, heroPosition);
+                    if (World is Controls.WalkableWorldControl { Walker: { IsMoving: true } } ||
+                        _random.NextDouble() < deltaTime * ReferenceTicksPerSecond / 256f)
+                    {
+                        StartTakeoff();
+                    }
                     break;
 
                 case BirdAIState.Ascending:
-                    UpdateAscendingState(deltaTime);
+                    _currentSpeed -= TakeoffDeceleration * deltaTime;
+                    if (_currentSpeed <= FlightSpeed)
+                    {
+                        _currentSpeed = FlightSpeed;
+                        _aiState = BirdAIState.Flying;
+                    }
                     break;
             }
         }
 
-        private void UpdateFlyingState(float deltaTime, float distanceFromHero)
+        private void StartTakeoff(float ascentSpeed = DiveAndAscentSpeed)
         {
-            // Occasional chirping while flying
-            if (_random.NextDouble() < deltaTime * 0.05f) // 5% chance per second
-            {
-                PlayBirdSound();
-            }
-
-            // Speed variation
-            if (_random.NextDouble() < deltaTime * 0.5f)
-            {
-                float speedMultiplier = MinSpeedMultiplier + (float)_random.NextDouble() * (MaxSpeedMultiplier - MinSpeedMultiplier);
-                _targetSpeed = _baseSpeed * speedMultiplier;
-            }
-
-            _currentSpeed = MathHelper.Lerp(_currentSpeed, _targetSpeed, MathHelper.Clamp(deltaTime * 0.8f, 0f, 1f));
-
-            // Direction changes (less chaotic than butterflies)
-            // The random heading changes below are paused while the bird holds a heading it turned to
-            // to get away from an obstacle.
-            if (_directionChangeTimer >= DirectionChangeInterval && _avoidTimer <= 0f)
-            {
-                _directionChangeTimer = 0f;
-                float randomAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
-                Vector3 newDirection = new Vector3(MathF.Cos(randomAngle), MathF.Sin(randomAngle), 0f);
-                _desiredDirection = Vector3.Lerp(_desiredDirection, newDirection, 0.5f);
-                if (_desiredDirection.LengthSquared() > 0.001f)
-                {
-                    _desiredDirection = Vector3.Normalize(_desiredDirection);
-                }
-
-                // Change target height within flight range
-                _targetHeight = MinFlightHeight + (float)_random.NextDouble() * (MaxFlightHeight - MinFlightHeight);
-            }
-
-            // CHAOTIC MOVEMENT - frequent erratic direction changes like butterflies
-            if (_avoidTimer <= 0f && _random.NextDouble() < 0.4f) // 40% chance per frame for chaotic flight
-            {
-                float nudgeAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
-                Vector3 nudge = new Vector3(MathF.Cos(nudgeAngle), MathF.Sin(nudgeAngle), 0f);
-                _desiredDirection = Vector3.Lerp(_desiredDirection, nudge, 0.2f); // Stronger nudge
-                if (_desiredDirection.LengthSquared() > 0.001f)
-                {
-                    _desiredDirection = Vector3.Normalize(_desiredDirection);
-                }
-            }
-
-            // Additional erratic movement
-            if (_avoidTimer <= 0f && _random.NextDouble() < deltaTime * 8f) // Frequent small adjustments
-            {
-                float erraticAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
-                Vector3 erratic = new Vector3(MathF.Cos(erraticAngle), MathF.Sin(erraticAngle), 0f);
-                _desiredDirection = Vector3.Lerp(_desiredDirection, erratic, 0.12f);
-                if (_desiredDirection.LengthSquared() > 0.001f)
-                {
-                    _desiredDirection = Vector3.Normalize(_desiredDirection);
-                }
-            }
-
-            // CHECK FOR LANDING - if hero is at distance 200-400, occasionally land
-            // Original: if ((int)WorldTime % 8192 < 2048) - roughly 25% of time
-            if (_stateTimer > 5f && // Don't check immediately after state change
-                distanceFromHero >= LandCheckDistance &&
-                distanceFromHero <= LandCheckMaxDistance)
-            {
-                if (_random.NextDouble() < deltaTime * 0.3f) // 30% chance per second
-                {
-                    _aiState = BirdAIState.Descending;
-                    _stateTimer = 0f;
-                }
-            }
-        }
-
-        private void UpdateDescendingState(float deltaTime)
-        {
-            // Descend rapidly - o->Direction[2] = -20.f. The bird slows down on the way so it lands near where it
-            // started the descent instead of far ahead of it.
-            _currentSpeed = MathHelper.Lerp(_currentSpeed, _baseSpeed * 0.35f, MathHelper.Clamp(deltaTime * 2f, 0f, 1f));
-            // No horizontal direction changes while descending
-        }
-
-        private void UpdateGroundState(float deltaTime, Vector3 heroPosition)
-        {
-            // On ground - wait for hero to approach or random takeoff
-            _currentSpeed = 0f; // Stopped
-
-            // Check if hero is moving (walking) - would need hero state, simplified to distance check
-            float distanceFromHero = Vector2.Distance(
-                new Vector2(Position.X, Position.Y),
-                new Vector2(heroPosition.X, heroPosition.Y));
-
-            // Take off if hero gets close OR random chance
-            if (distanceFromHero < 150f || _random.NextDouble() < deltaTime * 0.1f) // 10% chance per second
-            {
-                _aiState = BirdAIState.Ascending;
-                _stateTimer = 0f;
-                _currentSpeed = _baseSpeed * 1.1f; // Boost speed for takeoff
-                CurrentAction = 0; // Reset animation
-            }
-        }
-
-        private void UpdateAscendingState(float deltaTime)
-        {
-            // Ascending - velocity slowly decreases
-            _currentSpeed -= 0.005f * 60f * deltaTime; // Original: 0.005f * FPS_ANIMATION_FACTOR
-
-            // Random height fluctuations during ascent
-            if (_random.NextDouble() < deltaTime * 10f)
-            {
-                _targetHeight += (float)(_random.NextDouble() * 16f - 8f);
-            }
-
-            // When velocity reaches normal, switch to flying
-            if (_currentSpeed <= _baseSpeed)
-            {
-                _currentSpeed = _baseSpeed;
-                _aiState = BirdAIState.Flying;
-                _stateTimer = 0f;
-            }
+            _verticalVelocity = _aiState == BirdAIState.OnGround ? ascentSpeed : 0f;
+            _aiState = BirdAIState.Ascending;
+            _currentSpeed = FlightSpeed * 1.1f;
+            _verticalSpeed = ascentSpeed;
+            CurrentAction = 0;
+            PlayBirdSound();
         }
 
         /// <summary>Lowest world-space Z of the mesh in the current pose, over all vertices.</summary>
@@ -352,9 +237,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
         internal void DiagnosticsDescend()
         {
             _aiState = BirdAIState.Descending;
-            _stateTimer = 0f;
-            _desiredDirection = Vector3.Zero;
-            _currentVelocity = Vector3.Zero;
+            _currentSpeed = 0f;
+            _avoidTimer = 0f;
         }
 
         /// <summary>
@@ -368,133 +252,112 @@ namespace Client.Main.Objects.Worlds.Lorencia
         }
 
         /// <summary>
-        /// Applies velocity-based movement with AI state-specific behavior.
-        /// Uses World.Terrain.RequestTerrainHeight for accurate terrain elevation.
+        /// Turns toward the flock or around obstacles, then advances along the flight heading.
         /// </summary>
-        public void ApplyMovement(GameTime gameTime)
+        public void ApplyMovement(GameTime gameTime, Vector2 flockDirection = default)
         {
             float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            // Get terrain height at bird's current position using World.Terrain.RequestTerrainHeight
             var walkableWorld = World as Controls.WalkableWorldControl;
-            if (walkableWorld?.Terrain == null)
+            if (walkableWorld?.Terrain == null || deltaTime <= 0f)
                 return;
 
             float terrainHeight = walkableWorld.Terrain.RequestTerrainHeight(Position.X, Position.Y);
 
+            float heading = MathF.Atan2(_direction.Y, _direction.X);
+            float turn = 0f;
+            float steeringBlend = 1f - MathF.Exp(-6f * deltaTime);
+            if (_currentSpeed > 0f)
+            {
+                bool avoiding = IsAvoiding;
+                Vector2 target = avoiding ? _avoidDirection : flockDirection;
+                if (target.LengthSquared() > 0.001f)
+                {
+                    float difference = MathHelper.WrapAngle(MathF.Atan2(target.Y, target.X) - heading);
+                    float maxTurn = (avoiding ? TurnSpeed : FlockTurnSpeed) * deltaTime;
+                    turn = MathHelper.Clamp(difference * (avoiding ? 1f : steeringBlend), -maxTurn, maxTurn);
+                }
+                else if (_aiState == BirdAIState.Flying)
+                {
+                    turn = MathF.Sin(_timer) * WanderTurnSpeed * deltaTime;
+                }
+
+                heading += turn;
+                _direction = new Vector3(MathF.Cos(heading), MathF.Sin(heading), 0f);
+            }
+
+            // Check clearance along the heading selected for this step.
             AvoidObstacles(terrainHeight);
 
-            // Calculate target velocity (horizontal movement)
-            Vector3 targetVelocity = _desiredDirection * _currentSpeed;
+            Vector2 velocity = FlightVelocity;
+            AnimationSpeed = _aiState == BirdAIState.OnGround
+                ? 1f
+                : MathHelper.Clamp(5f + velocity.Length() / FlightSpeed * 4f, 3f, 10f);
 
-            // Smoothly steer current velocity towards target velocity
-            _currentVelocity = Vector3.Lerp(_currentVelocity, targetVelocity,
-                MathHelper.Clamp(deltaTime * SteeringSpeed, 0f, 1f));
+            Vector3 position = Position + new Vector3(velocity * deltaTime, 0f);
+            if (_currentSpeed > 0f)
+                terrainHeight = walkableWorld.Terrain.RequestTerrainHeight(position.X, position.Y);
 
-            // Dynamic animation speed based on state
-            float actualSpeed = _currentVelocity.Length();
-            if (_aiState == BirdAIState.OnGround)
-            {
-                AnimationSpeed = 1.0f; // Slow idle animation
-            }
-            else
-            {
-                float speedRatio = actualSpeed / _baseSpeed;
-                AnimationSpeed = MathHelper.Clamp(5.0f + speedRatio * 4.0f, 3.0f, 10.0f);
-            }
-
-            // Apply horizontal movement
-            Position = new Vector3(
-                Position.X + _currentVelocity.X * deltaTime,
-                Position.Y + _currentVelocity.Y * deltaTime,
-                Position.Z
-            );
-
-            // VERTICAL MOVEMENT based on AI state
-            float desiredZ = 0f;
+            float bank = _aiState == BirdAIState.Flying
+                ? MathHelper.Lerp(Angle.Y, MathHelper.Clamp(turn / deltaTime * 0.08f, -0.20f, 0.20f), steeringBlend)
+                : 0f;
+            Angle = new Vector3(Angle.X, bank, MathHelper.WrapAngle(heading + MathHelper.PiOver2));
 
             switch (_aiState)
             {
                 case BirdAIState.Flying:
-                    // Random height fluctuations: o->Position[2] += (float)(rand()%16-8)
-                    if (_random.NextDouble() < deltaTime * 5f)
-                    {
-                        _targetHeight += (float)(_random.NextDouble() * 16f - 8f);
-                    }
-
-                    // Clamp to flight range
-                    _targetHeight = MathHelper.Clamp(_targetHeight, MinFlightHeight, MaxFlightHeight);
-                    desiredZ = terrainHeight + _targetHeight;
-
-                    // SLOW smooth lerp to target height for natural flight
-                    Position = new Vector3(Position.X, Position.Y,
-                        MathHelper.Lerp(Position.Z, desiredZ, MathHelper.Clamp(deltaTime * VerticalLerpSpeed, 0f, 1f)));
+                    float height = position.Z - terrainHeight;
+                    if (height < MinFlightHeight)
+                        _verticalSpeed = FlightVerticalSpeed;
+                    else if (height > MaxFlightHeight)
+                        _verticalSpeed = -FlightVerticalSpeed;
                     break;
 
                 case BirdAIState.Descending:
-                    float newDescendZ = Position.Z - DescendSpeed * deltaTime;
+                    float newDescendZ = position.Z - DiveAndAscentSpeed * deltaTime;
                     float groundLevel = terrainHeight + FootHeight();
 
                     if (_requiredZ > newDescendZ)
                     {
-                        // Something solid is in the way, or the ground below is taken: give up landing.
-                        _aiState = BirdAIState.Ascending;
-                        _stateTimer = 0f;
-                        _currentSpeed = _baseSpeed * 1.1f;
+                        StartTakeoff(ClimbSpeed);
                     }
                     else if (newDescendZ <= groundLevel)
                     {
-                        // The feet touch the terrain
-                        Position = new Vector3(Position.X, Position.Y, groundLevel);
+                        position.Z = groundLevel;
+                        _currentSpeed = 0f;
                         _aiState = BirdAIState.OnGround;
-                        _stateTimer = 0f;
-
-                        // Play landing sound
                         PlayBirdSound();
                     }
                     else
                     {
-                        Position = new Vector3(Position.X, Position.Y, newDescendZ);
+                        position.Z = newDescendZ;
                     }
                     break;
 
                 case BirdAIState.OnGround:
-                    // Stand on the terrain: the lowest point of the mesh (feet) sits on it in every animation pose
-                    Position = new Vector3(Position.X, Position.Y, terrainHeight + FootHeight());
+                    position.Z = terrainHeight + FootHeight();
                     break;
 
-                case BirdAIState.Ascending:
-                    // Slow ascent - 3-4x slower (was 20, now 5)
-                    Position = new Vector3(Position.X, Position.Y, Position.Z + 5f * deltaTime * 60f);
-
-                    // Play takeoff sound
-                    if (_stateTimer < deltaTime * 2f) // Only once at start
-                    {
-                        PlayBirdSound();
-                    }
-                    break;
             }
 
-            // Climb over whatever is ahead, faster than the relaxed height changes above
-            if ((_aiState == BirdAIState.Flying || _aiState == BirdAIState.Ascending) && _requiredZ > Position.Z)
+            if (_aiState is BirdAIState.Flying or BirdAIState.Ascending)
             {
-                Position = new Vector3(Position.X, Position.Y,
-                    MathF.Min(_requiredZ, Position.Z + ClimbSpeed * deltaTime));
+                _heightJitterTimer += deltaTime;
+                if (_heightJitterTimer >= ReferenceTick)
+                {
+                    _heightJitterTimer %= ReferenceTick;
+                    _heightJitterSpeed = _random.Next(-8, 8) * ReferenceTicksPerSecond;
+                }
+
+                float speedLimit = _aiState == BirdAIState.Ascending ? _verticalSpeed : ClimbSpeed;
+                float flightSpeed = MathHelper.Clamp(_verticalSpeed + _heightJitterSpeed, -speedLimit, speedLimit);
+                float clearanceSpeed = MathHelper.Clamp((_requiredZ - position.Z) * ClearanceResponse, -ClimbSpeed, ClimbSpeed);
+                float targetSpeed = MathF.Max(flightSpeed, clearanceSpeed);
+                float speedChange = VerticalAcceleration * deltaTime;
+                _verticalVelocity += MathHelper.Clamp(targetSpeed - _verticalVelocity, -speedChange, speedChange);
+                position.Z += _verticalVelocity * deltaTime;
             }
 
-            // Update visual orientation
-            if (_currentVelocity.LengthSquared() > 1.0f && _aiState != BirdAIState.OnGround)
-            {
-                float targetAngleRaw = MathF.Atan2(_currentVelocity.Y, _currentVelocity.X);
-                float targetAngleIsometric = targetAngleRaw + MathHelper.PiOver2;
-
-                float currentAngle = Angle.Z;
-                float angleDiff = MathHelper.WrapAngle(targetAngleIsometric - currentAngle);
-                float maxRotationStep = RotationSpeed * deltaTime;
-                float rotationStep = MathHelper.Clamp(angleDiff, -maxRotationStep, maxRotationStep);
-
-                Angle = new Vector3(Angle.X, Angle.Y, currentAngle + rotationStep);
-            }
+            Position = position;
         }
 
         /// <summary>
@@ -508,7 +371,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
                 return;
 
             float maxZ = terrainHeight + MaxClimbAltitude;
-            var velocity = new Vector2(_currentVelocity.X, _currentVelocity.Y);
+            Vector2 velocity = FlightVelocity;
             float speed = velocity.Length();
 
             // Hardly moving (just taking off or landing): only what is right under the bird counts
@@ -519,11 +382,11 @@ namespace Client.Main.Objects.Worlds.Lorencia
             }
 
             Vector2 heading = velocity / speed;
-            float lookAhead = MathF.Max(MinLookAhead, speed * LookAheadSeconds);
+            float lookAheadSeconds = _aiState == BirdAIState.Descending ? LandingLookAheadSeconds : LookAheadSeconds;
+            float lookAhead = MathF.Max(MinLookAhead, speed * lookAheadSeconds);
             float required = RequiredAltitudeAlong(heading, lookAhead);
 
-            // Turning takes time, so what is too tall to climb over is looked for further ahead than what is climbed
-            float turnLookAhead = lookAhead * TurnLookAheadFactor;
+            float turnLookAhead = MathF.Max(MinLookAhead, speed * TurnLookAheadSeconds);
             if (RequiredAltitudeAlong(heading, turnLookAhead) > maxZ)
                 TurnAway(heading, turnLookAhead, maxZ);
 
@@ -536,7 +399,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
             return top == BirdObstacleMap.None ? BirdObstacleMap.None : top + ObstacleClearance;
         }
 
-        /// <summary>Highest altitude needed to clear the obstacles on the way, sampled once per tile.</summary>
+        /// <summary>Highest altitude needed to clear the obstacles along the flight path.</summary>
         private float RequiredAltitudeAlong(Vector2 direction, float distance)
         {
             float required = BirdObstacleMap.None;
@@ -566,7 +429,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     var direction = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
                     if (RequiredAltitudeAlong(direction, lookAhead) <= maxZ)
                     {
-                        _desiredDirection = new Vector3(direction, 0f);
+                        _avoidDirection = direction;
                         _avoidTimer = 1f;
                         return;
                     }

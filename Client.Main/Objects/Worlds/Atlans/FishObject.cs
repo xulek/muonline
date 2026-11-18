@@ -34,7 +34,7 @@ namespace Client.Main.Objects.Worlds.Atlans
         private const float MinSpeedMultiplier = 1.2f; // Minimum speed
         private const float MaxSpeedMultiplier = 2.4f; // Maximum speed
 
-        private const float SwimHeight = 80f; // Fixed swim height above terrain
+        internal const float SwimHeight = 80f; // Fixed swim height above terrain
 
         // Legacy properties for BoidManager compatibility
         public Vector3 Direction
@@ -59,7 +59,7 @@ namespace Client.Main.Objects.Worlds.Atlans
             _currentSpeed = _baseSpeed;
             _targetSpeed = _baseSpeed;
             // Scale is set by BoidManager during spawn (random 1.7-2.3)
-            Alpha = 1f;
+            Alpha = 0f;
             LightEnabled = false;
             BlendState = BlendState.AlphaBlend;
             IsTransparent = true;
@@ -92,12 +92,14 @@ namespace Client.Main.Objects.Worlds.Atlans
                 AnimationSpeed = 4.5f;
             }
 
-            await base.Load();
-
-            // Initialize velocity to match initial angle
-            float angleRad = Angle.Z;
-            _desiredDirection = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
+            if (_desiredDirection == Vector3.Zero)
+            {
+                float heading = Angle.Z - MathHelper.PiOver2;
+                _desiredDirection = new Vector3(MathF.Cos(heading), MathF.Sin(heading), 0f);
+            }
             _currentVelocity = _desiredDirection * _currentSpeed;
+
+            await base.Load();
         }
 
         public override void Update(GameTime gameTime)
@@ -106,21 +108,9 @@ namespace Client.Main.Objects.Worlds.Atlans
             {
                 _ = Load();
                 return;
-            } 
+            }
 
             base.Update(gameTime);
-
-            if (Status != GameControlStatus.Ready)
-                return;
-
-            float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            // Fade in alpha
-            if (Alpha < 1f)
-            {
-                Alpha += deltaTime * 2f;
-                if (Alpha > 1f) Alpha = 1f;
-            }
         }
 
         /// <summary>
@@ -214,6 +204,11 @@ namespace Client.Main.Objects.Worlds.Atlans
         public void ApplyMovement(GameTime gameTime)
         {
             float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            if (deltaTime <= 0f)
+                return;
+
+            if (Alpha < 1f)
+                Alpha = MathF.Min(1f, Alpha + deltaTime * 2f);
 
             // Calculate target velocity (where we WANT to go) using CURRENT speed (varies)
             Vector3 targetVelocity = _desiredDirection * _currentSpeed;
@@ -262,6 +257,12 @@ namespace Client.Main.Objects.Worlds.Atlans
 
                 Angle = new Vector3(Angle.X, Angle.Y, currentAngle + rotationStep);
             }
+        }
+
+        internal void TurnAround()
+        {
+            _currentVelocity = -_currentVelocity;
+            Direction = _currentVelocity.LengthSquared() > 0.001f ? _currentVelocity : -_desiredDirection;
         }
 
         public override void Draw(GameTime gameTime)

@@ -1,5 +1,7 @@
 using Client.Main.Controllers;
 using Client.Main.Controls;
+using Client.Main.Graphics;
+using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
@@ -8,17 +10,18 @@ namespace Client.Main.Objects.Worlds.Lorencia
 {
     /// <summary>
     /// Manages bird spawning, movement, and despawning in Lorencia world.
-    /// Birds fly in loose flocks with less cohesion than fish.
+    /// Birds steer toward the projected path of nearby flockmates.
     /// </summary>
     public partial class BirdManager
     {
-        private const int MAX_BIRDS = 20; // More birds than butterflies
-        private const float NEIGHBOR_RADIUS = 200f; // Distance to consider as neighbor
-        private const float SEPARATION_DISTANCE = 180f; // Minimum distance between birds (increased to prevent mesh overlap)
-        private const float COHESION_STRENGTH = 0.08f; // Weak attraction to group
-        private const float ALIGNMENT_STRENGTH = 0.15f; // Weak alignment (more than butterflies)
-        private const float SEPARATION_STRENGTH = 3.0f; // Strong repulsion to prevent overlap
-        private const float SPAWN_DISTANCE = 2500f; // Spawn radius around player
+        private const int MAX_BIRDS = 5;
+        private const float NEIGHBOR_RADIUS = 400f;
+        private const float SEPARATION_DISTANCE = 80f;
+        private const float NEIGHBOR_LOOK_AHEAD_SECONDS = 6f / BirdObject.ReferenceTicksPerSecond;
+        private const float MIN_SPAWN_DISTANCE = 650f;
+        private const float MAX_SPAWN_DISTANCE = 1100f;
+        private const float SPAWN_VIEW_MARGIN = 90f;
+        private const float DESPAWN_DISTANCE = 1500f;
         private const int MAX_SPAWN_PER_FRAME = 3; // Spawn 3 birds per frame
         private const float NORMAL_SPAWN_COOLDOWN = 0.6f; // Spawn every 0.6 seconds
         private const float SPAWN_OBSTACLE_CLEARANCE = 100f; // Spawn this far above a building or tree
@@ -73,9 +76,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
             {
                 var bird = _birds[i];
 
-                // Check if bird is too far from hero - despawn
-                float distanceFromHero = bird.GetDistanceFromHero(heroPosition);
-                if (distanceFromHero > 2000f)
+                if (bird.Status is GameControlStatus.Disposed or GameControlStatus.Error ||
+                    bird.GetDistanceFromHero(heroPosition) >= DESPAWN_DISTANCE || !IsWithinTerrain(bird.Position))
                 {
                     _world.Objects.Remove(bird);
                     _birds.RemoveAt(i);
@@ -83,20 +85,17 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     continue;
                 }
 
-                // Update movement behavior
+                // Keep the bird at its launch point until the world publishes its model.
+                if (!bird.Visible)
+                    continue;
+
                 bird.UpdateMovement(gameTime, heroPosition);
 
-                // Apply weak boid behavior (only when flying, not when landing/taking off)
-                if (bird.AIState == BirdObject.BirdAIState.Flying && !bird.IsAvoiding)
-                {
-                    ApplyBoidBehavior(bird, i, gameTime);
-                }
+                Vector2 flockDirection = bird.AIState != BirdObject.BirdAIState.OnGround && !bird.IsAvoiding
+                    ? GetFlockDirection(bird, i)
+                    : Vector2.Zero;
 
-                // Check boundaries (walls, safe zones)
-                CheckBoundaries(bird);
-
-                // Apply final movement
-                bird.ApplyMovement(gameTime);
+                bird.ApplyMovement(gameTime, flockDirection);
 
                 // GOBoid.cpp: within 600 of hero, rfc512 -> aBird1 / aBird2
                 UpdateBirdCalls(bird, gameTime);
@@ -122,7 +121,7 @@ namespace Client.Main.Objects.Worlds.Lorencia
         }
 
         /// <summary>
-        /// Spawns birds in circular pattern around player at flying height
+        /// Gives birds room to fly into the camera view.
         /// </summary>
         private void SpawnBirds(Vector3 heroPosition)
         {
@@ -130,42 +129,27 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
             int spawnCount = 0;
             int maxAttempts = MAX_SPAWN_PER_FRAME * 5;
+            BoundingFrustum frustum = Camera.Instance.Frustum;
 
             for (int attempt = 0; attempt < maxAttempts && spawnCount < MAX_SPAWN_PER_FRAME; attempt++)
             {
                 if (_birds.Count >= MAX_BIRDS)
                     break;
 
-                // Circular spawn distribution around hero
-                float angle = (float)(_random.NextDouble() * Math.PI * 2);
-                float distance = (float)(_random.NextDouble() * SPAWN_DISTANCE * 0.5f) + SPAWN_DISTANCE * 0.5f;
-                float offsetX = MathF.Cos(angle) * distance;
-                float offsetY = MathF.Sin(angle) * distance;
+                float bearing = (float)_random.NextDouble() * MathHelper.TwoPi;
+                float distance = MathHelper.Lerp(MIN_SPAWN_DISTANCE, MAX_SPAWN_DISTANCE, (float)_random.NextDouble());
+                var spawnPos = new Vector3(
+                    heroPosition.X + MathF.Cos(bearing) * distance,
+                    heroPosition.Y + MathF.Sin(bearing) * distance,
+                    0f);
 
-                Vector3 spawnPos = new Vector3(
-                    heroPosition.X + offsetX,
-                    heroPosition.Y + offsetY,
-                    0f
-                );
-
-                // Validate spawn position is within terrain bounds
-                const int TERRAIN_SIZE = 256;
-                float terrainScale = Constants.TERRAIN_SCALE;
-                int spawnX = (int)(spawnPos.X / terrainScale);
-                int spawnY = (int)(spawnPos.Y / terrainScale);
-
-                // Skip if out of bounds
-                if (spawnX < 0 || spawnX >= TERRAIN_SIZE ||
-                    spawnY < 0 || spawnY >= TERRAIN_SIZE)
-                {
+                if (!IsWithinTerrain(spawnPos))
                     continue;
-                }
 
                 // Get terrain height
                 float terrainHeight = _world.Terrain.RequestTerrainHeight(spawnPos.X, spawnPos.Y);
 
-                // Spawn at flying height (200-600 above terrain)
-                float spawnHeight = terrainHeight + 200f + (float)(_random.NextDouble() * 400f);
+                float spawnHeight = terrainHeight + _random.Next(150, 350);
 
                 // Never inside a building or tree: spawn above what stands there, or elsewhere when it is too tall
                 float obstacleTop = _obstacles.TopAt(spawnPos.X, spawnPos.Y);
@@ -179,13 +163,15 @@ namespace Client.Main.Objects.Worlds.Lorencia
 
                 spawnPos = new Vector3(spawnPos.X, spawnPos.Y, spawnHeight);
 
-                // Random initial angle
-                float randomAngle = (float)(_random.NextDouble() * MathF.PI * 2f);
-                Vector3 initialAngle = new Vector3(0f, 0f, randomAngle);
+                // The last attempts may use a visible position when the camera is zoomed out.
+                if (attempt < maxAttempts - MAX_SPAWN_PER_FRAME &&
+                    frustum.Contains(new BoundingSphere(spawnPos, SPAWN_VIEW_MARGIN)) != ContainmentType.Disjoint)
+                {
+                    continue;
+                }
 
-                // Calculate initial direction from angle
-                float angleRad = initialAngle.Z;
-                Vector3 initialDirection = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
+                // Aim back toward the area around the player with room for different flight paths.
+                float heading = bearing + MathHelper.Pi + ((float)_random.NextDouble() - 0.5f) * MathHelper.PiOver2;
 
                 // Random scale variation: 0.75 to 1.0 (smaller birds)
                 float randomScale = 0.75f + (float)_random.NextDouble() * 0.25f;
@@ -195,8 +181,8 @@ namespace Client.Main.Objects.Worlds.Lorencia
                     Obstacles = _obstacles,
                     Position = spawnPos,
                     Scale = randomScale,
-                    Angle = initialAngle,
-                    Direction = initialDirection
+                    Direction = new Vector3(MathF.Cos(heading), MathF.Sin(heading), 0f),
+                    Angle = new Vector3(0f, 0f, MathHelper.WrapAngle(heading + MathHelper.PiOver2))
                 };
 
                 _birds.Add(bird);
@@ -209,97 +195,42 @@ namespace Client.Main.Objects.Worlds.Lorencia
         }
 
         /// <summary>
-        /// Applies weak boid behavior - birds fly in loose flocks
+        /// Averages headings toward where neighbors are flying, with separation at close range.
         /// </summary>
-        private void ApplyBoidBehavior(BirdObject bird, int birdIndex, GameTime gameTime)
+        private Vector2 GetFlockDirection(BirdObject bird, int birdIndex)
         {
-            Vector3 separation = Vector3.Zero;
-            Vector3 alignment = Vector3.Zero;
-            Vector3 cohesion = Vector3.Zero;
-            int neighborCount = 0;
+            Vector2 direction = Vector2.Zero;
 
-            float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            // Find neighbors (only other flying birds)
             for (int i = 0; i < _birds.Count; i++)
             {
                 if (i == birdIndex)
                     continue;
 
                 var other = _birds[i];
-
-                // Only flock with other flying birds
-                if (other.AIState != BirdObject.BirdAIState.Flying)
+                if (!other.Visible || other.AIState == BirdObject.BirdAIState.OnGround)
                     continue;
 
-                float distance = Vector3.Distance(bird.Position, other.Position);
+                Vector3 offset = other.Position - bird.Position;
+                float distanceSquared = offset.LengthSquared();
+                if (distanceSquared >= NEIGHBOR_RADIUS * NEIGHBOR_RADIUS)
+                    continue;
 
-                if (distance < NEIGHBOR_RADIUS && distance > 0.1f)
-                {
-                    neighborCount++;
+                Vector2 target = new Vector2(offset.X, offset.Y);
+                target = distanceSquared < SEPARATION_DISTANCE * SEPARATION_DISTANCE
+                    ? -target
+                    : target + other.FlightVelocity * NEIGHBOR_LOOK_AHEAD_SECONDS;
 
-                    // Separation: avoid collisions
-                    if (distance < SEPARATION_DISTANCE)
-                    {
-                        Vector3 away = bird.Position - other.Position;
-                        if (away.LengthSquared() > 0.001f)
-                        {
-                            away.Normalize();
-                            separation += away / distance;
-                        }
-                    }
-
-                    // Alignment
-                    alignment += other.Direction;
-
-                    // Cohesion
-                    cohesion += other.Position;
-                }
+                if (target.LengthSquared() > 0.001f)
+                    direction += Vector2.Normalize(target);
             }
 
-            if (neighborCount > 0)
-            {
-                alignment /= neighborCount;
-                cohesion /= neighborCount;
-
-                cohesion = cohesion - bird.Position;
-                if (cohesion.LengthSquared() > 0.001f)
-                {
-                    cohesion.Normalize();
-                }
-
-                // Apply weak forces (birds have weak flocking)
-                Vector3 boidInfluence =
-                    separation * SEPARATION_STRENGTH +
-                    alignment * ALIGNMENT_STRENGTH +
-                    cohesion * COHESION_STRENGTH;
-
-                boidInfluence *= deltaTime;
-
-                Vector3 currentDir = bird.Direction;
-                if (currentDir.LengthSquared() < 0.001f)
-                    currentDir = Vector3.UnitX;
-
-                bird.Direction = currentDir + boidInfluence;
-            }
+            return direction;
         }
 
-        /// <summary>
-        /// Hides birds that leave the terrain. Walls and towns do not stop birds: GOBoid.cpp MoveBird checks no terrain
-        /// flags, so birds fly over the SafeZone town and over NoMove walls as well.
-        /// </summary>
-        private void CheckBoundaries(BirdObject bird)
+        private static bool IsWithinTerrain(Vector3 position)
         {
-            const int TERRAIN_SIZE = 256;
-            float terrainScale = Constants.TERRAIN_SCALE;
-            int terrainX = (int)(bird.Position.X / terrainScale);
-            int terrainY = (int)(bird.Position.Y / terrainScale);
-
-            if (terrainX < 0 || terrainX >= TERRAIN_SIZE ||
-                terrainY < 0 || terrainY >= TERRAIN_SIZE)
-            {
-                bird.Hidden = true;
-            }
+            const float mapSize = Constants.TERRAIN_SIZE * Constants.TERRAIN_SCALE;
+            return position.X >= 0f && position.X < mapSize && position.Y >= 0f && position.Y < mapSize;
         }
 
         /// <summary>

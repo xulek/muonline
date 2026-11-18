@@ -1,4 +1,6 @@
+using Client.Data.ATT;
 using Client.Main.Controls;
+using Client.Main.Graphics;
 using Client.Main.Models;
 using Microsoft.Xna.Framework;
 using System;
@@ -18,7 +20,10 @@ namespace Client.Main.Objects.Worlds.Atlans
         private const float COHESION_STRENGTH = 0.15f; // Attraction to group center
         private const float ALIGNMENT_STRENGTH = 0.3f; // Alignment with neighbors
         private const float SEPARATION_STRENGTH = 3.0f; // Repulsion from neighbors
-        private const float SPAWN_DISTANCE = 2000f; // Spawn radius around player
+        private const float MIN_SPAWN_DISTANCE = 450f;
+        private const float MAX_SPAWN_DISTANCE = 1400f;
+        private const float SPAWN_VIEW_MARGIN = 60f;
+        private const float DESPAWN_DISTANCE = 1500f;
         private const int MAX_SPAWN_PER_FRAME = 3; // Spawn 3 fish per frame for faster population
         private const float NORMAL_SPAWN_COOLDOWN = 0.5f; // Spawn every 0.5 seconds
 
@@ -63,17 +68,10 @@ namespace Client.Main.Objects.Worlds.Atlans
             {
                 var fish = _fishes[i];
 
-                if (fish.Status == GameControlStatus.Disposed || fish.Hidden)
-                {
-                    // Remove dead/hidden fish
-                    _world.Objects.Remove(fish);
-                    _fishes.RemoveAt(i);
-                    continue;
-                }
-
-                // Check distance from hero - despawn if too far
-                float distanceFromHero = fish.GetDistanceFromHero(heroPosition);
-                if (distanceFromHero > 1500f)
+                // The camera may have moved while the fish model was loading.
+                if (fish.Status is GameControlStatus.Disposed or GameControlStatus.Error ||
+                    fish.GetDistanceFromHero(heroPosition) > DESPAWN_DISTANCE || !CanSwimAt(fish.Position) ||
+                    (fish.Visible && fish.Alpha == 0f && !IsOutsideCamera(fish.Position)))
                 {
                     _world.Objects.Remove(fish);
                     _fishes.RemoveAt(i);
@@ -81,29 +79,8 @@ namespace Client.Main.Objects.Worlds.Atlans
                     continue;
                 }
 
-                // Check if fish is within valid bounds before accessing terrain
-                // Scale world coordinates to terrain grid
-                const int TERRAIN_SIZE = 256;
-                float terrainScale = Constants.TERRAIN_SCALE;
-                int terrainX = (int)(fish.Position.X / terrainScale);
-                int terrainY = (int)(fish.Position.Y / terrainScale);
-
-                if (terrainX < 0 || terrainX >= TERRAIN_SIZE ||
-                    terrainY < 0 || terrainY >= TERRAIN_SIZE)
-                {
-                    // Out of bounds - despawn
-                    _world.Objects.Remove(fish);
-                    _fishes.RemoveAt(i);
-                    fish.Dispose();
-                    continue;
-                }
-
-                // IMPORTANT: Don't update fish here - WorldControl.Update() will call fish.Update()
-                // which loads the model and handles the base update logic
-                // We only update movement AI here
-
-                // Skip AI updates if fish is not ready yet
-                if (fish.Status != GameControlStatus.Ready)
+                // The world hides fish while it prepares their models for the first frame.
+                if (!fish.Visible)
                     continue;
 
                 // Get terrain height at fish position (using world coordinates)
@@ -115,18 +92,18 @@ namespace Client.Main.Objects.Worlds.Atlans
                 // Apply boid algorithm
                 ApplyBoidBehavior(fish, i, gameTime);
 
-                // Apply calculated movement
+                Vector3 previousPosition = fish.Position;
                 fish.ApplyMovement(gameTime);
-
-                // Check boundaries and turn around if needed
-                CheckBoundaries(fish, terrainHeight);
+                if (!CanSwimAt(fish.Position))
+                {
+                    fish.Position = previousPosition;
+                    fish.TurnAround();
+                }
             }
         }
 
         /// <summary>
-        /// Spawns fish around the player when underwater (Y &lt; 128 in scaled coords).
-        /// In original MU: Position[1] is Y axis (depth), Position[2] is Z axis (height).
-        /// Spawns gradually to avoid blocking the main thread
+        /// Starts fish out of view on swimmable tiles beyond the safe zone.
         /// </summary>
         private void SpawnFish(Vector3 heroPosition)
         {
@@ -142,74 +119,26 @@ namespace Client.Main.Objects.Worlds.Atlans
             // Spawn only a few fish per frame to avoid blocking
             int spawnCount = 0;
             int targetSpawnPerFrame = MAX_SPAWN_PER_FRAME;
-            int maxAttempts = targetSpawnPerFrame * 5; // Try a few times to find valid positions
+            int maxAttempts = targetSpawnPerFrame * 8;
             int attempts = 0;
 
             while (spawnCount < targetSpawnPerFrame && _fishes.Count < MAX_BOIDS && attempts < maxAttempts)
             {
                 attempts++;
 
-                // Spawn in a larger area around player (up to SPAWN_DISTANCE)
-                // Use circular distribution for more natural spawning
-                float angle = (float)(_random.NextDouble() * Math.PI * 2);
-                float distance = (float)(_random.NextDouble() * SPAWN_DISTANCE * 0.5f) + SPAWN_DISTANCE * 0.5f; // 50-100% of spawn distance
-                float offsetX = MathF.Cos(angle) * distance;
-                float offsetY = MathF.Sin(angle) * distance;
-                Vector3 spawnPos = new Vector3(
-                    heroPosition.X + offsetX,  // X coordinate
-                    heroPosition.Y + offsetY,  // Y coordinate (depth)
-                    heroPosition.Z);           // Z will be set from terrain height
+                float bearing = (float)_random.NextDouble() * MathHelper.TwoPi;
+                float distance = MathHelper.Lerp(MIN_SPAWN_DISTANCE, MAX_SPAWN_DISTANCE, (float)_random.NextDouble());
+                var spawnPos = new Vector3(heroPosition.X + MathF.Cos(bearing) * distance,
+                    heroPosition.Y + MathF.Sin(bearing) * distance, 0f);
 
-                // IMPORTANT: Terrain uses SCALED coordinates!
-                // Original code: RequestTerrainHeight(o->Position[0], o->Position[1])
-                // Position is in world units, terrain grid is 256x256
-                // We need to scale world position to terrain grid
-                const int TERRAIN_SIZE = 256;
-
-                // Scale world coordinates to terrain grid (divide by terrain scale)
-                float terrainScale = Constants.TERRAIN_SCALE; // Usually 100
-                int spawnX = (int)(spawnPos.X / terrainScale);
-                int spawnY = (int)(spawnPos.Y / terrainScale);
-
-                // Skip this spawn if out of bounds
-                if (spawnX < 0 || spawnX >= TERRAIN_SIZE ||
-                    spawnY < 0 || spawnY >= TERRAIN_SIZE)
-                {
+                if (!CanSwimAt(spawnPos, TWFlags.SafeZone))
                     continue;
-                }
 
-                // Check terrain flags before spawning - avoid NoMove, Height, and SafeZone
-                var spawnTerrainFlag = _world.Terrain.RequestTerrainFlag(spawnX, spawnY);
-                if (spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.NoMove) ||
-                    spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.Height) ||
-                    spawnTerrainFlag.HasFlag(Client.Data.ATT.TWFlags.SafeZone))
-                {
-                    continue; // Skip this spawn location
-                }
+                spawnPos.Z = _world.Terrain.RequestTerrainHeight(spawnPos.X, spawnPos.Y) + FishObject.SwimHeight;
+                if (!IsOutsideCamera(spawnPos))
+                    continue;
 
-                // Get terrain height at XY position (using world coordinates)
-                // Original: o->Position[2] = RequestTerrainHeight(o->Position[0], o->Position[1]) + (float)(rand() % 200 + 150);
-                // RequestTerrainHeight expects world coordinates, not grid coordinates
-                float terrainHeight = _world.Terrain.RequestTerrainHeight(spawnPos.X, spawnPos.Y);
-
-                // Set initial spawn height to fixed swim height
-                const float INITIAL_SWIM_HEIGHT = 80f;
-                spawnPos.Z = terrainHeight + INITIAL_SWIM_HEIGHT;
-
-                // Create fish object
-                // NOTE: Don't set World property manually - it's set automatically when adding to World.Objects
-
-                // Initialize random direction using MU Online's Direction system
-                var randomDirections = new[] {
-                    Direction.West, Direction.SouthWest, Direction.South, Direction.SouthEast,
-                    Direction.East, Direction.NorthEast, Direction.North, Direction.NorthWest
-                };
-                var randomDir = randomDirections[_random.Next(randomDirections.Length)];
-                Vector3 initialAngle = randomDir.ToAngle();
-
-                // Calculate initial velocity direction from the isometric angle
-                float angleRad = initialAngle.Z;
-                Vector3 initialDirection = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
+                float heading = bearing + MathHelper.Pi + ((float)_random.NextDouble() - 0.5f) * MathHelper.PiOver4;
 
                 // Random scale variation: 1.7 to 2.3 (base is 2.0)
                 float randomScale = 1.7f + (float)_random.NextDouble() * 0.6f;
@@ -219,10 +148,8 @@ namespace Client.Main.Objects.Worlds.Atlans
                     Type = (short)(_random.Next(0, 2) + 1), // Fish type 1 or 2 (MODEL_FISH01+2 or +3)
                     Position = spawnPos,
                     Scale = randomScale, // Random size variation
-                    // Start facing the initial direction (isometric angle)
-                    Angle = initialAngle,
-                    // Initialize Direction immediately so ApplyMovement has correct target
-                    Direction = initialDirection
+                    Angle = new Vector3(0f, 0f, MathHelper.WrapAngle(heading + MathHelper.PiOver2)),
+                    Direction = new Vector3(MathF.Cos(heading), MathF.Sin(heading), 0f)
                 };
 
                 _fishes.Add(fish);
@@ -307,61 +234,18 @@ namespace Client.Main.Objects.Worlds.Atlans
             }
         }
 
-        /// <summary>
-        /// Checks terrain boundaries and turns fish around if needed
-        /// Based on original wall detection logic
-        /// Fish avoid NoMove, Height, and SafeZone areas
-        /// </summary>
-        private void CheckBoundaries(FishObject fish, float terrainHeight)
+        private static bool IsOutsideCamera(Vector3 position) =>
+            Camera.Instance.Frustum.Contains(new BoundingSphere(position, SPAWN_VIEW_MARGIN)) == ContainmentType.Disjoint;
+
+        private bool CanSwimAt(Vector3 position, TWFlags additionalBlocked = TWFlags.None)
         {
-            // Check if fish is within valid terrain bounds
-            // Scale world coordinates to terrain grid
-            const int TERRAIN_SIZE = 256;
-            float terrainScale = Constants.TERRAIN_SCALE;
-            int terrainX = (int)(fish.Position.X / terrainScale);
-            int terrainY = (int)(fish.Position.Y / terrainScale);
+            int terrainX = (int)MathF.Floor(position.X / Constants.TERRAIN_SCALE);
+            int terrainY = (int)MathF.Floor(position.Y / Constants.TERRAIN_SCALE);
+            if ((uint)terrainX >= Constants.TERRAIN_SIZE || (uint)terrainY >= Constants.TERRAIN_SIZE)
+                return false;
 
-            // Check if out of bounds - if so, despawn immediately
-            if (terrainX < 0 || terrainX >= TERRAIN_SIZE ||
-                terrainY < 0 || terrainY >= TERRAIN_SIZE)
-            {
-                fish.Hidden = true;
-                return;
-            }
-
-            // Get terrain flags at fish position (using grid coordinates)
-            var terrainFlag = _world.Terrain.RequestTerrainFlag(terrainX, terrainY);
-
-            // Check if fish hit a wall, impassable terrain, or safe zone
-            bool hitObstacle = terrainFlag.HasFlag(Client.Data.ATT.TWFlags.NoMove) ||
-                              terrainFlag.HasFlag(Client.Data.ATT.TWFlags.Height) ||
-                              terrainFlag.HasFlag(Client.Data.ATT.TWFlags.SafeZone);
-
-            if (hitObstacle)
-            {
-                // Turn around 180 degrees
-                fish.Angle = new Vector3(fish.Angle.X, fish.Angle.Y, fish.Angle.Z + 180f);
-                if (fish.Angle.Z >= 360f)
-                    fish.Angle = new Vector3(fish.Angle.X, fish.Angle.Y, fish.Angle.Z - 360f);
-
-                // Update desired direction to match new angle
-                float angleRad = fish.Angle.Z;
-                fish.Direction = new Vector3(MathF.Cos(angleRad), MathF.Sin(angleRad), 0f);
-
-                fish.SubType++;
-
-                // Despawn if turned around too many times
-                if (fish.SubType >= 2)
-                {
-                    fish.Hidden = true;
-                }
-            }
-            else
-            {
-                // Reset turn counter if swimming freely
-                if (fish.SubType > 0)
-                    fish.SubType--;
-            }
+            const TWFlags blocked = TWFlags.NoMove | TWFlags.NoGround | TWFlags.Height;
+            return (_world.Terrain.RequestTerrainFlag(terrainX, terrainY) & (blocked | additionalBlocked)) == 0;
         }
 
         /// <summary>
