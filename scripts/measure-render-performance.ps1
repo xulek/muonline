@@ -11,7 +11,8 @@ param(
     [ValidatePattern('^\d{1,3},\d{1,3}$')][string] $Position = '135,128',
     [switch] $Profile,
     [switch] $Wpr,
-    [switch] $GameOnly
+    [switch] $GameOnly,
+    [switch] $CompareStaticTransparentUploadCache
 )
 
 $ErrorActionPreference = 'Stop'
@@ -147,7 +148,9 @@ function Join-PresentCapture($gameRows, $csv, [int] $gameProcessId) {
     }
 }
 
-function Measure-Variant($directory, $gpuModels) {
+function Measure-Variant($directory, $variant) {
+    $gpuModels = $variant -ne 'control'
+    $staticTransparentUploadCache = $variant -eq 'static-transparent-upload-cache'
     New-Item -Path $directory -ItemType Directory | Out-Null
     $gameCsv = Join-Path $directory 'game.csv'
     $presentCsv = Join-Path $directory 'presentmon.csv'
@@ -165,6 +168,12 @@ function Measure-Variant($directory, $gpuModels) {
         MU_STRESS_SECONDS = $MeasureSeconds
         MU_STRESS_OUT = $gameCsv
         MU_STRESS_LABEL = 'low'
+    }
+    if ($Profile) {
+        $gameVariables.MU_STRESS_SHOTS = Join-Path $directory 'shots'
+    }
+    if ($CompareStaticTransparentUploadCache) {
+        $gameVariables.MU_STRESS_STATIC_TRANSPARENT_UPLOAD_CACHE = [int]$staticTransparentUploadCache
     }
     $client = $present = $null
     $wprStarted = $false
@@ -242,6 +251,10 @@ function Measure-Variant($directory, $gpuModels) {
         $settings.DynamicLightingShader -ne $gpuModels -or $settings.Profile -ne [bool]$Profile) {
         throw "Unexpected effective graphics settings in '$directory/game.json'."
     }
+    if ($CompareStaticTransparentUploadCache -and
+        [bool]$settings.StaticTransparentUploadCache -ne $staticTransparentUploadCache) {
+        throw "Unexpected transparent upload cache setting in '$directory/game.json'."
+    }
     $gameRows = @(Import-Csv -LiteralPath $gameCsv -Delimiter ';')
     if (($gameRows.scenario -join ',') -ne 'idle,walk,combat') { throw "Incomplete scenarios in '$gameCsv'." }
     $presentStats = if (!$GameOnly) { @(Join-PresentCapture $gameRows $presentCsv $gameProcessId) }
@@ -264,7 +277,8 @@ function Measure-Variant($directory, $gpuModels) {
         }
         foreach ($field in @('cpuMs','updateMs','drawMs','worldObjectsMs','worldQueueMs','staticQueueMs','terrainMs','interfaceMs',
                 'postProcessMs','mainCpuMsPerSecond','visibleObjects','drawCalls','triangles','textureChanges','targetChanges',
-                'staticDrawCalls','gpuSkinnedMeshes','modelFallbackDrawCalls','cpuSkinRequests','cameraTravel','attackWaves')) {
+                'staticDrawCalls','gpuSkinnedMeshes','modelFallbackDrawCalls','cpuSkinRequests','cameraTravel','attackWaves',
+                'staticTransparentUploadMs','staticTransparentUploads','staticTransparentUploadReuses')) {
             $entry[$field] = $scene.$field
         }
         [pscustomobject]$entry
@@ -279,6 +293,7 @@ $clientAssembly = Join-Path (Split-Path -Parent $gamePath) 'Client.Main.dll'
     PresentMonExe = if (!$GameOnly) { $presentMonPath }
     PresentMonSha256 = if (!$GameOnly) { (Get-FileHash -LiteralPath $presentMonPath -Algorithm SHA256).Hash }
     CaptureMode = if ($Profile) { 'Profile' } else { 'Score' }
+    CompareStaticTransparentUploadCache = [bool]$CompareStaticTransparentUploadCache
     Pairs = $Pairs
     Map = $Map
     Position = $Position
@@ -290,12 +305,19 @@ $clientAssembly = Join-Path (Split-Path -Parent $gamePath) 'Client.Main.dll'
 
 $results = [Collections.Generic.List[object]]::new()
 $workload = $null
+$controlVariant = if ($CompareStaticTransparentUploadCache) { 'gpu-models' } else { 'control' }
+$testVariant = if ($CompareStaticTransparentUploadCache) { 'static-transparent-upload-cache' } else { 'gpu-models' }
+$fpsColumns = @{
+    'control' = 'ControlFps'
+    'gpu-models' = 'GpuModelsFps'
+    'static-transparent-upload-cache' = 'StaticTransparentUploadCacheFps'
+}
 for ($pair = 1; $pair -le $Pairs; $pair++) {
-    $order = if ($pair % 2) { @('control','gpu-models') } else { @('gpu-models','control') }
+    $order = if ($pair % 2) { @($controlVariant,$testVariant) } else { @($testVariant,$controlVariant) }
     foreach ($variant in $order) {
         $directory = Join-Path $out ('{0:D2}-{1}' -f $pair, $variant)
         Write-Host "Pair $pair/$Pairs $variant"
-        $scenes = @(Measure-Variant $directory ($variant -eq 'gpu-models'))
+        $scenes = @(Measure-Variant $directory $variant)
         $settings = Get-Content -LiteralPath (Join-Path $directory 'game.json') -Raw | ConvertFrom-Json
         $effective = $settings | Select-Object Adapter, GraphicsProfile, BackBufferWidth, BackBufferHeight, RenderWidth, RenderHeight, WalkDestination |
             ConvertTo-Json -Compress
@@ -313,7 +335,7 @@ for ($pair = 1; $pair -le $Pairs; $pair++) {
 
 $comparison = foreach ($name in @('idle','walk','combat','overall')) {
     $median = @{}
-    foreach ($variant in @('control','gpu-models')) {
+    foreach ($variant in @($controlVariant,$testVariant)) {
         $rows = @($results | Where-Object Variant -eq $variant)
         $values = if ($name -eq 'overall') {
             foreach ($group in ($rows | Group-Object Pair)) {
@@ -324,16 +346,17 @@ $comparison = foreach ($name in @('idle','walk','combat','overall')) {
         }
         $median[$variant] = Get-Median @($values)
     }
-    [pscustomobject]@{
+    $row = [ordered]@{
         Scenario = $name
-        ControlFps = [Math]::Round($median.control, 2)
-        GpuModelsFps = [Math]::Round($median.'gpu-models', 2)
-        ChangePercent = [Math]::Round(100 * ($median.'gpu-models' / $median.control - 1), 2)
     }
+    $row[$fpsColumns[$controlVariant]] = [Math]::Round($median[$controlVariant], 2)
+    $row[$fpsColumns[$testVariant]] = [Math]::Round($median[$testVariant], 2)
+    $row.ChangePercent = [Math]::Round(100 * ($median[$testVariant] / $median[$controlVariant] - 1), 2)
+    [pscustomobject]$row
 }
 Export-BenchmarkCsv $comparison (Join-Path $out 'comparison.csv')
 $comparison | Format-Table -AutoSize
-if (!$Profile -and $Pairs -ge 5 -and $MeasureSeconds -ge 30) {
+if ($controlVariant -eq 'control' -and !$Profile -and $Pairs -ge 5 -and $MeasureSeconds -ge 30) {
     $targetMet = ($comparison[-1].ChangePercent -ge 20 -and @($comparison | Where-Object ChangePercent -lt -3).Count -eq 0)
     Write-Host "FPS target met: $targetMet"
 }

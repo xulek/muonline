@@ -475,6 +475,8 @@ namespace Client.Main.Objects
         private static readonly Dictionary<(StaticMapInstancingBatchKey Key, BlendState Blend), StaticMapInstancingBatch>
             _staticMapTransparentBatches = new(64);
         private static readonly List<StaticMapInstancingBatch> _staticMapTransparentActiveBatches = new(64);
+        private static bool UseStaticMapTransparentUploadCache =>
+            Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE && Constants.ENABLE_STATIC_MAP_TRANSPARENT_UPLOAD_CACHE;
 
         /// <summary>Diagnostics: transparent map meshes drawn by instanced batches last frame.</summary>
         public static int LastFrameStaticMapTransparentInstances { get; private set; }
@@ -491,7 +493,7 @@ namespace Client.Main.Objects
         {
             for (int i = 0; i < _staticMapTransparentActiveBatches.Count; i++)
             {
-                _staticMapTransparentActiveBatches[i].InstanceCount = 0;
+                _staticMapTransparentActiveBatches[i].ResetQueue();
                 _staticMapTransparentActiveBatches[i].PoseSource = null;
             }
             _staticMapTransparentActiveBatches.Clear();
@@ -536,6 +538,9 @@ namespace Client.Main.Objects
 
             int poseKey = GetStaticMapPoseKey();
             var instanceData = new StaticModelInstanceData(WorldPosition, Color.White);
+            bool cacheUploads = UseStaticMapTransparentUploadCache;
+            int objectIdentity = cacheUploads ? RuntimeHelpers.GetHashCode(this) : 0;
+            uint transformVersion = TransformVersion;
             foreach (var group in _transparentMeshPlan)
             {
                 List<int> meshIndices = group.Value;
@@ -566,6 +571,8 @@ namespace Client.Main.Objects
                     }
 
                     batch.AddInstance(instanceData);
+                    if (cacheUploads)
+                        batch.QueueSignature = MixStaticMapInstanceSignature(batch.QueueSignature, objectIdentity, transformVersion, 255);
                     _staticMapTransparentInstancesThisFrame++;
                 }
             }
@@ -632,6 +639,8 @@ namespace Client.Main.Objects
                 bindings.AdditiveAlphaCutoff?.SetValue(0f);
                 bindings.TextureCoordinateOffset?.SetValue(Vector2.Zero);
 
+                long worldId = world?.WorldInstanceId ?? 0;
+                bool cacheUploads = UseStaticMapTransparentUploadCache;
                 for (int i = 0; i < _staticMapTransparentActiveBatches.Count; i++)
                 {
                     var batch = _staticMapTransparentActiveBatches[i];
@@ -646,9 +655,9 @@ namespace Client.Main.Objects
                         continue;
                     }
 
-                    EnsureInstanceVertexBuffer(gd, batch, instanceCount);
-                    batch.InstanceBuffer.SetData(batch.InstanceData, 0, instanceCount, SetDataOptions.Discard);
-                    batch.UploadedInstancesValid = false;
+                    long uploadStarted = RenderPassProfiler.StartCpuSection();
+                    bool uploaded = UploadStaticMapInstances(gd, batch, worldId, cacheUploads);
+                    RenderPassProfiler.AddStaticTransparentUpload(uploadStarted, uploaded);
 
                     gd.BlendState = batch.Blend ?? BlendState.AlphaBlend;
                     gd.RasterizerState = batch.TwoSided ? RasterizerState.CullNone : RasterizerState.CullClockwise;
@@ -746,22 +755,8 @@ namespace Client.Main.Objects
                         continue;
                     }
 
-                    bool instanceBufferRecreated = EnsureInstanceVertexBuffer(gd, batch, instanceCount);
-                    bool instanceUploadRequired =
-                        !Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE ||
-                        instanceBufferRecreated ||
-                        !batch.UploadedInstancesValid ||
-                        batch.UploadedWorldInstanceId != (world?.WorldInstanceId ?? 0) ||
-                        batch.UploadedInstanceCount != instanceCount ||
-                        batch.UploadedSignature != batch.QueueSignature;
-
-                    if (instanceUploadRequired)
+                    if (UploadStaticMapInstances(gd, batch, world?.WorldInstanceId ?? 0, Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE))
                     {
-                        batch.InstanceBuffer.SetData(batch.InstanceData, 0, instanceCount, SetDataOptions.Discard);
-                        batch.UploadedInstancesValid = true;
-                        batch.UploadedWorldInstanceId = world?.WorldInstanceId ?? 0;
-                        batch.UploadedInstanceCount = instanceCount;
-                        batch.UploadedSignature = batch.QueueSignature;
                         _staticMapInstanceUploadsThisFrame++;
                     }
                     else
@@ -869,22 +864,8 @@ namespace Client.Main.Objects
                         continue;
                     }
 
-                    bool instanceBufferRecreated = EnsureInstanceVertexBuffer(gd, batch, instanceCount);
-                    bool uploadRequired =
-                        !Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE ||
-                        instanceBufferRecreated ||
-                        !batch.UploadedInstancesValid ||
-                        batch.UploadedWorldInstanceId != (world?.WorldInstanceId ?? 0) ||
-                        batch.UploadedInstanceCount != instanceCount ||
-                        batch.UploadedSignature != batch.QueueSignature;
-
-                    if (uploadRequired)
+                    if (UploadStaticMapInstances(gd, batch, world?.WorldInstanceId ?? 0, Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE))
                     {
-                        batch.InstanceBuffer.SetData(batch.InstanceData, 0, instanceCount, SetDataOptions.Discard);
-                        batch.UploadedInstancesValid = true;
-                        batch.UploadedWorldInstanceId = world?.WorldInstanceId ?? 0;
-                        batch.UploadedInstanceCount = instanceCount;
-                        batch.UploadedSignature = batch.QueueSignature;
                         _staticMapShadowInstanceUploadsThisFrame++;
                     }
                     else
@@ -1092,13 +1073,34 @@ namespace Client.Main.Objects
             _staticMapShadowInstancingActiveBatches.Clear();
         }
 
-        private static bool EnsureInstanceVertexBuffer(GraphicsDevice gd, StaticMapInstancingBatch batch, int instanceCount)
+        private static bool UploadStaticMapInstances(GraphicsDevice device, StaticMapInstancingBatch batch, long worldId, bool cacheUploads)
+        {
+            int instanceCount = batch.InstanceCount;
+            EnsureInstanceVertexBuffer(device, batch, instanceCount);
+            if (cacheUploads &&
+                batch.UploadedInstancesValid &&
+                batch.UploadedWorldInstanceId == worldId &&
+                batch.UploadedInstanceCount == instanceCount &&
+                batch.UploadedSignature == batch.QueueSignature)
+            {
+                return false;
+            }
+
+            batch.InstanceBuffer.SetData(batch.InstanceData, 0, instanceCount, SetDataOptions.Discard);
+            batch.UploadedInstancesValid = cacheUploads;
+            batch.UploadedWorldInstanceId = worldId;
+            batch.UploadedInstanceCount = instanceCount;
+            batch.UploadedSignature = batch.QueueSignature;
+            return true;
+        }
+
+        private static void EnsureInstanceVertexBuffer(GraphicsDevice gd, StaticMapInstancingBatch batch, int instanceCount)
         {
             if (batch.InstanceBuffer != null &&
                 !batch.InstanceBuffer.IsDisposed &&
                 batch.InstanceBufferCapacity >= instanceCount)
             {
-                return false;
+                return;
             }
 
             batch.InstanceBuffer?.Dispose();
@@ -1110,7 +1112,6 @@ namespace Client.Main.Objects
                 BufferUsage.WriteOnly);
             batch.InstanceBufferCapacity = capacity;
             batch.UploadedInstancesValid = false;
-            return true;
         }
 
         private static void EnsureInstanceUploadBuffer(WalkerCrowdInstancingBatch batch, int instanceCount)

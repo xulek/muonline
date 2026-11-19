@@ -24,6 +24,8 @@ Use `-GameOnly` to count completed client presentations when ETW capture is unav
 
 Use a build with `-p:PerformanceRelease=false` and add `-Profile -Pairs 1` for pass timings, draw calls, instancing, CPU skinning requests and per-logical-processor samples. Add `-Wpr` in an elevated session to also save a CPU/GPU ETL trace for WPA. `game.csv` timestamps use QPC and `game.json` identifies the game thread. A GameOnly profile also samples the client's GPU engines through Windows performance counters when available.
 
+Add `-CompareStaticTransparentUploadCache` to toggle only the instance buffer cache with GPU models enabled in both runs. Profiles include transparent upload and reuse counts per frame, CPU time spent preparing the instance buffers, and screenshots after each measured scene.
+
 ## GPU model rendering in Low
 
 On hardware DX11 with HiDef, enable this option in `appsettings.local.json` to try the faster model path. It can change how some models are lit.

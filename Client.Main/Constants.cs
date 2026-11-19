@@ -123,6 +123,7 @@ namespace Client.Main
         /// at the end of each DrawAfter pass instead of one draw per mesh and object.
         /// </summary>
         public static bool ENABLE_STATIC_MAP_TRANSPARENT_INSTANCING = true;
+        public static bool ENABLE_STATIC_MAP_TRANSPARENT_UPLOAD_CACHE = true;
 
         /// <summary>
         /// Draws animated map placements (swaying plants, flags) through the multi-pose crowd batches.

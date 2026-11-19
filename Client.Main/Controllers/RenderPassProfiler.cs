@@ -39,7 +39,10 @@ public static class RenderPassProfiler
         int PreviewBudgetSkips,
         double WorldQueueMs,
         double StaticQueueMs,
-        double InterfaceMs);
+        double InterfaceMs,
+        double StaticTransparentUploadMs,
+        int StaticTransparentUploads,
+        int StaticTransparentUploadReuses);
 
 #if PERFORMANCE_RELEASE
     public static bool Enabled => false;
@@ -85,6 +88,8 @@ public static class RenderPassProfiler
     internal static void AddStaticQueue(long started) { }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void AddInterface(long started) { }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AddStaticTransparentUpload(long started, bool uploaded) { }
 #else
     private static double _sceneDrawMs;
     private static double _sceneDrawAllocatedKb;
@@ -113,6 +118,8 @@ public static class RenderPassProfiler
     private static double _worldQueueMs;
     private static double _staticQueueMs;
     private static double _interfaceMs;
+    private static double _staticTransparentUploadMs;
+    private static int _staticTransparentUploads, _staticTransparentUploadReuses;
 
     public static bool Enabled { get; private set; }
 
@@ -143,7 +150,10 @@ public static class RenderPassProfiler
         _previewBudgetSkips,
         _worldQueueMs,
         _staticQueueMs,
-        _interfaceMs);
+        _interfaceMs,
+        _staticTransparentUploadMs,
+        _staticTransparentUploads,
+        _staticTransparentUploadReuses);
 
     public static void BeginFrame(bool enabled)
     {
@@ -176,6 +186,8 @@ public static class RenderPassProfiler
         _previewCacheMisses = 0;
         _previewBudgetSkips = 0;
         _worldQueueMs = _staticQueueMs = _interfaceMs = 0d;
+        _staticTransparentUploadMs = 0d;
+        _staticTransparentUploads = _staticTransparentUploadReuses = 0;
     }
 
     /// <summary>
@@ -244,6 +256,17 @@ public static class RenderPassProfiler
     internal static void AddWorldQueue(long started) => _worldQueueMs += CpuSectionMs(started);
     internal static void AddStaticQueue(long started) => _staticQueueMs += CpuSectionMs(started);
     internal static void AddInterface(long started) => _interfaceMs += CpuSectionMs(started);
+
+    internal static void AddStaticTransparentUpload(long started, bool uploaded)
+    {
+        if (started == 0)
+            return;
+        _staticTransparentUploadMs += CpuSectionMs(started);
+        if (uploaded)
+            _staticTransparentUploads++;
+        else
+            _staticTransparentUploadReuses++;
+    }
 
     private static double CpuSectionMs(long started) =>
         started == 0 ? 0d : Stopwatch.GetElapsedTime(started).TotalMilliseconds;

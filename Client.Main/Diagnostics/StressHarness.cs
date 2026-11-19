@@ -150,6 +150,8 @@ namespace Client.Main.Diagnostics
                     QualityPreset = nameof(GraphicsQualityPreset.Low),
                     EnableLowGpuModels = Environment.GetEnvironmentVariable("MU_STRESS_LOW_GPU_MODELS") == "1",
                 }, game.GraphicsDevice.Adapter, null);
+                if (Environment.GetEnvironmentVariable("MU_STRESS_STATIC_TRANSPARENT_UPLOAD_CACHE") is { } uploadCache)
+                    Constants.ENABLE_STATIC_MAP_TRANSPARENT_UPLOAD_CACHE = uploadCache == "1";
             }
             else if (Environment.GetEnvironmentVariable("MU_STRESS_PRESET") is { } preset &&
                 System.Enum.TryParse(preset, true, out Graphics.GraphicsQualityPreset qualityPreset))

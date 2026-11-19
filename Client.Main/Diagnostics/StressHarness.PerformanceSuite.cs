@@ -37,6 +37,8 @@ public static partial class StressHarness
     private static long _suiteDrawCalls, _suiteTriangles, _suiteTextureChanges, _suiteTargetChanges;
     private static long _suiteStaticDraws, _suiteGpuSkinnedMeshes, _suiteModelFallbackDraws;
     private static long _suiteCpuSkinRequests;
+    private static long _suiteStaticTransparentUploads, _suiteStaticTransparentUploadReuses;
+    private static double _suiteStaticTransparentUploadMs;
     private static double _suiteWorldQueueMs, _suiteStaticQueueMs, _suiteTerrainMs, _suiteInterfaceMs, _suitePostProcessMs;
     private static double _suitePresentApiMs;
 
@@ -108,6 +110,7 @@ public static partial class StressHarness
             Ssao = Constants.ENABLE_SSAO,
             DynamicLights = Constants.ENABLE_DYNAMIC_LIGHTS,
             DynamicLightingShader = Constants.ENABLE_DYNAMIC_LIGHTING_SHADER,
+            StaticTransparentUploadCache = Constants.ENABLE_STATIC_MAP_INSTANCE_UPLOAD_CACHE && Constants.ENABLE_STATIC_MAP_TRANSPARENT_UPLOAD_CACHE,
             GpuSkinning = Constants.ENABLE_GPU_SKINNING,
             Profile = PerformanceSuiteProfiling,
         }));
@@ -211,7 +214,7 @@ public static partial class StressHarness
         SaveScreenshot(game, $"{_label}_{SuiteScenarios[_suiteScenario]}");
         if (++_suiteScenario == SuiteScenarios.Length)
         {
-            const string header = "scenario;startQpc;endQpc;qpcFrequency;frames;gameFps;cpuMs;updateMs;drawMs;worldObjectsMs;worldQueueMs;staticQueueMs;terrainMs;interfaceMs;postProcessMs;mainCpuMsPerSecond;visibleObjects;drawCalls;triangles;textureChanges;targetChanges;staticDrawCalls;gpuSkinnedMeshes;modelFallbackDrawCalls;cpuSkinRequests;cameraTravel;attackWaves;presentApiMs";
+            const string header = "scenario;startQpc;endQpc;qpcFrequency;frames;gameFps;cpuMs;updateMs;drawMs;worldObjectsMs;worldQueueMs;staticQueueMs;terrainMs;interfaceMs;postProcessMs;mainCpuMsPerSecond;visibleObjects;drawCalls;triangles;textureChanges;targetChanges;staticDrawCalls;gpuSkinnedMeshes;modelFallbackDrawCalls;cpuSkinRequests;cameraTravel;attackWaves;presentApiMs;staticTransparentUploadMs;staticTransparentUploads;staticTransparentUploadReuses";
             File.WriteAllLines(_outPath, new[] { header, SuiteRows[0], SuiteRows[1], SuiteRows[2] });
             _phase = Phase.Done;
             PrintMicrobenchmarks();
@@ -226,6 +229,8 @@ public static partial class StressHarness
         _suiteStaticDraws = _suiteGpuSkinnedMeshes = _suiteModelFallbackDraws = _suiteCpuSkinRequests = 0;
         _suiteWorldQueueMs = _suiteStaticQueueMs = _suiteTerrainMs = _suiteInterfaceMs = _suitePostProcessMs = 0;
         _suitePresentApiMs = 0;
+        _suiteStaticTransparentUploadMs = 0;
+        _suiteStaticTransparentUploads = _suiteStaticTransparentUploadReuses = 0;
         if (_suiteScenario == 2)
         {
             hero.StopMovement();
@@ -265,6 +270,9 @@ public static partial class StressHarness
         _suiteTerrainMs += passes.TerrainOpaqueMs + passes.TerrainAfterMs;
         _suiteInterfaceMs += passes.InterfaceMs;
         _suitePostProcessMs += passes.PostProcessMs;
+        _suiteStaticTransparentUploadMs += passes.StaticTransparentUploadMs;
+        _suiteStaticTransparentUploads += passes.StaticTransparentUploads;
+        _suiteStaticTransparentUploadReuses += passes.StaticTransparentUploadReuses;
     }
 
     internal static void RecordSuiteCpuSkinRequest()
@@ -287,7 +295,8 @@ public static partial class StressHarness
             Average(_suiteTargetChanges), Average(_suiteStaticDraws), Average(_suiteGpuSkinnedMeshes),
             Average(_suiteModelFallbackDraws), Average(_suiteCpuSkinRequests),
             Number(_suiteScenario == 1 ? _suiteCameraTravel : 0), _monsterAttackStep - _suiteAttackStart,
-            Number(_suitePresentApiMs / _frames));
+            Number(_suitePresentApiMs / _frames), Average(_suiteStaticTransparentUploadMs),
+            Average(_suiteStaticTransparentUploads), Average(_suiteStaticTransparentUploadReuses));
         SuiteRows.Add(row);
         Console.WriteLine($"[perf-suite] {row}");
     }
