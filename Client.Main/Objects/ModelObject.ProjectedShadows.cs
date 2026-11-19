@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using Client.Data.BMD;
 using Client.Main.Controllers;
 using Client.Main.Graphics;
 using Client.Main.Objects.Player;
@@ -128,13 +130,32 @@ namespace Client.Main.Objects
         // world matrix and bone palette) in one skinned buffer, rebuilt when the set of meshes changes.
         private const int ProjectedShadowMergedMesh = -2;
 
+        private readonly record struct MergedShadowSource(ModelObject Part, int Mesh, bool TwoSided);
+
         private sealed class MergedShadowMesh : IDisposable
         {
             public VertexBuffer VertexBuffer;
             public IndexBuffer IndexBuffer;
             public int PrimitiveCount;
+            public int OneSidedPrimitiveCount;
             public int BoneCount;
-            public long Signature;
+            public (BMD Model, int Mesh, bool TwoSided)[] Geometry;
+
+            public bool Matches(List<MergedShadowSource> sources, GraphicsDevice device)
+            {
+                if (VertexBuffer is not { IsDisposed: false } || IndexBuffer is not { IsDisposed: false } ||
+                    VertexBuffer.GraphicsDevice != device || Geometry.Length != sources.Count)
+                    return false;
+
+                for (int i = 0; i < sources.Count; i++)
+                {
+                    var source = sources[i];
+                    if (Geometry[i] != (source.Part.Model, source.Mesh, source.TwoSided))
+                        return false;
+                }
+
+                return true;
+            }
 
             public void Dispose()
             {
@@ -146,7 +167,11 @@ namespace Client.Main.Objects
         }
 
         private MergedShadowMesh _mergedShadow;
-        private List<(ModelObject Part, int Mesh)> _mergedShadowSources;
+        private List<MergedShadowSource> _mergedShadowSources;
+        private MergedShadowMesh _mergedAmbientOcclusionBody;
+        private static readonly List<MergedShadowSource> s_ambientOcclusionBodySources = new(16);
+        private static readonly List<ModelObject> s_fullyMergedAmbientOcclusionParts = new(6);
+        private int _fullyMergedAmbientOcclusionPass;
         private int _mergedShadowFrame = -1;
         private Matrix _mergedShadowWorld;
         private float _mergedShadowOpacity;
@@ -161,7 +186,7 @@ namespace Client.Main.Objects
             if (_mergedShadowFrame != frame)
             {
                 _mergedShadowFrame = frame;
-                (_mergedShadowSources ??= new List<(ModelObject, int)>(16)).Clear();
+                (_mergedShadowSources ??= new List<MergedShadowSource>(16)).Clear();
                 _mergedShadowWorld = shadowWorld;
                 _mergedShadowOpacity = opacity;
                 // The first part uploads the shared palette for the merged draw.
@@ -172,64 +197,66 @@ namespace Client.Main.Objects
                 return false;
             }
 
-            _mergedShadowSources.Add((part, mesh));
+            _mergedShadowSources.Add(new MergedShadowSource(part, mesh, part.IsMeshTwoSided(mesh, false)));
             return true;
         }
 
-        private MergedShadowMesh GetMergedShadowMesh()
+        private MergedShadowMesh GetMergedShadowMesh(List<MergedShadowSource> sources,
+            ref MergedShadowMesh cache, MergedShadowMesh shared)
         {
-            var sources = _mergedShadowSources;
             if (sources == null || sources.Count == 0)
                 return null;
 
-            long signature;
-            unchecked
-            {
-                signature = 1469598103934665603L;
-                for (int i = 0; i < sources.Count; i++)
-                {
-                    signature = (signature ^ System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(sources[i].Part.Model)) * 1099511628211L;
-                    signature = (signature ^ sources[i].Mesh) * 1099511628211L;
-                }
-            }
+            var device = GraphicsDevice;
+            if (cache?.Matches(sources, device) == true)
+                return cache;
+            if (shared?.Matches(sources, device) == true)
+                return shared;
 
-            if (_mergedShadow is { VertexBuffer.IsDisposed: false } cached && cached.Signature == signature)
-                return cached;
-
-            _mergedShadow?.Dispose();
-            _mergedShadow = BuildMergedShadowMesh(sources, signature);
-            return _mergedShadow;
+            cache?.Dispose();
+            cache = BuildMergedShadowMesh(sources);
+            return cache;
         }
 
-        private MergedShadowMesh BuildMergedShadowMesh(List<(ModelObject Part, int Mesh)> sources, long signature)
+        private MergedShadowMesh BuildMergedShadowMesh(List<MergedShadowSource> sources)
         {
+            MergedShadowMesh merged = null;
             try
             {
                 var vertices = new List<SkinnedVertexPositionColorNormalTexture>(4096);
                 var indices = new List<int>(8192);
+                var twoSidedIndices = new List<int>();
+                var geometry = new (BMD, int, bool)[sources.Count];
                 int boneCount = 0;
                 for (int i = 0; i < sources.Count; i++)
                 {
-                    if (!Content.BMDLoader.Instance.TryGetSkinnedMeshGeometry(sources[i].Part.Model, sources[i].Mesh,
+                    var source = sources[i];
+                    var model = source.Part.Model;
+                    if (!Content.BMDLoader.Instance.TryGetSkinnedMeshGeometry(model, source.Mesh,
                             out var meshVertices, out int[] meshIndices, out int meshBones))
                         return null;
 
+                    geometry[i] = (model, source.Mesh, source.TwoSided);
                     boneCount = Math.Max(boneCount, meshBones);
                     int baseVertex = vertices.Count;
                     vertices.AddRange(meshVertices);
+                    var target = source.TwoSided ? twoSidedIndices : indices;
                     for (int k = 0; k < meshIndices.Length; k++)
-                        indices.Add(baseVertex + meshIndices[k]);
+                        target.Add(baseVertex + meshIndices[k]);
                 }
 
                 if (vertices.Count == 0 || boneCount > MaxGpuSkinBones)
                     return null;
 
                 var gd = GraphicsDevice;
-                var merged = new MergedShadowMesh
+                int oneSidedPrimitiveCount = indices.Count / 3;
+                indices.AddRange(twoSidedIndices);
+                merged = new MergedShadowMesh
                 {
-                    Signature = signature,
+                    Geometry = geometry,
                     BoneCount = boneCount,
                     PrimitiveCount = indices.Count / 3,
+                    OneSidedPrimitiveCount = oneSidedPrimitiveCount,
                     VertexBuffer = new VertexBuffer(gd, SkinnedVertexPositionColorNormalTexture.VertexDeclaration,
                         vertices.Count, BufferUsage.WriteOnly),
                 };
@@ -251,8 +278,112 @@ namespace Client.Main.Objects
             }
             catch (Exception ex)
             {
+                merged?.Dispose();
                 AppLoggerFactory?.CreateLogger<ModelObject>()?.LogDebug(ex, "Building the merged player shadow failed");
                 return null;
+            }
+        }
+
+        private int DrawMergedAmbientOcclusionBody(Effect effect, Matrix viewProjection, WorldObject[] children)
+        {
+            var bindings = GetModelEffectBindings(effect);
+            var technique = bindings.GetTechnique("ShadowCaster_Skinned");
+            if (technique == null)
+                return 0;
+
+            var sources = s_ambientOcclusionBodySources;
+            var fullyMerged = s_fullyMergedAmbientOcclusionParts;
+            var world = WorldPosition;
+            try
+            {
+                foreach (var child in children)
+                {
+                    if (child is not ModelObject part || !IsCompositeBodyPart(part) ||
+                        part.Status != Models.GameControlStatus.Ready || !part.RenderShadow ||
+                        !part.OccludesForAmbientOcclusion() || !part.LinkParentAnimation || part.ParentBoneLink >= 0 ||
+                        part.WorldPosition != world || part.Model?.Meshes == null || part._meshes == null ||
+                        !part.CanUseGpuSkinGeometry() || Constants.SHADOW_SKIP_SMALL_PARTS && IsSmallShadowPart(part))
+                        continue;
+
+                    int start = sources.Count;
+                    bool wholePart = true;
+                    for (int i = 0; i < part._meshes.Length; i++)
+                    {
+                        var mesh = part._meshes[i];
+                        if (part.IsHiddenMesh(i) || part.IsBlendMesh(i))
+                            continue;
+                        if (mesh.Texture is not { IsDisposed: false } || mesh.TextureOverride != null || mesh.IsRgba ||
+                            !part.EnsureGpuSkinnedMeshForMainPass(i))
+                        {
+                            wholePart = false;
+                            continue;
+                        }
+
+                        sources.Add(new MergedShadowSource(part, i, part.IsMeshTwoSided(i, false)));
+                    }
+                    if (wholePart && sources.Count > start)
+                        fullyMerged.Add(part);
+                }
+
+                if (sources.Count < 2)
+                    return 0;
+
+                var merged = GetMergedShadowMesh(sources, ref _mergedAmbientOcclusionBody, _mergedShadow);
+                if (merged == null || !sources[0].Part.TryUploadGpuSkinBoneMatrices(effect, bindings, merged.BoneCount))
+                    return 0;
+
+                var gd = GraphicsDevice;
+                var previousTechnique = effect.CurrentTechnique;
+                var previousRasterizer = gd.RasterizerState;
+                int draws = 0;
+                try
+                {
+                    // The AO caller already uses opaque blending and depth writes for the depth pass.
+                    effect.CurrentTechnique = technique;
+                    bindings.World?.SetValue(world);
+                    bindings.LightViewProjection?.SetValue(viewProjection);
+                    bindings.ShadowOpaqueCaster?.SetValue(1f);
+                    gd.SetVertexBuffer(merged.VertexBuffer);
+                    gd.Indices = merged.IndexBuffer;
+
+                    if (merged.OneSidedPrimitiveCount > 0)
+                    {
+                        gd.RasterizerState = _cullClockwise;
+                        technique.Passes[0].Apply();
+                        gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, merged.OneSidedPrimitiveCount);
+                        draws++;
+                    }
+                    if (merged.PrimitiveCount > merged.OneSidedPrimitiveCount)
+                    {
+                        gd.RasterizerState = _cullNone;
+                        technique.Passes[0].Apply();
+                        gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, merged.OneSidedPrimitiveCount * 3,
+                            merged.PrimitiveCount - merged.OneSidedPrimitiveCount);
+                        draws++;
+                    }
+                }
+                finally
+                {
+                    bindings.ShadowOpaqueCaster?.SetValue(0f);
+                    effect.CurrentTechnique = previousTechnique;
+                    gd.RasterizerState = previousRasterizer;
+                }
+
+                foreach (var source in sources)
+                    source.Part._meshes[source.Mesh].AmbientOcclusionPass = AmbientOcclusionPass;
+                foreach (var part in fullyMerged)
+                    part._fullyMergedAmbientOcclusionPass = AmbientOcclusionPass;
+                return draws;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Drawing merged player depth for SSAO failed");
+                return 0;
+            }
+            finally
+            {
+                sources.Clear();
+                fullyMerged.Clear();
             }
         }
 
@@ -309,7 +440,9 @@ namespace Client.Main.Objects
                     for (int i = 0; i < s_projectedShadowDraws.Count; i++)
                     {
                         ProjectedShadowDraw draw = s_projectedShadowDraws[i];
-                        if (draw.Skinned == skinnedPass && draw.Opaque == opaquePass)
+                        if (draw.Skinned == skinnedPass && draw.Opaque == opaquePass &&
+                            (!maskViewProjection.HasValue || !Constants.ENABLE_GRASS_SHADOW_CULLING ||
+                             ProjectedShadowReachesGrassReceivers(terrain, in draw)))
                             DrawProjectedShadow(gd, effect, bindings, technique, terrain, in draw);
                     }
                 }
@@ -330,6 +463,109 @@ namespace Client.Main.Objects
                 gd.DepthStencilState = previousDepth;
                 gd.RasterizerState = previousRasterizer;
             }
+        }
+
+        private static bool ProjectedShadowReachesGrassReceivers(Controls.TerrainControl terrain, in ProjectedShadowDraw draw)
+        {
+            if (draw.Mesh == ProjectedShadowCompositeMesh)
+                return true;
+
+            if (draw.Mesh == ProjectedShadowMergedMesh && draw.Owner.Parent is ModelObject root)
+            {
+                foreach (var source in root._mergedShadowSources)
+                {
+                    if (source.Part.ProjectedBoundsReachGrass(terrain, draw.ShadowWorld, skinned: true))
+                        return true;
+                }
+
+                return false;
+            }
+
+            return draw.Owner.ProjectedBoundsReachGrass(terrain, draw.ShadowWorld, draw.Skinned);
+        }
+
+        private readonly record struct BoneShadowBounds(int Bone, BoundingBox Bounds);
+        private static readonly ConditionalWeakTable<BMD, BoneShadowBounds[]> s_boneShadowBounds = new();
+        private int _grassShadowTestFrame = int.MinValue;
+        private Matrix _grassShadowTestWorld;
+        private bool _grassShadowTestSkinned;
+        private bool _grassShadowTestResult;
+
+        private bool ProjectedBoundsReachGrass(Controls.TerrainControl terrain, Matrix shadowWorld, bool skinned)
+        {
+            if (_grassShadowTestFrame == MuGame.FrameIndex && _grassShadowTestWorld == shadowWorld && _grassShadowTestSkinned == skinned)
+                return _grassShadowTestResult;
+
+            // Animated CPU buffers can still contain an earlier pose. Cull only the known geometry in that path.
+            if (UsesMutableMeshData || GetVertexDeformer() != null || Model?.Meshes == null ||
+                (!skinned && (!IsMapPlacementObject || HasAnimatedCurrentAction() || !_boundingComputed)))
+                return true;
+
+            Vector2 min = new(float.PositiveInfinity);
+            Vector2 max = new(float.NegativeInfinity);
+            if (skinned)
+            {
+                var (bones, _) = GetGpuSkinPose();
+                foreach (var entry in s_boneShadowBounds.GetValue(Model, BuildBoneShadowBounds))
+                {
+                    Matrix transform = (uint)entry.Bone < (uint)(bones?.Length ?? 0)
+                        ? bones[entry.Bone] * shadowWorld : shadowWorld;
+                    ExpandProjectedBounds(entry.Bounds, transform, ref min, ref max);
+                }
+            }
+            else
+            {
+                ExpandProjectedBounds(BoundingBoxLocal, shadowWorld, ref min, ref max);
+            }
+
+            _grassShadowTestFrame = MuGame.FrameIndex;
+            _grassShadowTestWorld = shadowWorld;
+            _grassShadowTestSkinned = skinned;
+            _grassShadowTestResult = !float.IsFinite(min.X) || !float.IsFinite(min.Y) ||
+                !float.IsFinite(max.X) || !float.IsFinite(max.Y) || terrain.IntersectsVisibleGrassShadowReceivers(min, max);
+            return _grassShadowTestResult;
+        }
+
+        private static BoneShadowBounds[] BuildBoneShadowBounds(BMD model)
+        {
+            var bounds = new BoundingBox[MaxGpuSkinBones];
+            var used = new bool[MaxGpuSkinBones];
+            foreach (var mesh in model.Meshes)
+            {
+                if (mesh?.Vertices == null)
+                    continue;
+
+                foreach (var vertex in mesh.Vertices)
+                {
+                    int bone = Math.Clamp((int)vertex.Node, 0, MaxGpuSkinBones - 1);
+                    var position = vertex.Position;
+                    bounds[bone] = used[bone]
+                        ? new BoundingBox(Vector3.Min(bounds[bone].Min, position), Vector3.Max(bounds[bone].Max, position))
+                        : new BoundingBox(position, position);
+                    used[bone] = true;
+                }
+            }
+
+            var result = new List<BoneShadowBounds>();
+            for (int bone = 0; bone < bounds.Length; bone++)
+            {
+                if (used[bone])
+                    result.Add(new BoneShadowBounds(bone, bounds[bone]));
+            }
+
+            return result.ToArray();
+        }
+
+        private static void ExpandProjectedBounds(BoundingBox bounds, Matrix transform, ref Vector2 min, ref Vector2 max)
+        {
+            var center = Vector3.Transform((bounds.Min + bounds.Max) * 0.5f, transform);
+            var extents = (bounds.Max - bounds.Min) * 0.5f;
+            Vector2 radius = new(
+                MathF.Abs(transform.M11) * extents.X + MathF.Abs(transform.M21) * extents.Y + MathF.Abs(transform.M31) * extents.Z,
+                MathF.Abs(transform.M12) * extents.X + MathF.Abs(transform.M22) * extents.Y + MathF.Abs(transform.M32) * extents.Z);
+            Vector2 centerXY = new(center.X, center.Y);
+            min = Vector2.Min(min, centerXY - radius);
+            max = Vector2.Max(max, centerXY + radius);
         }
 
         // OpenGL height window: 10x10 nodes around the shadow, four heights per constant (DynamicLighting.fx).
@@ -373,7 +609,8 @@ namespace Client.Main.Objects
             {
                 if (owner.Parent is not ModelObject root)
                     return;
-                MergedShadowMesh merged = root.GetMergedShadowMesh();
+                MergedShadowMesh merged = root.GetMergedShadowMesh(root._mergedShadowSources,
+                    ref root._mergedShadow, root._mergedAmbientOcclusionBody);
                 if (merged == null)
                 {
                     // Not buildable: the parts' meshes draw one by one.

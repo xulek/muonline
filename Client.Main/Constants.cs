@@ -102,6 +102,16 @@ namespace Client.Main
         /// two calls instead of one per part mesh.
         /// </summary>
         public static bool ENABLE_PLAYER_COMPOSITE = true;
+        public static bool ENABLE_PLAYER_EQUIPMENT_INSTANCING = true;
+        public static bool ENABLE_MERGED_PLAYER_AO = true;
+        public static bool ENABLE_SSAO_FRAME_REUSE = true;
+        public static bool ENABLE_CROWD_RENDER_LOD = true;
+        public static bool ENABLE_COVERED_ARMOR_CHROME_SKIP = true;
+        public static bool ENABLE_FUSED_BLOOM_EXTRACT = true;
+        public static bool ENABLE_DIRECT_BACKBUFFER_UI = true;
+        public static bool ENABLE_GRASS_SHADOW_CULLING = true;
+        public static bool ENABLE_REMOTE_PLAYER_SHADOW_LOD = true;
+        public static bool ENABLE_REMOTE_WING_OVERLAY_LOD = true;
 
         /// <summary>
         /// Draws the RGBA cutout meshes of crowd-instanced walkers as instanced batches after the DrawAfter pass.

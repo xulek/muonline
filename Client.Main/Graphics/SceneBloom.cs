@@ -85,8 +85,19 @@ namespace Client.Main.Graphics
             SpriteBatch sprite = GraphicsManager.Instance.Sprite;
             SpriteBatchScope.ForceReset();
 
-            Pass(device, sprite, effect, "Extract", _scene, _half, new Vector2(1f / _scene.Width, 1f / _scene.Height));
-            Pass(device, sprite, effect, "Extract", _half, _quarterA, new Vector2(1f / _half.Width, 1f / _half.Height));
+            var sceneTexel = new Vector2(1f / _scene.Width, 1f / _scene.Height);
+            if (Constants.ENABLE_FUSED_BLOOM_EXTRACT && (_scene.Width & 3) == 0 && (_scene.Height & 3) == 0 &&
+                effect.Techniques["ExtractQuarter"] != null)
+            {
+                Pass(device, sprite, effect, "ExtractQuarter", _scene, _quarterA, sceneTexel);
+            }
+            else
+            {
+                _half ??= new RenderTarget2D(device, Math.Max(1, _scene.Width / 2), Math.Max(1, _scene.Height / 2),
+                    false, SurfaceFormat.Color, DepthFormat.None);
+                Pass(device, sprite, effect, "Extract", _scene, _half, sceneTexel);
+                Pass(device, sprite, effect, "Extract", _half, _quarterA, new Vector2(1f / _half.Width, 1f / _half.Height));
+            }
             for (int i = 0; i < 2; i++)
             {
                 float spread = 1f + i;
@@ -155,7 +166,6 @@ namespace Client.Main.Graphics
             // PreserveContents: gameplay worlds switch to other targets mid-frame (ground shadow mask, part atlas)
             // and come back; a DiscardContents target is cleared on rebind, which wiped the terrain and objects.
             _scene = new RenderTarget2D(device, width, height, false, SurfaceFormat.Color, DepthFormat.Depth24Stencil8, samples, RenderTargetUsage.PreserveContents);
-            _half = new RenderTarget2D(device, Math.Max(1, width / 2), Math.Max(1, height / 2), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterA = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);
             _quarterB = new RenderTarget2D(device, Math.Max(1, width / 4), Math.Max(1, height / 4), false, SurfaceFormat.Color, DepthFormat.None);
             _requestedSampleCount = samples;

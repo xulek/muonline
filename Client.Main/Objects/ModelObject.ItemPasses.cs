@@ -57,9 +57,18 @@ namespace Client.Main.Objects
             if (chrome == null)
                 return;
 
+            bool hasOpaqueComposite = Constants.ENABLE_COVERED_ARMOR_CHROME_SKIP &&
+                IsCompositeCoveredThisFrame && _meshes != null;
             var pathToken = Client.Main.Diagnostics.DrawPathCounter.Start();
             for (int mesh = 0; mesh < Model.Meshes.Length; mesh++)
+            {
+                // The composite fully covers these RGB meshes. On cutouts the chrome can show through.
+                if (hasOpaqueComposite && mesh < _meshes.Length && !_meshes[mesh].IsRgba &&
+                    !IsHiddenMesh(mesh) && !IsBlendMesh(mesh) && DetermineShaderForMesh(mesh).UseItemMaterial)
+                    continue;
+
                 DrawMeshItemOverlay(mesh, ItemOverlayMode.Chrome, tint, chrome, blend: ItemOverlayBlend.Opaque);
+            }
             Client.Main.Diagnostics.DrawPathCounter.StopExtra(pathToken, Client.Main.Diagnostics.DrawPathCounter.Extra.ChromeUnderlay);
         }
 

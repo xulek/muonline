@@ -191,6 +191,13 @@ namespace Client.Main
                 HardwareModeSwitch = false // Required for dynamic resolution changes at runtime
             };
 
+#if WINDOWS_DX && !NATIVE_BACKEND
+            // UI render caches switch targets while drawing. On DX11 the preserved backbuffer can
+            // resume their drawing without the additional full-window scene copy.
+            _graphics.PreparingDeviceSettings += (_, args) =>
+                args.GraphicsDeviceInformation.PresentationParameters.RenderTargetUsage = RenderTargetUsage.PreserveContents;
+#endif
+
             if (OperatingSystem.IsAndroid())
             {
                 _graphics.IsFullScreen = true;
@@ -873,7 +880,12 @@ namespace Client.Main
                         requireTempTarget2: postProcessPasses >= 2,
                         requireRecoveryTarget: gameSceneRecovery,
                         worldGlowHandlesMsaa: ActiveScene?.World?.WorldGlowEnabled == true);
-                    EnsureInterfaceTarget();
+                    RenderTarget2D interfaceTarget = null;
+                    if (!CanDrawInterfaceToBackBuffer())
+                    {
+                        EnsureInterfaceTarget();
+                        interfaceTarget = _interfaceTarget;
+                    }
 
                     // The interface is held back and drawn after post-processing at the window's resolution.
                     Client.Main.Scenes.BaseScene.DeferInterface = true;
@@ -895,19 +907,20 @@ namespace Client.Main
                         // loaded object does not terminate the client. Do not treat that partial
                         // render as a complete frame or replace the last known-good scene with it.
                         _currentDrawPhase = "Frame.RecoverContainedRenderFailure";
-                        DrawEmergencyFallbackFrame(_interfaceTarget);
+                        DrawEmergencyFallbackFrame(interfaceTarget);
                         recoveredFrame = true;
                     }
                     else
                     {
                         _currentDrawPhase = "PostProcess";
                         var postProcessStarted = RenderPassProfiler.Start();
-                        ApplyPostProcessingEffects();
+                        ApplyPostProcessingEffects(interfaceTarget);
                         RenderPassProfiler.AddPostProcess(postProcessStarted);
                     }
 
-                    DrawDeferredInterface(gameTime);
-                    DrawFinalImageToScreen(_interfaceTarget);
+                    DrawDeferredInterface(gameTime, interfaceTarget);
+                    if (interfaceTarget != null)
+                        DrawFinalImageToScreen(interfaceTarget);
                 }
                 else
                 {
@@ -1793,6 +1806,16 @@ namespace Client.Main
 
         private RenderTarget2D _interfaceTarget;
 
+        private bool CanDrawInterfaceToBackBuffer()
+        {
+#if WINDOWS_DX && !NATIVE_BACKEND
+            return Constants.ENABLE_DIRECT_BACKBUFFER_UI && ActiveScene is GameScene &&
+                GraphicsDevice.PresentationParameters.RenderTargetUsage == RenderTargetUsage.PreserveContents;
+#else
+            return false;
+#endif
+        }
+
         private void EnsureInterfaceTarget()
         {
             var pp = GraphicsDevice.PresentationParameters;
@@ -1806,13 +1829,13 @@ namespace Client.Main
         }
 
         /// <summary>Draws the deferred interface at full resolution over the processed scene.</summary>
-        private void DrawDeferredInterface(GameTime gameTime)
+        private void DrawDeferredInterface(GameTime gameTime, RenderTarget2D destination)
         {
             if (ActiveScene is not Client.Main.Scenes.BaseScene scene)
                 return;
 
             _currentDrawPhase = "Scene.Interface";
-            GraphicsDevice.SetRenderTarget(_interfaceTarget);
+            GraphicsDevice.SetRenderTarget(destination);
             UiScaler.NativeResolutionPass = true;
             try
             {
@@ -1824,7 +1847,7 @@ namespace Client.Main
             }
         }
 
-        private void ApplyPostProcessingEffects()
+        private void ApplyPostProcessingEffects(RenderTarget2D destinationTarget)
         {
             RenderTarget2D sourceTarget = GraphicsManager.Instance.MainRenderTarget;
 
@@ -1844,7 +1867,7 @@ namespace Client.Main
                 sourceTarget = destination;
             }
 
-            DrawFinalImageToScreen(sourceTarget, _interfaceTarget);
+            DrawFinalImageToScreen(sourceTarget, destinationTarget);
         }
 
         private void ApplyEffect(Effect effect, RenderTarget2D source, RenderTarget2D destination)

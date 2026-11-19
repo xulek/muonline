@@ -314,6 +314,9 @@ namespace Client.Main.Controls
         internal bool HasVisibleGrassShadowReceivers() =>
             Visible && Status == Models.GameControlStatus.Ready && _renderer?.HasVisibleGrassShadowReceivers() == true;
 
+        internal bool IntersectsVisibleGrassShadowReceivers(Vector2 min, Vector2 max) =>
+            _renderer.IntersectsVisibleGrassShadowReceivers(min, max);
+
         /// <summary>Grass on top of the ground shadows; see <see cref="TerrainRenderer.DrawGrassAfterShadows"/>.</summary>
         internal void DrawGrassAfterShadows()
         {

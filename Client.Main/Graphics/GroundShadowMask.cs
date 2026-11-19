@@ -15,6 +15,7 @@ namespace Client.Main.Graphics
     {
         private const int Resolution = 512;
         private const float WorldSize = 4096f;   // about 41 tiles: more than the ground visible from the default camera
+        internal const float TexelSize = WorldSize / Resolution;
 
         private static RenderTarget2D _target;
         private static RenderTargetBinding[] _previousTargets;
@@ -44,9 +45,8 @@ namespace Client.Main.Graphics
             }
 
             // Snapped to whole texels so the mask does not shimmer while the camera moves.
-            float texel = WorldSize / Resolution;
-            center.X = MathF.Round(center.X / texel) * texel;
-            center.Y = MathF.Round(center.Y / texel) * texel;
+            center.X = MathF.Round(center.X / TexelSize) * TexelSize;
+            center.Y = MathF.Round(center.Y / TexelSize) * TexelSize;
 
             Matrix view = Matrix.CreateLookAt(new Vector3(center.X, center.Y, center.Z + 20000f), new Vector3(center.X, center.Y, center.Z), Vector3.UnitY);
             Matrix projection = Matrix.CreateOrthographic(WorldSize, WorldSize, 1f, 60000f);

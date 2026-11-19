@@ -23,9 +23,11 @@ namespace Client.Main.Controls.Terrain
         private const int GrassTextureCount = 3;
         private const int GrassTextureBaseIndex = 0;
         private const int ChunkSize = 32;
+        private const int ChunksPerSide = (Constants.TERRAIN_SIZE + ChunkSize - 1) / ChunkSize;
         private const float GrassUvWidth = 64f / 256f;
         private const float GrassHeightMultiplier = 2f;
         private const float GrassHorizontalOffset = -50f;
+        private const float GrassWindPadding = 80f;
         private const float SpecialHeight = 1200f;
 
         private readonly struct GrassQuad
@@ -72,6 +74,7 @@ namespace Client.Main.Controls.Terrain
             public readonly GrassQuad[] Quads;
             public readonly VertexPositionColorTexture[] Vertices;
             public readonly BoundingBox Bounds;
+            public readonly int BatchIndex;
             public DynamicVertexBuffer VertexBuffer;
             public int LastWindVersion = int.MinValue;
 
@@ -79,12 +82,13 @@ namespace Client.Main.Controls.Terrain
                 GraphicsDevice graphicsDevice,
                 Texture2D texture,
                 List<GrassQuad> quads,
-                BoundingBox bounds)
+                BoundingBox bounds, int batchIndex)
             {
                 Texture = texture;
                 Quads = quads.ToArray();
                 Vertices = new VertexPositionColorTexture[Quads.Length * 6];
                 Bounds = bounds;
+                BatchIndex = batchIndex;
                 VertexBuffer = new DynamicVertexBuffer(
                     graphicsDevice,
                     VertexPositionColorTexture.VertexDeclaration,
@@ -137,6 +141,8 @@ namespace Client.Main.Controls.Terrain
         private readonly TerrainData _data;
         private readonly TerrainPhysics _physics;
         private readonly WindSimulator _wind;
+        private readonly byte[] _shadowReceiverTiles = new byte[Constants.TERRAIN_SIZE * Constants.TERRAIN_SIZE];
+        private readonly byte[] _visibleShadowReceiverChunks = new byte[ChunksPerSide * ChunksPerSide];
         private readonly Texture2D[] _grassTextures = new Texture2D[GrassTextureCount];
         private readonly List<GrassBatch> _batches = new();
 
@@ -278,6 +284,7 @@ namespace Client.Main.Controls.Terrain
         {
             _rebuildPending = false;
             DisposeBatches();
+            Array.Clear(_shadowReceiverTiles);
 
             if (!Constants.DRAW_GRASS || IsGrassDisabledWorld(_worldIndex) ||
                 _graphicsDevice == null || !_contentReady)
@@ -292,8 +299,7 @@ namespace Client.Main.Controls.Terrain
                 return;
             }
 
-            int chunksPerSide = (Constants.TERRAIN_SIZE + ChunkSize - 1) / ChunkSize;
-            var quadLists = new List<GrassQuad>[chunksPerSide * chunksPerSide * GrassTextureCount];
+            var quadLists = new List<GrassQuad>[ChunksPerSide * ChunksPerSide * GrassTextureCount];
             var boundsMin = new Vector3[quadLists.Length];
             var boundsMax = new Vector3[quadLists.Length];
             for (int i = 0; i < quadLists.Length; i++)
@@ -367,9 +373,10 @@ namespace Client.Main.Controls.Terrain
 
                     int chunkX = x / ChunkSize;
                     int chunkY = y / ChunkSize;
-                    int batchIndex = (chunkY * chunksPerSide + chunkX) * GrassTextureCount + textureIndex;
+                    int batchIndex = (chunkY * ChunksPerSide + chunkX) * GrassTextureCount + textureIndex;
                     (quadLists[batchIndex] ??= new List<GrassQuad>(ChunkSize * ChunkSize / 2)).Add(quad);
                     ExpandBounds(ref boundsMin[batchIndex], ref boundsMax[batchIndex], quad);
+                    _shadowReceiverTiles[index1] = (byte)(1 << textureIndex);
                 }
             }
 
@@ -383,7 +390,7 @@ namespace Client.Main.Controls.Terrain
                     _graphicsDevice,
                     _grassTextures[textureIndex],
                     quadLists[i],
-                    new BoundingBox(boundsMin[i], boundsMax[i])));
+                    new BoundingBox(boundsMin[i], boundsMax[i]), i));
             }
         }
 
@@ -405,11 +412,43 @@ namespace Client.Main.Controls.Terrain
                 return false;
             }
 
+            Array.Clear(_visibleShadowReceiverChunks);
+            bool visible = false;
             BoundingFrustum frustum = Camera.Instance.Frustum;
             for (int i = 0; i < _batches.Count; i++)
             {
-                if (frustum.Contains(_batches[i].Bounds) != ContainmentType.Disjoint)
+                var batch = _batches[i];
+                if (frustum.Contains(batch.Bounds) == ContainmentType.Disjoint)
+                    continue;
+                if (!Constants.ENABLE_GRASS_SHADOW_CULLING)
                     return true;
+                visible = true;
+                _visibleShadowReceiverChunks[batch.BatchIndex / GrassTextureCount] |= (byte)(1 << (batch.BatchIndex % GrassTextureCount));
+            }
+
+            return visible;
+        }
+
+        internal bool IntersectsVisibleShadowReceivers(Vector2 min, Vector2 max)
+        {
+            // A grass quad spans a tile diagonally. Its top leans in X and sways in Y.
+            // Leave one mask texel for bilinear sampling at a shadow's edge.
+            const float scale = Constants.TERRAIN_SCALE;
+            const float texel = GroundShadowMask.TexelSize;
+            int firstX = Math.Max(0, (int)MathF.Floor((min.X - texel) / scale) - 1);
+            int firstY = Math.Max(0, (int)MathF.Floor((min.Y - GrassWindPadding - texel) / scale) - 1);
+            int lastX = Math.Min(Constants.TERRAIN_SIZE - 1, (int)MathF.Floor((max.X - GrassHorizontalOffset + texel) / scale));
+            int lastY = Math.Min(Constants.TERRAIN_SIZE - 1, (int)MathF.Floor((max.Y + GrassWindPadding + texel) / scale));
+
+            for (int y = firstY; y <= lastY; y++)
+            {
+                int row = y * Constants.TERRAIN_SIZE;
+                int chunkRow = (y / ChunkSize) * ChunksPerSide;
+                for (int x = firstX; x <= lastX; x++)
+                {
+                    if ((_shadowReceiverTiles[row + x] & _visibleShadowReceiverChunks[chunkRow + x / ChunkSize]) != 0)
+                        return true;
+                }
             }
 
             return false;
@@ -640,10 +679,10 @@ namespace Client.Main.Controls.Terrain
             Vector3 quadMin = Vector3.Min(quad.BottomLeft, quad.BottomRight);
             Vector3 quadMax = Vector3.Max(quad.BottomLeft, quad.BottomRight);
             quadMin.X -= 100f;
-            quadMin.Y -= 80f;
+            quadMin.Y -= GrassWindPadding;
             quadMin.Z -= 1f;
             quadMax.X += 100f;
-            quadMax.Y += 80f;
+            quadMax.Y += GrassWindPadding;
             quadMax.Z += quad.Height;
             min = Vector3.Min(min, quadMin);
             max = Vector3.Max(max, quadMax);

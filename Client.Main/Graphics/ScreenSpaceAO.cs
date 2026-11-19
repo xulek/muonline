@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Diagnostics;
 using Client.Main.Controllers;
 using Client.Main.Controls;
 using Client.Main.Helpers;
@@ -20,6 +21,8 @@ namespace Client.Main.Graphics
     internal sealed class ScreenSpaceAO : IDisposable
     {
         private const float CasterDistance = 3200f;
+        private const int MaxReuseFrames = 2;
+        private const double MaxReuseMilliseconds = 50d;
 
         private readonly List<ModelObject> _instancedCasters = new();
         private RenderTarget2D? _depth;
@@ -31,6 +34,11 @@ namespace Client.Main.Graphics
         private bool _historyValid;
         private int _lastRenderedFrame = int.MinValue;
         private int _frame = int.MinValue;
+        private long _lastSampleTimestamp;
+        private int _lastVisibleCount;
+        private float _lastIntensity;
+        private float _lastRadius;
+        private bool _lastCrowdDetail;
 
         /// <summary>Share of last frame's occlusion kept per frame (temporal smoothing).</summary>
         public float HistoryWeight { get; set; } = 0.85f;
@@ -67,9 +75,22 @@ namespace Client.Main.Graphics
             int height = Math.Max(16, sceneHeight / 2);
             EnsureTargets(device, width, height);
 
-            // Last frame's depth becomes the history depth; history is only usable from consecutive frames.
+            int frame = MuGame.FrameIndex;
+            int sampleAge = frame - _lastRenderedFrame;
+            float intensity = EffectiveIntensity;
+            Matrix viewProjection = camera.ViewProjection;
+            bool historyUsable = _historyValid && _frame == frame - 1 &&
+                intensity == _lastIntensity && Radius == _lastRadius && world.HasCrowdedPlayers == _lastCrowdDetail;
+            if (Constants.ENABLE_SSAO_FRAME_REUSE && historyUsable && sampleAge <= MaxReuseFrames &&
+                viewProjection == _prevViewProjection && world.VisibleObjects.Count == _lastVisibleCount &&
+                Stopwatch.GetElapsedTime(_lastSampleTimestamp).TotalMilliseconds <= MaxReuseMilliseconds)
+            {
+                _frame = frame;
+                return true;
+            }
+
+            // Reused frames leave the depth textures in place, so the two textures still refer to real samples.
             (_depth, _prevDepth) = (_prevDepth, _depth);
-            bool historyUsable = _historyValid && _lastRenderedFrame == MuGame.FrameIndex - 1;
 
             RenderTargetBinding[] previousTargets = device.GetRenderTargets();
             Viewport previousViewport = device.Viewport;
@@ -77,7 +98,6 @@ namespace Client.Main.Graphics
             DepthStencilState previousDepth = device.DepthStencilState;
             RasterizerState previousRaster = device.RasterizerState;
             EffectTechnique previousTechnique = lighting.CurrentTechnique;
-            Matrix viewProjection = camera.ViewProjection;
 
             try
             {
@@ -94,6 +114,7 @@ namespace Client.Main.Graphics
                 lighting.Parameters["ShadowOpaqueCaster"]?.SetValue(1f);
                 world.Terrain.RenderShadowMap(lighting, viewProjection);
                 lighting.Parameters["ShadowOpaqueCaster"]?.SetValue(0f);
+                unchecked { ModelObject.AmbientOcclusionPass++; }
                 ModelObject.AmbientOcclusionDepthPass = true;
                 try
                 {
@@ -115,7 +136,7 @@ namespace Client.Main.Graphics
                 post.Parameters["ProjScale"]?.SetValue(new Vector2(1f / projection.M11, 1f / projection.M22));
                 post.Parameters["ProjDepth"]?.SetValue(new Vector2(projection.M33, projection.M43));
                 post.Parameters["AoRadius"]?.SetValue(Radius);
-                post.Parameters["AoIntensity"]?.SetValue(EffectiveIntensity);
+                post.Parameters["AoIntensity"]?.SetValue(intensity);
                 post.Parameters["AoProjRadius"]?.SetValue(Radius * projection.M11 * 0.5f);
                 sprite.Begin(SpriteSortMode.Immediate, BlendState.Opaque, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, post);
                 sprite.Draw(_depth, new Rectangle(0, 0, width, height), Color.White);
@@ -124,7 +145,7 @@ namespace Client.Main.Graphics
                 // Filter raw AO and reproject the history in one pass.
                 device.SetRenderTarget(_historyNext);
                 post.CurrentTechnique = temporalTechnique;
-                post.Parameters["HistoryWeight"]?.SetValue(historyUsable ? HistoryWeight : 0f);
+                post.Parameters["HistoryWeight"]?.SetValue(historyUsable ? MathF.Pow(HistoryWeight, sampleAge) : 0f);
                 if (historyUsable)
                 {
                     Matrix viewToPreviousClip = Matrix.Invert(camera.View) * _prevViewProjection;
@@ -156,9 +177,19 @@ namespace Client.Main.Graphics
 
                 _prevViewProjection = viewProjection;
                 _historyValid = true;
-                _lastRenderedFrame = MuGame.FrameIndex;
-                _frame = MuGame.FrameIndex;
+                _lastRenderedFrame = frame;
+                _lastSampleTimestamp = Stopwatch.GetTimestamp();
+                _lastVisibleCount = world.VisibleObjects.Count;
+                _lastIntensity = intensity;
+                _lastRadius = Radius;
+                _lastCrowdDetail = world.HasCrowdedPlayers;
+                _frame = frame;
                 return true;
+            }
+            catch
+            {
+                _historyValid = false;
+                throw;
             }
             finally
             {

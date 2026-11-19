@@ -66,7 +66,7 @@ namespace Client.Main.Objects
                 // List.Sort is unstable; the insertion index in the key's low bits keeps equal keys in order.
                 s_deferredOpaqueMeshDraws.Sort(s_deferredMeshOrder);
                 graphicsDevice.DepthStencilState = DepthStencilState.Default;
-                DrawDeferredMeshList(s_deferredOpaqueMeshDraws);
+                DrawDeferredMeshList(s_deferredOpaqueMeshDraws, Constants.ENABLE_PLAYER_EQUIPMENT_INSTANCING);
                 graphicsDevice.DepthStencilState = DepthStencilState.Default;
                 DrawDeferredMeshList(s_deferredBlendedMeshDraws);
             }
@@ -81,7 +81,7 @@ namespace Client.Main.Objects
         // Mesh index of a queued merged player body (ModelObject.PlayerComposite).
         private const int DeferredCompositeMesh = -1;
 
-        private static void DrawDeferredMeshList(List<DeferredMeshDraw> draws)
+        private static void DrawDeferredMeshList(List<DeferredMeshDraw> draws, bool instancePlayerEquipment = false)
         {
             // Only mesh draws happen here: consecutive meshes of one object share their lighting setup, and the
             // blend and rasterizer states the draws change are restored once at the end.
@@ -94,6 +94,13 @@ namespace Client.Main.Objects
                 for (int i = 0; i < draws.Count; i++)
                 {
                     DeferredMeshDraw draw = draws[i];
+                    if (instancePlayerEquipment && (draw.SortKey >> 56) == (long)MeshShaderKind.ItemMaterial)
+                    {
+                        instancePlayerEquipment = false;
+                        DrawPlayerEquipmentBatches(gd, draws, i);
+                        draw = draws[i];
+                    }
+
                     if (draw.Owner == null || draw.Owner.Status == Models.GameControlStatus.Disposed || !draw.Owner.Visible)
                         continue;
                     draw.Owner.DrawDeferred(draw.Mesh);

@@ -100,15 +100,20 @@ SamplerState BonePaletteTextureSampler : register(s5)
 #endif
 float BonePaletteBase;
 
-float4x4 LoadBone(int boneIndex)
+float4x4 LoadBoneAt(int boneIndex, float paletteBase)
 {
-    int texel = (int)(BonePaletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
+    int texel = (int)(paletteBase + 0.5) + min(max(boneIndex, 0), 255) * 4;
     int3 p = int3(texel & 1023, texel >> 10, 0);
     return float4x4(
         DATA_TEXEL(BonePaletteTexture, p),
         DATA_TEXEL(BonePaletteTexture, p + int3(1, 0, 0)),
         DATA_TEXEL(BonePaletteTexture, p + int3(2, 0, 0)),
         DATA_TEXEL(BonePaletteTexture, p + int3(3, 0, 0)));
+}
+
+float4x4 LoadBone(int boneIndex)
+{
+    return LoadBoneAt(boneIndex, BonePaletteBase);
 }
 #endif
 
@@ -607,6 +612,67 @@ float4 MainPS(VertexShaderOutput input) : PS_COLOR
 {
     return ShadeItem(input.WorldPosition, normalize(input.Normal), input.TextureCoordinate);
 }
+
+#if !OPENGL
+float4x4 ViewProjection;
+
+struct EquipmentInstanceInput
+{
+    float3 Position : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 TextureCoordinate : TEXCOORD0;
+    float2 BoneIndices : TEXCOORD1;
+    float4 World0 : TEXCOORD2;
+    float4 World1 : TEXCOORD3;
+    float4 World2 : TEXCOORD4;
+    float4 World3 : TEXCOORD5;
+    float4 PaletteAndOptions : TEXCOORD6;
+};
+
+struct EquipmentInstanceOutput
+{
+    float4 Position : SV_POSITION;
+    float3 WorldPosition : TEXCOORD0;
+    float3 Normal : TEXCOORD1;
+    float2 TextureCoordinate : TEXCOORD2;
+    nointerpolation float3 Options : TEXCOORD3;
+};
+
+EquipmentInstanceOutput EquipmentInstanceVS(EquipmentInstanceInput input)
+{
+    EquipmentInstanceOutput output;
+    float4x4 world = float4x4(input.World0, input.World1, input.World2, input.World3);
+    float paletteBase = input.PaletteAndOptions.x;
+    float4 localPosition = mul(float4(input.Position, 1.0), LoadBoneAt((int)input.BoneIndices.x, paletteBase));
+    float3 localNormal = mul(input.Normal, (float3x3)LoadBoneAt((int)input.BoneIndices.y, paletteBase));
+    float4 worldPosition = mul(localPosition, world);
+    output.Position = mul(worldPosition, ViewProjection);
+    output.WorldPosition = worldPosition.xyz;
+    output.Normal = normalize(mul(localNormal, (float3x3)world));
+    output.TextureCoordinate = input.TextureCoordinate;
+    output.Options = input.PaletteAndOptions.yzw;
+    return output;
+}
+
+float4 EquipmentInstancePS(EquipmentInstanceOutput input) : PS_COLOR
+{
+    float4 diffuse = tex2D(DiffuseSampler, input.TextureCoordinate);
+    if (diffuse.a < 0.1)
+        discard;
+
+    return ShadeItemCore(diffuse, input.WorldPosition, normalize(input.Normal), input.Options.x,
+                         input.Options.y > 0.5, input.Options.z > 0.5, ItemChromeColor, ItemChrome2Tint, ItemAncientColor);
+}
+
+technique BasicColorDrawing_SkinnedEquipmentInstanced
+{
+    pass P0
+    {
+        VertexShader = compile VS_SHADERMODEL EquipmentInstanceVS();
+        PixelShader = compile PS_SHADERMODEL EquipmentInstancePS();
+    }
+}
+#endif
 
 #if !OPENGL && !SM6
 // ---------------------------------------------------------------------------

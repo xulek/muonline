@@ -216,6 +216,9 @@ namespace Client.Main.Objects
         private static bool s_blobShadowBatchActive;
         private static VertexPositionColorTexture[] s_blobShadowBatchVertices = new VertexPositionColorTexture[9 * 128];
         private static short[] s_blobShadowBatchIndices = new short[24 * 128];
+        private static short[] s_grassBlobShadowIndices = Array.Empty<short>();
+        private readonly record struct BlobShadowRange(int FirstVertex, int VertexCount, int FirstIndex, int IndexCount);
+        private static readonly List<BlobShadowRange> s_blobShadowRanges = new(128);
         private static int s_blobShadowBatchVertexCount;
         private static int s_blobShadowBatchIndexCount;
         private static Matrix s_blobShadowBatchViewProjection;
@@ -225,6 +228,7 @@ namespace Client.Main.Objects
             s_blobShadowBatchActive = true;
             s_blobShadowBatchVertexCount = 0;
             s_blobShadowBatchIndexCount = 0;
+            s_blobShadowRanges.Clear();
         }
 
         internal static void EndGroundShadowBatch(GraphicsDevice graphicsDevice, TerrainControl terrain)
@@ -258,7 +262,7 @@ namespace Client.Main.Objects
                 return;
             try
             {
-                FlushBlobShadowBatch(graphicsDevice, maskViewProjection, keepQueued: true);
+                FlushBlobShadowBatch(graphicsDevice, maskViewProjection, keepQueued: true, terrain);
                 DrawQueuedProjectedShadows(graphicsDevice, maskViewProjection, keepQueued: true);
             }
             finally
@@ -318,6 +322,9 @@ namespace Client.Main.Objects
             for (int i = 0; i < sourceIndices.Length; i++)
                 s_blobShadowBatchIndices[s_blobShadowBatchIndexCount + i] = (short)(baseVertex + sourceIndices[i]);
 
+            if (Constants.ENABLE_GRASS_SHADOW_CULLING && Constants.DRAW_GRASS && GroundShadowMask.Enabled)
+                s_blobShadowRanges.Add(new BlobShadowRange(baseVertex, source.Length, s_blobShadowBatchIndexCount, sourceIndices.Length));
+
             s_blobShadowBatchVertexCount += source.Length;
             s_blobShadowBatchIndexCount += sourceIndices.Length;
             return true;
@@ -333,14 +340,43 @@ namespace Client.Main.Objects
 
         /// <param name="maskViewProjection">Set when drawing into <see cref="GroundShadowMask"/> (no depth test).</param>
         /// <param name="keepQueued">Leaves the queue for the screen draw that follows.</param>
-        private static void FlushBlobShadowBatch(GraphicsDevice graphicsDevice, Matrix? maskViewProjection = null, bool keepQueued = false)
+        private static void FlushBlobShadowBatch(GraphicsDevice graphicsDevice, Matrix? maskViewProjection = null,
+            bool keepQueued = false, TerrainControl grassReceivers = null)
         {
             int vertexCount = s_blobShadowBatchVertexCount;
             int indexCount = s_blobShadowBatchIndexCount;
+            var indices = s_blobShadowBatchIndices;
             if (!keepQueued)
             {
                 s_blobShadowBatchVertexCount = 0;
                 s_blobShadowBatchIndexCount = 0;
+                s_blobShadowRanges.Clear();
+            }
+            else if (grassReceivers != null && s_blobShadowRanges.Count > 0)
+            {
+                if (s_grassBlobShadowIndices.Length < indexCount)
+                    Array.Resize(ref s_grassBlobShadowIndices, indices.Length);
+                indexCount = 0;
+                foreach (var range in s_blobShadowRanges)
+                {
+                    Vector2 min = new(float.PositiveInfinity);
+                    Vector2 max = new(float.NegativeInfinity);
+                    for (int i = range.FirstVertex; i < range.FirstVertex + range.VertexCount; i++)
+                    {
+                        var position = s_blobShadowBatchVertices[i].Position;
+                        Vector2 xy = new(position.X, position.Y);
+                        min = Vector2.Min(min, xy);
+                        max = Vector2.Max(max, xy);
+                    }
+
+                    if (!grassReceivers.IntersectsVisibleGrassShadowReceivers(min, max))
+                        continue;
+
+                    Array.Copy(indices, range.FirstIndex, s_grassBlobShadowIndices, indexCount, range.IndexCount);
+                    indexCount += range.IndexCount;
+                }
+
+                indices = s_grassBlobShadowIndices;
             }
             if (indexCount == 0 || graphicsDevice == null)
                 return;
@@ -373,7 +409,7 @@ namespace Client.Main.Objects
                     s_blobShadowBatchVertices,
                     0,
                     vertexCount,
-                    s_blobShadowBatchIndices,
+                    indices,
                     0,
                     indexCount / 3);
                 DiagBlobShadowDraws++;
@@ -638,6 +674,7 @@ namespace Client.Main.Objects
         /// the main pass shows as solid may occlude (no additive meshes, faded or hidden objects).
         /// </summary>
         internal static bool AmbientOcclusionDepthPass;
+        internal static int AmbientOcclusionPass;
         private const float FullAmbientOcclusionActorDistance = 16f * Constants.TERRAIN_SCALE;
 
         /// <summary>Whether this object's own meshes belong in the SSAO depth (see <see cref="AmbientOcclusionDepthPass"/>).</summary>
@@ -663,7 +700,8 @@ namespace Client.Main.Objects
 
             // Draw own meshes if available. A missing technique or one invalid body part
             // must not suppress valid child casters.
-            bool drawOwnMeshes = !AmbientOcclusionDepthPass || OccludesForAmbientOcclusion();
+            bool drawOwnMeshes = !AmbientOcclusionDepthPass ||
+                (_fullyMergedAmbientOcclusionPass != AmbientOcclusionPass && OccludesForAmbientOcclusion());
             if (Model?.Meshes != null && _meshes != null && drawOwnMeshes)
             {
                 try
@@ -704,7 +742,8 @@ namespace Client.Main.Objects
                                     continue;
 
                                 // Additive blend meshes are see-through in the main pass.
-                                if (AmbientOcclusionDepthPass && IsBlendMesh(i))
+                                if (AmbientOcclusionDepthPass &&
+                                    (_meshes[i].AmbientOcclusionPass == AmbientOcclusionPass || IsBlendMesh(i)))
                                     continue;
 
                                 bool useGpuSkinning = shadowCasterSkinnedTechnique != null &&
@@ -779,12 +818,16 @@ namespace Client.Main.Objects
             // Recursively draw shadow casters for all children (armor, weapons, helm, etc.).
             var children = Children.GetSnapshotArray();
             bool skipSmallParts = Constants.SHADOW_SKIP_SMALL_PARTS;
+            if (AmbientOcclusionDepthPass && Constants.ENABLE_MERGED_PLAYER_AO && this is PlayerObject)
+                drawnMeshCount += DrawMergedAmbientOcclusionBody(shadowEffect, lightViewProjection, children);
             bool skipAmbientOcclusionAccessories = false;
             if (children.Length > 0 && AmbientOcclusionDepthPass && this is WalkerObject { IsMainWalker: false })
             {
                 Vector3 offset = WorldPosition.Translation - Camera.Instance.Target;
+                float fullDetailDistance = this is PlayerObject { IsMouseHover: false } && World?.HasCrowdedPlayers == true
+                    ? 4.5f * Constants.TERRAIN_SCALE : FullAmbientOcclusionActorDistance;
                 skipAmbientOcclusionAccessories = offset.X * offset.X + offset.Y * offset.Y >
-                    FullAmbientOcclusionActorDistance * FullAmbientOcclusionActorDistance;
+                    fullDetailDistance * fullDetailDistance;
             }
 
             for (int i = 0; i < children.Length; i++)

@@ -58,17 +58,39 @@ sampler HistoryDepthSampler : register(s3);
 #define PS_SIG(name) float4 name(float4 color : COLOR0, float2 uv : TEXCOORD0) : COLOR0
 #endif
 
+float3 ExtractHighlights(float3 c)
+{
+    float lum = max(c.r, max(c.g, c.b));
+    float soft = clamp(lum - Threshold + Knee, 0.0, 2.0 * Knee);
+    soft = soft * soft / (4.0 * Knee + 0.0001);
+    float contribution = max(soft, lum - Threshold) / max(lum, 0.0001);
+    return c * contribution;
+}
+
 PS_SIG(ExtractPS)
 {
     // 4 taps: the target is smaller than the source, averaging avoids sparkling single pixels.
     float2 d = TexelStep * 0.5;
     float3 c = (SAMPLE_SCENE(uv + float2(-d.x, -d.y)).rgb + SAMPLE_SCENE(uv + float2(d.x, -d.y)).rgb +
                 SAMPLE_SCENE(uv + float2(-d.x, d.y)).rgb + SAMPLE_SCENE(uv + float2(d.x, d.y)).rgb) * 0.25;
-    float lum = max(c.r, max(c.g, c.b));
-    float soft = clamp(lum - Threshold + Knee, 0.0, 2.0 * Knee);
-    soft = soft * soft / (4.0 * Knee + 0.0001);
-    float contribution = max(soft, lum - Threshold) / max(lum, 0.0001);
-    return float4(c * contribution, 1.0);
+    return float4(ExtractHighlights(c), 1.0);
+}
+
+float3 SampleHalfResolutionHighlights(float2 uv)
+{
+    // A bilinear tap at the center of a 2x2 block reproduces the half-resolution average.
+    // Quantize it as the intermediate SurfaceFormat.Color target did.
+    return floor(saturate(ExtractHighlights(SAMPLE_SCENE(uv).rgb)) * 255.0 + 0.5) / 255.0;
+}
+
+PS_SIG(ExtractQuarterPS)
+{
+    float2 d = TexelStep;
+    float3 c = (SampleHalfResolutionHighlights(uv + float2(-d.x, -d.y)) +
+                SampleHalfResolutionHighlights(uv + float2( d.x, -d.y)) +
+                SampleHalfResolutionHighlights(uv + float2(-d.x,  d.y)) +
+                SampleHalfResolutionHighlights(uv + float2( d.x,  d.y))) * 0.25;
+    return float4(ExtractHighlights(c), 1.0);
 }
 
 PS_SIG(BlurPS)
@@ -228,6 +250,7 @@ PS_SIG(SsaoPS)
 #endif
 
 technique Extract { pass P0 { PixelShader = compile BLOOM_PS ExtractPS(); } }
+technique ExtractQuarter { pass P0 { PixelShader = compile BLOOM_PS ExtractQuarterPS(); } }
 technique Blur { pass P0 { PixelShader = compile BLOOM_PS BlurPS(); } }
 technique Combine { pass P0 { PixelShader = compile BLOOM_PS CombinePS(); } }
 technique Ssao { pass P0 { PixelShader = compile BLOOM_PS SsaoPS(); } }

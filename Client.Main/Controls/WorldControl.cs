@@ -394,6 +394,7 @@ namespace Client.Main.Controls
 
         public TerrainControl Terrain { get; }
         public WorldFrameMetrics FrameMetrics { get; } = new();
+        internal bool HasCrowdedPlayers { get; private set; }
 
         private static long s_nextWorldInstanceId;
 
@@ -1057,6 +1058,7 @@ namespace Client.Main.Controls
 
             if (Status != GameControlStatus.Ready) return;
 
+            UpdateCrowdRenderDetail();
             OverheadNameplateRenderer.BeginFrame();
 
             // GameScene prepares shadows before binding its scaled/MSAA scene target.
@@ -1099,6 +1101,25 @@ namespace Client.Main.Controls
                 RenderPassProfiler.AddWorldObjects(objectsStarted);
                 EndWorldGlow(); // normally already ended before the overlays
             }
+        }
+
+        private void UpdateCrowdRenderDetail()
+        {
+            if (Constants.ENABLE_CROWD_RENDER_LOD && this is WalkableWorldControl)
+            {
+                // Apply lower detail sooner in crowds, with hysteresis as players enter or leave view.
+                int remaining = HasCrowdedPlayers ? 18 : 24;
+                foreach (var obj in _visibleObjects)
+                {
+                    if (obj is PlayerObject { IsMainWalker: false, Visible: true } && --remaining == 0)
+                    {
+                        HasCrowdedPlayers = true;
+                        return;
+                    }
+                }
+            }
+
+            HasCrowdedPlayers = false;
         }
 
         private void RestoreSafeWorldRenderState()

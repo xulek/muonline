@@ -515,6 +515,9 @@ namespace Client.Main.Controls.Terrain
         internal bool HasVisibleGrassShadowReceivers() =>
             !IsAnimatedWaterWorld && _grassRenderer.HasVisibleShadowReceivers();
 
+        internal bool IntersectsVisibleGrassShadowReceivers(Vector2 min, Vector2 max) =>
+            _grassRenderer.IntersectsVisibleShadowReceivers(min, max);
+
         /// <summary>
         /// Grass pass, drawn after the opaque objects and their ground shadows (WorldControl) so that shadows lie
         /// on the grass. The original Atlans terrain pass does not render standard grass.

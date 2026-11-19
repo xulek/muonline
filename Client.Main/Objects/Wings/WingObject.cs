@@ -1,5 +1,7 @@
 using Client.Main.Content;
+using Client.Main.Controls;
 using Client.Main.Core.Utilities;
+using Client.Main.Graphics;
 using Client.Main.Models;
 using Client.Main.Objects.Effects;
 using Client.Main.Objects.Player;
@@ -426,16 +428,20 @@ namespace Client.Main.Objects.Wings
         protected override Vector3 GetMeshBodyLight(int mesh) =>
             !_isCapeLike && ItemIndex == WingOfStorm && mesh == 2 ? new Vector3(1f, 0.7f, 0.5f) : base.GetMeshBodyLight(mesh);
 
+        private bool _useSimpleOverlays;
+
         public override void Draw(GameTime gameTime)
         {
-            if (Parent is PlayerObject { IsCloaked: true })
+            var player = Parent as PlayerObject;
+            if (player?.IsCloaked == true)
                 return;
             bool ready = !_isCapeLike && !Hidden && Visible && Model?.Meshes != null && Status == GameControlStatus.Ready;
+            bool simplifyOverlays = ready && ShouldSimplifyOverlays(player);
 
             // Wings of Darkness: RENDER_BRIGHT | RENDER_CHROME (bab2, BodyLight 0.8/0.6/1.0) is drawn
             // first without depth writes; the texture pass then covers it, so the chrome only
             // shows through the alpha-cut parts of the feathers.
-            if (ready && ItemIndex == WingsOfDarkness && _overlayTexture != null)
+            if (ready && !simplifyOverlays && ItemIndex == WingsOfDarkness && _overlayTexture != null)
             {
                 for (int mesh = 0; mesh < Model.Meshes.Length; mesh++)
                     DrawMeshItemOverlay(mesh, ItemOverlayMode.Chrome, new Vector3(0.8f, 0.6f, 1f), _overlayTexture);
@@ -466,20 +472,40 @@ namespace Client.Main.Objects.Wings
                     float pulse = MathF.Abs(MathF.Sin(time));
                     float low = 0.1f + pulse * 0.3f;
                     DrawMeshItemOverlay(0, ItemOverlayMode.Texture, new Vector3(low));
-                    if (_overlayTexture != null)
+                    // Mesh 0 is additive-only and supplies part of the wing silhouette. Mesh 1 already has its body draw.
+                    if (!simplifyOverlays && _overlayTexture != null)
                         DrawMeshItemOverlay(1, ItemOverlayMode.Texture, new Vector3(pulse * 0.8f), _overlayTexture);
                     break;
                 }
 
                 case WingsOfDespair:
-                    if (_overlayTexture != null)
+                    if (!simplifyOverlays && _overlayTexture != null)
                         DrawMeshItemOverlay(1, ItemOverlayMode.Chrome6, Vector3.One, _overlayTexture);
                     break;
 
                 case WingOfDimension:
-                    DrawMeshItemOverlay(1, ItemOverlayMode.Chrome, Vector3.One);
+                    if (!simplifyOverlays)
+                        DrawMeshItemOverlay(1, ItemOverlayMode.Chrome, Vector3.One);
                     break;
             }
+        }
+
+        private bool ShouldSimplifyOverlays(PlayerObject player)
+        {
+            if (!Constants.ENABLE_REMOTE_WING_OVERLAY_LOD || player is not { IsMainWalker: false, IsMouseHover: false } ||
+                World is not WalkableWorldControl ||
+                ItemIndex is not (WingsOfDarkness or WingOfRuin or WingsOfDespair or WingOfDimension))
+            {
+                _useSimpleOverlays = false;
+                return false;
+            }
+
+            var camera = Camera.Instance;
+            var offset = player.WorldPosition.Translation - camera.Target;
+            float distance = (_useSimpleOverlays ? 3f : 4f) * Constants.TERRAIN_SCALE;
+            _useSimpleOverlays = offset.X * offset.X + offset.Y * offset.Y > distance * distance &&
+                IsSmallOnScreen(camera, _useSimpleOverlays ? 230f : 210f);
+            return _useSimpleOverlays;
         }
 
         public override void DrawAfter(GameTime gameTime)

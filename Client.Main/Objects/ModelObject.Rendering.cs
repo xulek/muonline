@@ -838,10 +838,6 @@ namespace Client.Main.Objects
             if (Model?.Meshes == null || _meshes == null)
                 return;
 
-            int meshCount = Model.Meshes.Length;
-            if (meshCount == 0)
-                return;
-
             _drawModelInvocationId = ++_drawModelInvocationCounter;
 
             // Cache commonly used values before resolving mesh groups. Modular player-model
@@ -855,6 +851,9 @@ namespace Client.Main.Objects
                 projection,
                 worldPos.Translation);
 
+            if (Model.Meshes.Length == 0)
+                return;
+
             // Resolve the persistent plan before touching the remaining graphics state.
             var meshGroups = GroupMeshesByState(isAfterDraw);
             // A model made only of transparent meshes (e.g. RGBA wings) still casts its shadow in the opaque pass.
@@ -867,7 +866,8 @@ namespace Client.Main.Objects
             bool useShadowMap = UsesRenderedShadowMapForCurrentObject();
             // Skip blob shadows at night when day-night cycle is active
             bool isNight = Constants.ENABLE_DAY_NIGHT_CYCLE && SunCycleManager.IsNight;
-            if (!isAfterDraw && RenderShadow && !LowQuality && !useShadowMap && !isNight)
+            if (!isAfterDraw && RenderShadow && !LowQuality && !useShadowMap && !isNight &&
+                !GetShadowActorRoot().UsesSimplifiedPlayerShadow())
                 doShadow = TryGetShadowMatrix(out shadowMatrix);
             float shadowOpacity = ShadowOpacity;
             if (doShadow && World?.Terrain != null)
@@ -1515,7 +1515,10 @@ namespace Client.Main.Objects
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool ShouldUseBlobShadowForCurrentPass()
         {
-            if (IsPlayerOrNpcShadowPart())
+            var root = GetShadowActorRoot();
+            if (root is PlayerObject)
+                return ReferenceEquals(root, this) && UsesSimplifiedPlayerShadow();
+            if (root is NPCObject)
                 return false;
 
             if (this is not WalkerObject)
@@ -1530,6 +1533,45 @@ namespace Client.Main.Objects
             // main pass uses GPU skinning. A single blob quad preserves grounding without
             // duplicating animation, uploads and draw calls for every walker.
             return true;
+        }
+
+        private int _simplePlayerShadowFrame = int.MinValue;
+        private bool _simplePlayerShadow;
+
+        private bool UsesSimplifiedPlayerShadow()
+        {
+            if (!Constants.ENABLE_REMOTE_PLAYER_SHADOW_LOD || this is not PlayerObject { IsMainWalker: false } ||
+                World is not WalkableWorldControl || !s_blobShadowBatchActive || !RenderShadow ||
+                GraphicsManager.Instance.ShadowEffect == null)
+                return false;
+
+            if (_simplePlayerShadowFrame != MuGame.FrameIndex)
+            {
+                _simplePlayerShadowFrame = MuGame.FrameIndex;
+                var camera = Camera.Instance;
+                var offset = WorldPosition.Translation - camera.Target;
+                bool crowded = World.HasCrowdedPlayers;
+                float detailTiles = crowded ? 2.5f : 5f;
+                float distance = (detailTiles - (_simplePlayerShadow ? 1f : 0f)) * Constants.TERRAIN_SCALE;
+                // Hysteresis keeps the detailed shadow stable while the camera or actor moves near the cutoff.
+                float maxDiameter = (crowded ? 185f : 140f) + (_simplePlayerShadow ? 15f : 0f);
+                _simplePlayerShadow = !IsMouseHover &&
+                    offset.X * offset.X + offset.Y * offset.Y > distance * distance &&
+                    IsSmallOnScreen(camera, maxDiameter);
+            }
+
+            return _simplePlayerShadow;
+        }
+
+        /// <summary>Size of the world's bounding sphere, in pixels at the reference screen height.</summary>
+        protected bool IsSmallOnScreen(Camera camera, float maxDiameter)
+        {
+            var bounds = BoundingBoxWorld;
+            var center = (bounds.Min + bounds.Max) * 0.5f;
+            float radius = (bounds.Max - bounds.Min).Length() * 0.5f;
+            float nearDepth = Vector4.Transform(new Vector4(center, 1f), camera.ViewProjection).W - radius;
+            return radius > 0f && nearDepth > 0f &&
+                radius * camera.Projection.M22 * Constants.BASE_UI_HEIGHT < maxDiameter * nearDepth;
         }
 
         private void DrawMeshesHighlight(List<int> meshIndices, Matrix highlightMatrix, Vector3 highlightColor)

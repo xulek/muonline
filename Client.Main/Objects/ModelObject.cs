@@ -929,6 +929,8 @@ namespace Client.Main.Objects
             _playerComposite?.Dispose();
             _playerComposite = null;
             _mergedShadow?.Dispose();
+            _mergedAmbientOcclusionBody?.Dispose();
+            _mergedAmbientOcclusionBody = null;
             _mergedShadow = null;
             if (_itemEffects != null)
             {

@@ -128,6 +128,20 @@ namespace Client.Main.Graphics
             return true;
         }
 
+        /// <summary>Looks up an already uploaded pose without changing the texture or its addresses.</summary>
+        internal static bool TryGetPreparedBase(GraphicsDevice gd, Matrix[] bones, uint poseVersion, int boneCount, out int baseTexel)
+        {
+            baseTexel = 0;
+            if (_frame != MuGame.FrameIndex || _queuedFromTexel >= 0 || _texture is not { IsDisposed: false } ||
+                _texture.GraphicsDevice != gd || !Slots.TryGetValue(new PoseKey(bones, poseVersion), out var slot) ||
+                slot.BoneCount < boneCount)
+                return false;
+
+            _textureReferenced = true;
+            baseTexel = slot.BaseTexel;
+            return true;
+        }
+
         private static bool TryWrite(GraphicsDevice gd, PoseKey key, Matrix[] bones, int boneCount, out PoseSlot slot)
         {
             slot = default;

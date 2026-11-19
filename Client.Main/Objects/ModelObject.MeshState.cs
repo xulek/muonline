@@ -28,6 +28,7 @@ namespace Client.Main.Objects
             public int GpuBoneCount;
             public bool GpuSkinEnabled;
             public int LastGpuCacheTouchFrame;
+            public int AmbientOcclusionPass;
 
             public Texture2D Texture;
             public Texture2D TextureOverride;

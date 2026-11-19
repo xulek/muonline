@@ -481,6 +481,7 @@ namespace Client.Main.Controllers
 
         public void Dispose()
         {
+            Objects.ModelObject.DisposeEquipmentInstancing();
             DisposeRenderTargets();
             Pixel?.Dispose();
             BlackPixel?.Dispose();

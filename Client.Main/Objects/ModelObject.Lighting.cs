@@ -198,6 +198,7 @@ namespace Client.Main.Objects
         {
 #if WINDOWS_DX12
             return name is "BasicColorDrawing_Skinned" or "BasicColorDrawing_UpgradeFast_Skinned" or
+                "BasicColorDrawing_SkinnedEquipmentInstanced" or
                 "MonsterMaterialDrawing_Skinned" or "MonsterMaterialDrawing_Basic_Skinned";
 #else
             return false;
@@ -237,16 +238,19 @@ namespace Client.Main.Objects
 
             if (obj is ModelObject model && model._gpuSkinMaxBoneCount > 0)
             {
-                ModelObject paletteOwner = model.LinkParentAnimation && model.Parent is ModelObject parentModel
-                    ? parentModel
-                    : model;
-                Matrix[] bones = paletteOwner.GetEffectiveBoneTransforms();
-                bones = model.GetRenderBoneTransforms(bones) ?? bones;
-                GpuSkinPalette.Queue(gd, bones, paletteOwner.GetEffectiveBonePoseVersion(), model._gpuSkinMaxBoneCount);
+                var (bones, version) = model.GetGpuSkinPose();
+                GpuSkinPalette.Queue(gd, bones, version, model._gpuSkinMaxBoneCount);
             }
 
             foreach (WorldObject child in obj.Children)
                 QueueGpuSkinPalette(gd, child, depth + 1);
+        }
+
+        private (Matrix[] Bones, uint Version) GetGpuSkinPose()
+        {
+            ModelObject owner = LinkParentAnimation && Parent is ModelObject parent ? parent : this;
+            Matrix[] bones = owner.GetEffectiveBoneTransforms();
+            return (GetRenderBoneTransforms(bones) ?? bones, owner.GetEffectiveBonePoseVersion());
         }
 
         private bool TryUploadGpuSkinBoneMatrices(Effect effect, ModelEffectBindings bindings, int requiredBoneCount)
@@ -257,12 +261,7 @@ namespace Client.Main.Objects
                 return false;
             }
 
-            ModelObject paletteOwner = LinkParentAnimation && Parent is ModelObject parentModel
-                ? parentModel
-                : this;
-            Matrix[] bones = paletteOwner.GetEffectiveBoneTransforms();
-            bones = GetRenderBoneTransforms(bones) ?? bones;
-            uint poseVersion = paletteOwner.GetEffectiveBonePoseVersion();
+            var (bones, poseVersion) = GetGpuSkinPose();
 
             if (ReferenceEquals(bindings.BonePaletteSource, bones) &&
                 bindings.BonePalettePoseVersion == poseVersion &&
