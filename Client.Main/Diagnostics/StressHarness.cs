@@ -32,11 +32,11 @@ namespace Client.Main.Diagnostics
     /// MU_STRESS_WEAPONS=0/1 (Constants.ENABLE_WALKER_CROWD_CHILD_INSTANCING), MU_STRESS_TRACE=1 (per-second trace).
     /// </para>
     /// </summary>
-    public static class StressHarness
+    public static partial class StressHarness
     {
         public static bool Enabled { get; } = Environment.GetEnvironmentVariable("MU_STRESS") == "1";
 
-        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, Windows, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, HeroWalk, Done }
+        private enum Phase { WaitingForScene, Settle, Spawn, Warmup, Measure, Despawn, Inventory, PauseMenu, Windows, MapChange, Hover, GrassToggle, Birds, BackItems, Hud, Shot, HeroWalk, PerformanceSuite, Done }
 
         // MU_STRESS_MAP=<map id>, MU_STRESS_POS=x,y (tile) choose where the scenes run (default Lorencia 135,128).
         private static readonly byte StressMap = byte.TryParse(Environment.GetEnvironmentVariable("MU_STRESS_MAP"), out byte map) ? map : (byte)0;
@@ -121,6 +121,8 @@ namespace Client.Main.Diagnostics
             _measureSeconds = ParseInt("MU_STRESS_SECONDS", 8);
             _outPath = Environment.GetEnvironmentVariable("MU_STRESS_OUT") ?? Path.Combine(AppContext.BaseDirectory, "stress-results.csv");
             _label = Environment.GetEnvironmentVariable("MU_STRESS_LABEL") ?? string.Empty;
+            if (PerformanceSuiteEnabled && !ConfigurePerformanceSuite(game))
+                return;
 
             if (Environment.GetEnvironmentVariable("MU_STRESS_CHILDREN") is { } children)
                 Constants.ENABLE_WALKER_CROWD_INSTANCING_WITH_CHILDREN = children == "1";
@@ -141,7 +143,15 @@ namespace Client.Main.Diagnostics
             }
             if (Environment.GetEnvironmentVariable("MU_STRESS_GRASS_SHADOW") == "0")
                 Graphics.GroundShadowMask.Enabled = false;
-            if (Environment.GetEnvironmentVariable("MU_STRESS_PRESET") is { } preset &&
+            if (PerformanceSuiteEnabled)
+            {
+                GraphicsQualityManager.ApplyFromSettings(new Configuration.GraphicsSettings
+                {
+                    QualityPreset = nameof(GraphicsQualityPreset.Low),
+                    EnableLowGpuModels = Environment.GetEnvironmentVariable("MU_STRESS_LOW_GPU_MODELS") == "1",
+                }, game.GraphicsDevice.Adapter, null);
+            }
+            else if (Environment.GetEnvironmentVariable("MU_STRESS_PRESET") is { } preset &&
                 System.Enum.TryParse(preset, true, out Graphics.GraphicsQualityPreset qualityPreset))
                 Graphics.GraphicsQualityManager.ApplyPreset(qualityPreset, null, null);
             if (Environment.GetEnvironmentVariable("MU_STRESS_IGPU") is { } igpu)
@@ -243,7 +253,8 @@ namespace Client.Main.Diagnostics
             => int.TryParse(Environment.GetEnvironmentVariable(name), out int value) ? value : fallback;
 
         /// <summary>Called at the end of every drawn frame.</summary>
-        public static void OnFrame(MuGame game, FrameProfiler.Snapshot frame)
+        public static void OnFrame(MuGame game, FrameProfiler.Snapshot frame, GraphicsMetrics deviceMetrics = default,
+            double presentMs = 0d)
         {
             if (!Enabled || _phase == Phase.Done) return;
             if (LoginSceneShots)
@@ -299,7 +310,11 @@ namespace Client.Main.Diagnostics
                             attackHero.SnapToTerrainHeight();
                         }
                         AddStressLights(game);
-                        if (LoadingShots)
+                        if (PerformanceSuiteEnabled)
+                        {
+                            StartPerformanceSuite(game);
+                        }
+                        else if (LoadingShots)
                         {
                             _loadingShotTimes.Clear();
                             _ = (game.ActiveScene as GameScene)?.ChangeMap(typeof(Client.Main.Worlds.DeviasWorld));
@@ -519,6 +534,10 @@ namespace Client.Main.Diagnostics
                         Finish(game, null);
                     else
                         Next(Phase.Spawn);
+                    break;
+
+                case Phase.PerformanceSuite:
+                    UpdatePerformanceSuite(game, frame, elapsed, deviceMetrics, presentMs);
                     break;
             }
         }
@@ -1510,7 +1529,7 @@ namespace Client.Main.Diagnostics
                 if (_traceSecond >= 0 && _traceFrames > 0)
                 {
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} benchUs={CpuBenchmarkMicroseconds():F0} memBenchUs={MemoryBenchmarkMicroseconds():F0} l3BenchUs={CacheBenchmarkMicroseconds():F0} composite={ModelObject.LastFramePlayerComposites}/{ModelObject.LastFramePlayerCompositeMeshes} gpuDraws={_traceGpuDraws / _traceFrames} gpuPrims={_traceGpuPrims / _traceFrames} gpuTex={_traceGpuTex / _traceFrames} gpuVs={_traceGpuVs / _traceFrames} gpuPs={_traceGpuPs / _traceFrames} gpuTargets={_traceGpuTargets / _traceFrames} sprites={_traceSprites / _traceFrames} shProj={ModelObject.DiagProjectedShadowDraws / _traceFrames} dlPrep={ModelObject.DiagDynamicLightingPrepares / _traceFrames}/{ModelObject.DiagDynamicLightingPrepareTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms blob={ModelObject.DiagBlobShadowDraws / _traceFrames} crowdFlush={_traceCrowdFlushes / (double)_traceFrames:F2} dc={FormatSteps(_traceStepDraws, _traceFrames)} tc={FormatSteps(_traceStepTextures, _traceFrames)}"));
+                        $"[stress-trace] t={_traceSecond} fps={_traceFrames} worstMs={_traceWorstMs:F1} slow15={_traceSlow} poses={_tracePoses / _traceFrames} dirty={_traceDirty / _traceFrames} paletteKB={_traceBytes / 1024 / _traceFrames} allocKB={(GC.GetTotalAllocatedBytes() - _traceAlloc) / 1024} gc={GC.CollectionCount(0) - _traceGc0}/{GC.CollectionCount(1) - _traceGc1}/{GC.CollectionCount(2) - _traceGc2} upd={_traceUpd / _traceFrames:F2} draw={_traceDraw / _traceFrames:F2} wobj={_traceWobj / _traceFrames:F2} terr={_traceTerr / _traceFrames:F2} after={_traceAfter / _traceFrames:F2} post={_tracePost / _traceFrames:F2} fw={_traceFw / _traceFrames:F2} scene={_traceScene / _traceFrames:F2} wbase={_traceWbase / _traceFrames:F2} shadow={_traceShadow / _traceFrames:F2} procCpu={(Process.GetCurrentProcess().TotalProcessorTime - _traceProcCpu).TotalMilliseconds:F0} mainCpu={(MainThreadCpu() - _traceMainCpu).TotalMilliseconds:F0} tpItems={ThreadPool.CompletedWorkItemCount - _traceTpItems} tpThreads={ThreadPool.ThreadCount} gcPauseMs={(GC.GetTotalPauseDuration() - _traceGcPause).TotalMilliseconds:F1} composite={ModelObject.LastFramePlayerComposites}/{ModelObject.LastFramePlayerCompositeMeshes} gpuDraws={_traceGpuDraws / _traceFrames} gpuPrims={_traceGpuPrims / _traceFrames} gpuTex={_traceGpuTex / _traceFrames} gpuVs={_traceGpuVs / _traceFrames} gpuPs={_traceGpuPs / _traceFrames} gpuTargets={_traceGpuTargets / _traceFrames} sprites={_traceSprites / _traceFrames} shProj={ModelObject.DiagProjectedShadowDraws / _traceFrames} dlPrep={ModelObject.DiagDynamicLightingPrepares / _traceFrames}/{ModelObject.DiagDynamicLightingPrepareTicks * 1000.0 / Stopwatch.Frequency / _traceFrames:F2}ms blob={ModelObject.DiagBlobShadowDraws / _traceFrames} crowdFlush={_traceCrowdFlushes / (double)_traceFrames:F2} dc={FormatSteps(_traceStepDraws, _traceFrames)} tc={FormatSteps(_traceStepTextures, _traceFrames)}"));
                     ModelObject.DiagBlobShadowDraws = 0;
                     ModelObject.DiagProjectedShadowDraws = 0;
                     ModelObject.DiagDynamicLightingPrepares = ModelObject.DiagDynamicLightingPrepareTicks = 0;
@@ -1724,7 +1743,18 @@ namespace Client.Main.Diagnostics
             if (error != null) text.AppendLine($"{_label};error;{error}");
             File.AppendAllText(_outPath, text.ToString());
             Console.WriteLine($"[stress] done -> {_outPath}");
+            if (error == null)
+                PrintMicrobenchmarks();
             game.Exit();
+        }
+
+        private static void PrintMicrobenchmarks()
+        {
+            if (Environment.GetEnvironmentVariable("MU_STRESS_MICROBENCH") != "1")
+                return;
+
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"[stress-microbench] cpuUs={CpuBenchmarkMicroseconds():F0} memUs={MemoryBenchmarkMicroseconds():F0} l3Us={CacheBenchmarkMicroseconds():F0}"));
         }
 
         private static void Inject(byte[] packet) => _ = MuGame.Network.InjectPacketForDiagnosticsAsync(packet);
@@ -1762,7 +1792,8 @@ namespace Client.Main.Diagnostics
 
         // MU_STRESS_ATTACKS=1 replays the normal 0x18 attack and its optional 0x19 skill
         // companion through the same router the live client uses.
-        private static readonly bool MonsterAttacksEnabled = Environment.GetEnvironmentVariable("MU_STRESS_ATTACKS") == "1";
+        private static readonly bool ReplayAttacksEnabled = Environment.GetEnvironmentVariable("MU_STRESS_ATTACKS") == "1";
+        private static bool MonsterAttacksEnabled => ReplayAttacksEnabled || PerformanceSuiteEnabled;
         private static ushort StressMonsterId(ushort type, int index) =>
             (ushort)((FirstMonsterId + index) | (MonsterAttacksEnabled && StressMap == 39 && type == 361 ? 0x4000 : 0));
         private static double _nextMonsterAttack;
@@ -1872,7 +1903,7 @@ namespace Client.Main.Diagnostics
                     continue;
 
                 var delta = hero.Location - monster.Location;
-                if (step == 0 && started == 0)
+                if (!PerformanceSuiteEnabled && step == 0 && started == 0)
                     Console.WriteLine($"[stress] attack positions type={type}, attacker={monster.Position}, listener={hero.Position}");
                 byte facing = (byte)Models.DirectionExtensions.GetDirectionFromMovementDelta((int)delta.X, (int)delta.Y);
                 byte direction = directions != null && directions.TryGetValue(facing, out byte encoded) ? encoded : facing;
@@ -1884,7 +1915,7 @@ namespace Client.Main.Diagnostics
             if (started > 0)
             {
                 _veparAttackAt = now;
-                if (_monsterAttackStep == 0 || _monsterAttackShotSkill != skill)
+                if (!PerformanceSuiteEnabled && (_monsterAttackStep == 0 || _monsterAttackShotSkill != skill))
                 {
                     _monsterAttackShotSkill = skill;
                     double releaseShotDelay = (type, skill) switch
@@ -1898,8 +1929,11 @@ namespace Client.Main.Diagnostics
                     _monsterAttackShotAt = now + releaseShotDelay;
                 }
                 _monsterAttackStep++;
-                string codes = opcode == 0x18 && skill != 0 ? "18+19" : $"{opcode:X2}";
-                Console.WriteLine($"[stress] monster attacks type={type}, count={started}, code={codes}, skill={skill}, target={hero.NetworkId}");
+                if (!PerformanceSuiteEnabled)
+                {
+                    string codes = opcode == 0x18 && skill != 0 ? "18+19" : $"{opcode:X2}";
+                    Console.WriteLine($"[stress] monster attacks type={type}, count={started}, code={codes}, skill={skill}, target={hero.NetworkId}");
+                }
             }
         }
 

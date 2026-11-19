@@ -918,7 +918,9 @@ namespace Client.Main
                         RenderPassProfiler.AddPostProcess(postProcessStarted);
                     }
 
+                    long interfaceStarted = RenderPassProfiler.StartCpuSection();
                     DrawDeferredInterface(gameTime, interfaceTarget);
+                    RenderPassProfiler.AddInterface(interfaceStarted);
                     if (interfaceTarget != null)
                         DrawFinalImageToScreen(interfaceTarget);
                 }
@@ -964,11 +966,27 @@ namespace Client.Main
                 if (publishTelemetry)
                     _telemetryPublisher?.PublishSnapshot(this);
 #endif
-                if (Client.Main.Diagnostics.StressHarness.Enabled)
+                if (Client.Main.Diagnostics.StressHarness.Enabled && !Client.Main.Diagnostics.StressHarness.CaptureSuitePresentation)
                     Client.Main.Diagnostics.StressHarness.OnFrame(this, _frameProfiler.Current);
                 if (Client.Main.Diagnostics.AutoLogin.Enabled)
                     Client.Main.Diagnostics.AutoLogin.OnFrame(this);
             }
+        }
+
+        protected override void EndDraw()
+        {
+            if (!Client.Main.Diagnostics.StressHarness.CaptureSuitePresentation)
+            {
+                base.EndDraw();
+                return;
+            }
+
+            var deviceMetrics = Client.Main.Diagnostics.StressHarness.CaptureSuiteDeviceMetrics
+                ? GraphicsDevice.Metrics : default;
+            long started = Stopwatch.GetTimestamp();
+            base.EndDraw();
+            Client.Main.Diagnostics.StressHarness.OnFrame(this, _frameProfiler.Current, deviceMetrics,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
 
         /// <summary>

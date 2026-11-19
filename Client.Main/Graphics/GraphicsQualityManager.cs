@@ -51,6 +51,8 @@ namespace Client.Main.Graphics
 
     public static class GraphicsQualityManager
     {
+        private static bool _enableLowGpuModels;
+
         public static GraphicsQualityPreset UserPreset { get; private set; } = GraphicsQualityPreset.Auto;
         public static GraphicsQualityPreset ActivePreset { get; private set; } = GraphicsQualityPreset.High;
         public static GraphicsAdapterInfo LastAdapterInfo { get; private set; } = new GraphicsAdapterInfo(string.Empty, string.Empty, null, null, false, false, false);
@@ -68,6 +70,7 @@ namespace Client.Main.Graphics
 
         public static void ApplyFromSettings(GraphicsSettings settings, GraphicsAdapter adapter, ILogger logger)
         {
+            _enableLowGpuModels = settings?.EnableLowGpuModels == true;
             var preset = ParsePreset(settings?.QualityPreset);
             ApplyPreset(preset, adapter, logger);
         }
@@ -77,7 +80,7 @@ namespace Client.Main.Graphics
             UserPreset = preset;
             var resolved = ResolvePreset(preset, adapter);
             ActivePreset = resolved;
-            ApplyProfile(resolved);
+            ApplyProfile(resolved, adapter);
 
             if (logger != null)
             {
@@ -113,7 +116,19 @@ namespace Client.Main.Graphics
             return GraphicsQualityPreset.Medium;
         }
 
-        private static void ApplyProfile(GraphicsQualityPreset preset)
+        private static bool CanEnableLowGpuModels(GraphicsAdapter adapter)
+        {
+#if WINDOWS_DX && !NATIVE_BACKEND
+            if (!_enableLowGpuModels || MuGame.Instance?.GraphicsDevice?.GraphicsProfile != GraphicsProfile.HiDef)
+                return false;
+            adapter ??= MuGame.Instance.GraphicsDevice.Adapter;
+            return adapter != null && !GetAdapterInfo(adapter).IsSoftware;
+#else
+            return false;
+#endif
+        }
+
+        private static void ApplyProfile(GraphicsQualityPreset preset, GraphicsAdapter adapter)
         {
             switch (preset)
             {
@@ -121,7 +136,7 @@ namespace Client.Main.Graphics
                     Constants.RENDER_SCALE = 0.75f;
                     Constants.MSAA_SAMPLES = 0;
                     Constants.ENABLE_DYNAMIC_LIGHTS = false;
-                    Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = false;
+                    Constants.ENABLE_DYNAMIC_LIGHTING_SHADER = CanEnableLowGpuModels(adapter);
                     Constants.ENABLE_TERRAIN_GPU_LIGHTING = false;
                     Constants.OPTIMIZE_FOR_INTEGRATED_GPU = true;
                     Constants.HIGH_QUALITY_TEXTURES = false;

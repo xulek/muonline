@@ -1452,6 +1452,7 @@ namespace Client.Main.Controls
 
         private void RenderObjects(GameTime time)
         {
+            long queueStarted = RenderPassProfiler.StartCpuSection();
             _droppedItemSelector.SelectRenderableItems(_droppedItems, time);
 
             _renderCounter = 0;
@@ -1533,6 +1534,7 @@ namespace Client.Main.Controls
 
             if (_transparentObjects.Count > 1)
                 _transparentObjects.Sort(WorldObjectDepthDesc.Instance);
+            RenderPassProfiler.AddWorldQueue(queueStarted);
 
             // Attached fire/glow must wait too: RGBA bridge/grass meshes are submitted
             // in DrawAfter and would otherwise paint over effects in front of them.
@@ -1779,6 +1781,7 @@ namespace Client.Main.Controls
             if (count == 0)
                 return;
 
+            long queueStarted = RenderPassProfiler.StartCpuSection();
             SetDepthState(DepthStateDefault);
             for (int i = 0; i < count; i++)
             {
@@ -1799,6 +1802,7 @@ namespace Client.Main.Controls
 
                 // A texture or shared GPU buffer can be replaced between classification and
                 // drawing. Keep a contained fallback instead of dropping the placement.
+                RenderPassProfiler.AddStaticQueue(queueStarted);
                 try
                 {
                     model.Draw(time);
@@ -1811,7 +1815,9 @@ namespace Client.Main.Controls
                 }
 
                 model.RenderOrder = ++_renderCounter;
+                queueStarted = RenderPassProfiler.StartCpuSection();
             }
+            RenderPassProfiler.AddStaticQueue(queueStarted);
 
             if (ModelObject.HasPendingStaticMapInstancingBatches() &&
                 !FlushStaticMapBatchesSafely())
@@ -1949,9 +1955,13 @@ namespace Client.Main.Controls
                         continue;
                     }
 
+                    long staticQueueStarted = RenderPassProfiler.Enabled && obj is ModelObject { IsMapPlacementObject: true }
+                        ? RenderPassProfiler.StartCpuSection()
+                        : 0;
                     var staticMapQueueResult = canUseMapInstancing
                         ? ModelObject.TryQueueStaticMapObjectForInstancing(obj)
                         : ModelObject.StaticMapInstancingQueueResult.None;
+                    RenderPassProfiler.AddStaticQueue(staticQueueStarted);
 
                     if (canUseMapInstancing &&
                         staticMapQueueResult == ModelObject.StaticMapInstancingQueueResult.None &&

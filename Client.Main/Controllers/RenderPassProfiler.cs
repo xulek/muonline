@@ -36,7 +36,10 @@ public static class RenderPassProfiler
         int PreviewRenders,
         int PreviewCacheHits,
         int PreviewCacheMisses,
-        int PreviewBudgetSkips);
+        int PreviewBudgetSkips,
+        double WorldQueueMs,
+        double StaticQueueMs,
+        double InterfaceMs);
 
 #if PERFORMANCE_RELEASE
     public static bool Enabled => false;
@@ -74,6 +77,14 @@ public static class RenderPassProfiler
     public static void RecordPreviewBudgetSkip() { }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void AddPreviewRender(PassToken token) { }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static long StartCpuSection() => 0L;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AddWorldQueue(long started) { }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AddStaticQueue(long started) { }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AddInterface(long started) { }
 #else
     private static double _sceneDrawMs;
     private static double _sceneDrawAllocatedKb;
@@ -99,6 +110,9 @@ public static class RenderPassProfiler
     private static int _previewCacheHits;
     private static int _previewCacheMisses;
     private static int _previewBudgetSkips;
+    private static double _worldQueueMs;
+    private static double _staticQueueMs;
+    private static double _interfaceMs;
 
     public static bool Enabled { get; private set; }
 
@@ -126,7 +140,10 @@ public static class RenderPassProfiler
         _previewRenders,
         _previewCacheHits,
         _previewCacheMisses,
-        _previewBudgetSkips);
+        _previewBudgetSkips,
+        _worldQueueMs,
+        _staticQueueMs,
+        _interfaceMs);
 
     public static void BeginFrame(bool enabled)
     {
@@ -158,6 +175,7 @@ public static class RenderPassProfiler
         _previewCacheHits = 0;
         _previewCacheMisses = 0;
         _previewBudgetSkips = 0;
+        _worldQueueMs = _staticQueueMs = _interfaceMs = 0d;
     }
 
     /// <summary>
@@ -221,6 +239,14 @@ public static class RenderPassProfiler
     public static void AddWorldObjects(PassToken token) => Measure(token, ref _worldObjectsMs, ref _worldObjectsAllocatedKb);
     public static void AddTerrainOpaque(PassToken token) => Measure(token, ref _terrainOpaqueMs, ref _terrainOpaqueAllocatedKb);
     public static void AddTerrainAfter(PassToken token) => Measure(token, ref _terrainAfterMs, ref _terrainAfterAllocatedKb);
+
+    internal static long StartCpuSection() => Enabled ? Stopwatch.GetTimestamp() : 0L;
+    internal static void AddWorldQueue(long started) => _worldQueueMs += CpuSectionMs(started);
+    internal static void AddStaticQueue(long started) => _staticQueueMs += CpuSectionMs(started);
+    internal static void AddInterface(long started) => _interfaceMs += CpuSectionMs(started);
+
+    private static double CpuSectionMs(long started) =>
+        started == 0 ? 0d : Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
     public static void RecordPreviewCacheHit()
     {

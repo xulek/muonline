@@ -19,6 +19,7 @@ namespace Client.Main.Configuration
         public int UiVirtualWidth { get; set; } = 1280;
         public int UiVirtualHeight { get; set; } = 720;
         public string QualityPreset { get; set; } = "Auto";
+        public bool EnableLowGpuModels { get; set; }
         public bool ForceMonsterMeshShadows { get; set; }
         /// <summary>Remastered world textures bundled with the client instead of the original ones.</summary>
         public bool RemasteredTextures { get; set; } = true;

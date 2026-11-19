@@ -224,6 +224,10 @@ namespace Client.Main.Objects
                         }
 
                         // Generate buffers only when necessary
+#if !PERFORMANCE_RELEASE
+                        if (!gpuSkinActive)
+                            Diagnostics.StressHarness.RecordSuiteCpuSkinRequest();
+#endif
                         BMDLoader.Instance.GetModelBuffers(
                             Model, meshIndex, bodyColor, bones,
                             ref _meshes[meshIndex].CpuVertexBuffer,
