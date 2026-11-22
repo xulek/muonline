@@ -36,8 +36,8 @@
 
   <ItemGroup>
     <PackageReference Include="Pipelines.Sockets.Unofficial" Version="2.2.16" />
-    <PackageReference Include="MUnique.OpenMU.Network" Version="0.9.8" />
-    <PackageReference Include="MUnique.OpenMU.Network.Packets" Version="0.9.8" ExcludeAssets="contentFiles" />
+    <PackageReference Include="MUnique.OpenMU.Network" Version="0.10.0" />
+    <PackageReference Include="MUnique.OpenMU.Network.Packets" Version="0.11.0" ExcludeAssets="contentFiles" />
     <PackageReference Include="NLayer" Version="3.0.1" />
     <PackageReference Include="NVorbis" Version="0.10.5" />
   </ItemGroup>
