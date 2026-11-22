@@ -215,7 +215,7 @@ namespace Client.Main.Networking.PacketHandling.Handlers
                             usedNegativeFruitPoints = info.UsedNegativeFruitPoints;
                             maxNegativeFruitPoints = info.MaxNegativeFruitPoints;
                             inventoryExpansion = info.InventoryExtensions;
-                            // Note: CharacterInformation (S6, non-extended) does not have a direction field.
+                            direction = info.Direction;
                         }
                         else goto DefaultCase;
                         break;
